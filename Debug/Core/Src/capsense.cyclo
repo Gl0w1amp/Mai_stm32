@@ -1,0 +1,4 @@
+../Core/Src/capsense.c:41:6:HAL_UARTEx_RxEventCallback	4
+../Core/Src/capsense.c:59:6:capsense_init	2
+../Core/Src/capsense.c:70:6:capsense_baseline_updata	4
+../Core/Src/capsense.c:85:6:capsense_check	3
