@@ -6,8 +6,9 @@
  */
 #include "button.h"
 #include "gpio.h"
+//#include "adc.h"
 
-static uint8_t button_init_state[8];
+static float button_init_state[8];
 uint8_t extend_button;
 uint8_t button;
 extern vofa_test vofa1;
@@ -26,6 +27,23 @@ void button_init(){
 	if(GPIO_InitStruct.Pin != 0){
 		HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 	}
+
+//	HAL_ADCEx_Calibration_GetValue(&hadc1,ADC_SINGLE_ENDED);
+//	HAL_ADCEx_Calibration_GetValue(&hadc2,ADC_SINGLE_ENDED);
+//
+//	for(uint8_t j = 0; j < 3;j++){
+//		for(uint8_t i =0;i<4;i++){
+//			HAL_ADC_Start(&hadc1);
+//			HAL_ADC_Start(&hadc2);
+//			HAL_ADC_PollForConversion(&hadc1, 10);
+//			HAL_ADC_PollForConversion(&hadc2, 10);
+//			button_init_state[2*i] += HAL_ADC_GetValue(&hadc1) / 3;
+//			button_init_state[2*i+1] = HAL_ADC_GetValue(&hadc2) / 3;
+//		}
+//	}
+////	for(uint8_t i = 0;i < 8;i++){
+////		button_init_state[i] += 20;
+////	}
 }
 
 void button_scan(){
@@ -37,6 +55,26 @@ void button_scan(){
 			button |= (1 << i);
 		}
 	}
+//	float tmp[8]={0,0,0,0,0,0,0,0};
+//	button = 0;
+//	for(uint8_t j = 0; j < 10;j++){
+//		for(uint8_t i =0;i<4;i++){
+//			HAL_ADC_Start(&hadc1);
+//			HAL_ADC_Start(&hadc2);
+//			HAL_ADC_PollForConversion(&hadc1, 10);
+//			HAL_ADC_PollForConversion(&hadc2, 10);
+//			tmp[2*i] += HAL_ADC_GetValue(&hadc1)/10;
+//			tmp[2*i+1] += HAL_ADC_GetValue(&hadc2)/10;
+//		}
+//	}
+//	//CDC_Transmit_FS((uint8_t*)tmp, 8);
+//	for(uint8_t i = 0;i < 8;i++){
+//		if((button_init_state[i] < 2048) && (tmp[i] > button_init_state[i])){
+//			button |= (1 << i);
+//		}else if((button_init_state[i] > 2048) && (tmp[i] < button_init_state[i])){
+//			button |= (1 << i);
+//		}
+//	}
 //	if(button == 0xff){
 //		button = 0;
 //	}

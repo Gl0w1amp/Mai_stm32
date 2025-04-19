@@ -56,12 +56,13 @@
 /* USER CODE BEGIN Variables */
 uint8_t touch_cmd_flag = 0;
 uint8_t heart_beat = 0xff;
+extern FlashData Flash;
 /* USER CODE END Variables */
 osThreadId TouchTaskHandle;
 osThreadId ButtonTaskHandle;
 osThreadId CommandTaskHandle;
 osThreadId LEDTaskHandle;
-extern FlashData Flash;
+
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
 
@@ -132,9 +133,9 @@ void MX_FREERTOS_Init(void) {
 /* USER CODE END Header_Touch_Task */
 void Touch_Task(void const * argument)
 {
-	/* init code for USB_Device */
-	MX_USB_Device_Init();
-	/* USER CODE BEGIN Touch_Task */
+  /* init code for USB_Device */
+  MX_USB_Device_Init();
+  /* USER CODE BEGIN Touch_Task */
 	/* Infinite loop */
 	//mai_touch
 	flash_read(Flash.raw_flash);
@@ -260,12 +261,12 @@ void Command_Task(void const * argument)
 				break;
 			}
 			case SERIAL_CMD_READ_TOUCH_SHEET:{
-				uint8_t cmd_tmp[37] = {0xff,7,34};
+				uint8_t cmd_tmp[38] = {0xff,7,34};
 				memcpy(cmd_tmp + 3,Flash.touch_sheet,34);
-				for(uint8_t i = 0;i<36;i++){
-					cmd_tmp[36] += cmd_tmp[i];
+				for(uint8_t i = 0;i<37;i++){
+					cmd_tmp[37] += cmd_tmp[i];
 				}
-				CDC_Transmit_FS((uint8_t*)cmd_tmp, 37);
+				CDC_Transmit_FS((uint8_t*)cmd_tmp, 38);
 				break;
 
 			}
