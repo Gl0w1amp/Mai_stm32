@@ -22,7 +22,7 @@
 #include "dma.h"
 #include "tim.h"
 #include "usart.h"
-#include "usb_device.h"
+#include "usb.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -54,6 +54,7 @@
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 void MX_FREERTOS_Init(void);
+static void MX_NVIC_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -97,8 +98,14 @@ int main(void)
   MX_USART1_UART_Init();
   MX_TIM3_Init();
   MX_UART4_Init();
-  /* USER CODE BEGIN 2 */
+  MX_USB_PCD_Init();
+  MX_TIM7_Init();
 
+  /* Initialize interrupts */
+  MX_NVIC_Init();
+  /* USER CODE BEGIN 2 */
+  MX_USB_DEVICE_Init();
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, 1);
   /* USER CODE END 2 */
 
   /* Call init function for freertos objects (in cmsis_os2.c) */
@@ -167,6 +174,20 @@ void SystemClock_Config(void)
   }
 }
 
+/**
+  * @brief NVIC Configuration.
+  * @retval None
+  */
+static void MX_NVIC_Init(void)
+{
+  /* USB_HP_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(USB_HP_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(USB_HP_IRQn);
+  /* USB_LP_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(USB_LP_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(USB_LP_IRQn);
+}
+
 /* USER CODE BEGIN 4 */
 
 /* USER CODE END 4 */
@@ -184,7 +205,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   /* USER CODE BEGIN Callback 0 */
 
   /* USER CODE END Callback 0 */
-  if (htim->Instance == TIM2) {
+  if (htim->Instance == TIM2)
+  {
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */

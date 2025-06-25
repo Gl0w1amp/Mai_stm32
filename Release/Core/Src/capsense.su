@@ -1,4 +1,4 @@
-../Core/Src/capsense.c:34:6:HAL_UARTEx_RxEventCallback	8	static
-../Core/Src/capsense.c:52:6:capsense_init	8	static
-../Core/Src/capsense.c:63:6:capsense_baseline_updata	8	static
-../Core/Src/capsense.c:78:6:capsense_check	16	static
+../Core/Src/capsense.c:48:6:Touch_UART_Handler	8	static
+../Core/Src/capsense.c:61:6:capsense_init	8	static
+../Core/Src/capsense.c:72:6:capsense_baseline_updata	8	static
+../Core/Src/capsense.c:87:6:capsense_check	20	static

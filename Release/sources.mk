@@ -25,13 +25,16 @@ OBJCOPY_BIN :=
 SUBDIRS := \
 Core/Src \
 Core/Startup \
+Core/ThreadSafe \
 Drivers/STM32G4xx_HAL_Driver/Src \
-Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Src \
-Middlewares/ST/STM32_USB_Device_Library/Core/Src \
+Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/App \
+Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/CDC_ACM/Src \
+Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/COMPOSITE/Src \
+Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/HID_KEYBOARD/Src \
+Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Core/Src \
+Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Target \
 Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS \
 Middlewares/Third_Party/FreeRTOS/Source \
 Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM4F \
 Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang \
-USB_Device/App \
-USB_Device/Target \
 

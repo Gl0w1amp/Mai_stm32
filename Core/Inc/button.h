@@ -10,8 +10,7 @@
 
 #include "main.h"
 
-extern uint8_t extend_button;
-extern uint8_t button;
+extern uint8_t button[2];
 typedef union{
   uint8_t data[8];
   struct{

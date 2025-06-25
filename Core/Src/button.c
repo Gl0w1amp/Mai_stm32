@@ -6,18 +6,19 @@
  */
 #include "button.h"
 #include "gpio.h"
+#include <stdbool.h>
 //#include "adc.h"
 
 static float button_init_state[8];
-uint8_t extend_button;
-uint8_t button;
+uint8_t button[2];
 extern vofa_test vofa1;
+bool button_disable_flag = false;
 
 void button_init(){
 	GPIO_InitTypeDef GPIO_InitStruct = {0};
 	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
 	GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-
+	uint8_t button_flag = 0;
 	for(uint8_t i =0;i<8;i++){
 		button_init_state[i] = HAL_GPIO_ReadPin(GPIOA,(1 << i));
 		if(button_init_state[i]){
@@ -26,6 +27,14 @@ void button_init(){
 	}
 	if(GPIO_InitStruct.Pin != 0){
 		HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+	}
+
+	button_flag = 0;
+	for(uint8_t i =0;i<8;i++){
+		button_flag |= HAL_GPIO_ReadPin(GPIOA,(1 << i));
+	}
+	if((button_flag == 0) && (GPIO_InitStruct.Pin == 0xff)){
+		button_disable_flag = true;
 	}
 
 //	HAL_ADCEx_Calibration_GetValue(&hadc1,ADC_SINGLE_ENDED);
@@ -48,11 +57,13 @@ void button_init(){
 
 void button_scan(){
 	uint8_t tmp;
-	button = 0;
-	for(uint8_t i =0;i<8;i++){
-		tmp = HAL_GPIO_ReadPin(GPIOA,(1 << i));
-		if(tmp != button_init_state[i]){
-			button |= (1 << i);
+	button[0] = 0;
+	if(!button_disable_flag){
+		for(uint8_t i =0;i<8;i++){
+			tmp = HAL_GPIO_ReadPin(GPIOA,(1 << i));
+			if(tmp != button_init_state[i]){
+				button[0] |= (1 << i);
+			}
 		}
 	}
 //	float tmp[8]={0,0,0,0,0,0,0,0};
@@ -78,24 +89,24 @@ void button_scan(){
 //	if(button == 0xff){
 //		button = 0;
 //	}
-	extend_button = 0;
+	button[1] = 0;
 	if(!HAL_GPIO_ReadPin(GPIOC,GPIO_PIN_4)){
-		extend_button = extend_button | 1;
+		button[1] = button[1] | 1;
 	}
 	if(!HAL_GPIO_ReadPin(GPIOB,GPIO_PIN_0)){
-		extend_button = extend_button | (1 << 1);
+		button[1] = button[1] | (1 << 1);
 	}
 	if(!HAL_GPIO_ReadPin(GPIOB,GPIO_PIN_1)){
-		extend_button = extend_button | (1 << 2);
+		button[1] = button[1] | (1 << 2);
 	}
 	if(!HAL_GPIO_ReadPin(GPIOB,GPIO_PIN_2)){
-		extend_button = extend_button | (1 << 3);
+		button[1] = button[1] | (1 << 3);
 	}
 	if(!HAL_GPIO_ReadPin(GPIOB,GPIO_PIN_10)){
-		extend_button = extend_button | (1 << 4);
+		button[1] = button[1] | (1 << 4);
 	}
 	if(!HAL_GPIO_ReadPin(GPIOB,GPIO_PIN_11)){
-		extend_button = extend_button | (1 << 5);
+		button[1] = button[1] | (1 << 5);
 	}
 
 	return;

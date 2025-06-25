@@ -1,6 +1,6 @@
 ################################################################################
-# 自动生成的文件。不要编辑！
-# Toolchain: GNU Tools for STM32 (12.3.rel1)
+# Automatically-generated file. Do not edit!
+# Toolchain: GNU Tools for STM32 (13.3.rel1)
 ################################################################################
 
 ELF_SRCS := 
@@ -19,18 +19,22 @@ MAP_FILES :=
 S_DEPS := 
 S_UPPER_DEPS := 
 C_DEPS := 
+OBJCOPY_BIN := 
 
-# 此处必须描述包含源文件的每个子目录
+# Every subdirectory with source files must be described here
 SUBDIRS := \
 Core/Src \
 Core/Startup \
+Core/ThreadSafe \
 Drivers/STM32G4xx_HAL_Driver/Src \
-Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Src \
-Middlewares/ST/STM32_USB_Device_Library/Core/Src \
+Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/App \
+Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/CDC_ACM/Src \
+Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/COMPOSITE/Src \
+Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/HID_KEYBOARD/Src \
+Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Core/Src \
+Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Target \
 Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS \
 Middlewares/Third_Party/FreeRTOS/Source \
 Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM4F \
 Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang \
-USB_Device/App \
-USB_Device/Target \
 

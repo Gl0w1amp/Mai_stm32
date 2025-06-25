@@ -8,17 +8,15 @@
 #include "usart.h"
 #include "string.h"
 #include <math.h>
-#include "usbd_cdc_if.h"
+#include "usbd_cdc_acm_if.h"
 #include "cmsis_os.h"
 #include "flash.h"
 #define CAPSENSE_BASELINE_VARIANCE 255 //基线计算所能允许的最大方差，如果超过此数值则不更新基线
 #define CAPSENSE_LOW_BASELINE_RESET 500 //低基线复位，如果基线减去raw大于这个数值，则立即以当前的raw作为基线。
 
 uint8_t uart_dma_buffer[128];
-extern UART_HandleTypeDef huart1;
+
 extern UART_HandleTypeDef huart4;
-extern DMA_HandleTypeDef hdma_usart1_rx;
-extern DMA_HandleTypeDef hdma_usart1_tx;
 extern DMA_HandleTypeDef hdma_uart4_rx;
 extern FlashData Flash;
 
@@ -31,22 +29,33 @@ uint8_t capsense_data_ready = 0;
 uint8_t capsense_bit;
 uint8_t capsense_touch_status[34];
 
-void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
-{
-//	if(Size != 70){
-//		return;
-//	}
-	//CDC_Transmit_FS((uint8_t*)uart_dma_buffer, Size);
-    if (huart->Instance == UART4)
-    {
-        HAL_UART_DMAStop(&huart4);
-        if((uart_dma_buffer[0] == 0) && (uart_dma_buffer[1] == 0)){
-        	memcpy(&Touch.data[0],uart_dma_buffer,70);
-        }
-        HAL_UARTEx_ReceiveToIdle_DMA(&huart4, uart_dma_buffer, 70);
-        __HAL_DMA_DISABLE_IT(&hdma_uart4_rx, DMA_IT_HT);
-    }
-    capsense_data_ready = 1;
+//void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
+//{
+////	if(Size != 70){
+////		return;
+////	}
+//	//CDC_Transmit_FS((uint8_t*)uart_dma_buffer, Size);
+//    if (huart->Instance == UART4)
+//    {
+//        HAL_UART_DMAStop(&huart4);
+//        if((uart_dma_buffer[0] == 0) && (uart_dma_buffer[1] == 0)){
+//        	memcpy(&Touch.data[0],uart_dma_buffer,70);
+//        }
+//        HAL_UARTEx_ReceiveToIdle_DMA(&huart4, uart_dma_buffer, 70);
+//        __HAL_DMA_DISABLE_IT(&hdma_uart4_rx, DMA_IT_HT);
+//    }
+//}
+void Touch_UART_Handler(){
+	if(__HAL_UART_GET_FLAG(&huart4, UART_FLAG_IDLE)){
+		__HAL_UART_CLEAR_IDLEFLAG(&huart4);
+		HAL_UART_DMAStop(&huart4);
+		//CDC_Transmit_FS((uint8_t*)uart_dma_buffer, 70);
+		if((uart_dma_buffer[0] == 0) && (uart_dma_buffer[1] == 0)){
+			memcpy(&Touch.data[0],uart_dma_buffer,70);
+		}
+		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 1);
+		HAL_UART_Receive_DMA(&huart4,uart_dma_buffer,70);
+	}
 }
 
 void capsense_init(){
@@ -90,11 +99,12 @@ void capsense_check(){
 //		}
 //	}
 	for(uint8_t i = 0;i<34;i++){
-		if(capsense_baseline[i] + Flash.touch_threshold[i] < Touch.channel_raw[i]){
+		if(capsense_baseline[i] + Flash.touch_threshold[Flash.touch_sheet[i]] < Touch.channel_raw[i]){
 			capsense_touch_status[i] = 1;
 		}else{
 			capsense_touch_status[i] = 0;
 		}
+
 	}
 	capsense_data_ready = 0;
 

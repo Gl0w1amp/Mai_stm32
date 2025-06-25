@@ -14,6 +14,7 @@ typedef union{
 		uint16_t touch_threshold[34];
 		uint8_t touch_sheet[34];
 		uint8_t system_config;
+		uint8_t delay_setting[2];
 	};
 }FlashData;
 

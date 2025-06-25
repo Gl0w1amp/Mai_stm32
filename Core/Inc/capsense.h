@@ -24,6 +24,7 @@ extern uint16_t capsense_threshold[34];
 extern uint8_t capsense_touch_status[34];
 extern uint8_t touch_sheet[34];
 
+void Touch_UART_Handler();
 void capsense_init();
 void capsense_check();
 

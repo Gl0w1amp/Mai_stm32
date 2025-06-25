@@ -1,0 +1,2 @@
+../Core/Src/stack.c:19:6:stack_flow_touch	12	static
+../Core/Src/stack.c:29:6:stack_flow_button	12	static

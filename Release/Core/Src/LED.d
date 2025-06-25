@@ -31,7 +31,7 @@ Core/Src/LED.o: ../Core/Src/LED.c ../Core/Inc/LED.h ../Core/Inc/dma.h \
  ../Drivers/STM32G4xx_HAL_Driver/Inc/stm32g4xx_hal_tim_ex.h \
  ../Drivers/STM32G4xx_HAL_Driver/Inc/stm32g4xx_hal_uart.h \
  ../Drivers/STM32G4xx_HAL_Driver/Inc/stm32g4xx_hal_uart_ex.h \
- ../Core/Inc/tim.h
+ ../Core/Inc/tim.h ../Core/Inc/usart.h
 ../Core/Inc/LED.h:
 ../Core/Inc/dma.h:
 ../Core/Inc/main.h:
@@ -68,3 +68,4 @@ Core/Src/LED.o: ../Core/Src/LED.c ../Core/Inc/LED.h ../Core/Inc/dma.h \
 ../Drivers/STM32G4xx_HAL_Driver/Inc/stm32g4xx_hal_uart.h:
 ../Drivers/STM32G4xx_HAL_Driver/Inc/stm32g4xx_hal_uart_ex.h:
 ../Core/Inc/tim.h:
+../Core/Inc/usart.h:
