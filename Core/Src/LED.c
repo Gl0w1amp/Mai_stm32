@@ -40,7 +40,7 @@ uint8_t WS2812_data_raw[24] = {
 0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff
 };
 static uint8_t WS2812_data[48] = {0xff}; //16LED
-static uint32_t WS2812_data_DMA_buffer[609] = {210};
+static uint32_t WS2812_data_DMA_buffer[64 + NUM_LED * 24 + 64] = {WS2812_HIGH + WS2812_LOW};
 uint8_t led_uart_buffer_rx[39];
 uint8_t led_uart_buffer_tx[12];
 uint8_t led_uart_tmp[39];
@@ -65,18 +65,18 @@ void LED_refresh()
 	{
 		for(uint8_t j = 0 ;j <8;j++)
 		{
-			WS2812_data_DMA_buffer[(i*3)*8+j+224] = (gamma8[WS2812_data[i*3+1]] & (1<<j)) ? WS2812_HIGH:WS2812_LOW;
+			WS2812_data_DMA_buffer[(i*3)*8+j+64] = (gamma8[WS2812_data[i*3+1]] & (1<<j)) ? WS2812_HIGH:WS2812_LOW;
 		}
 		for(uint8_t j = 0 ;j <8;j++)
 		{
-			WS2812_data_DMA_buffer[(i*3+1)*8+j+224] = (gamma8[WS2812_data[i*3]] & (1<<j)) ? WS2812_HIGH:WS2812_LOW;
+			WS2812_data_DMA_buffer[(i*3+1)*8+j+64] = (gamma8[WS2812_data[i*3]] & (1<<j)) ? WS2812_HIGH:WS2812_LOW;
 		}
 		for(uint8_t j = 0 ;j <8;j++)
 		{
-			WS2812_data_DMA_buffer[(i*3+2)*8+j+224] = (gamma8[WS2812_data[i*3+2]] & (1<<j)) ? WS2812_HIGH:WS2812_LOW;
+			WS2812_data_DMA_buffer[(i*3+2)*8+j+64] = (gamma8[WS2812_data[i*3+2]] & (1<<j)) ? WS2812_HIGH:WS2812_LOW;
 		}
 	}
-	HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_2, (uint32_t *)WS2812_data_DMA_buffer, 609);
+	HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_2, (uint32_t *)WS2812_data_DMA_buffer, 64 + NUM_LED * 24 + 64);
 }
 void FET_LED_Init(){
 	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_1,0);

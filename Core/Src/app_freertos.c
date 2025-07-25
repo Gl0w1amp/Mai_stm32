@@ -61,8 +61,8 @@ uint8_t touch_cmd_flag = 0;
 uint8_t touch_scan_flag = 0;
 uint8_t heart_beat = 0xff;
 extern FlashData Flash;
-uint8_t keyboard_sheet[12] = {
-	0x1A,0x08,0x07,0x06,0x1B,0x1D,0x04,0x14,0x3A,0x3B,0x3C,0x3D
+uint8_t keyboard_sheet[14] = {
+	0x1A,0x08,0x07,0x06,0x1B,0x1D,0x04,0x14,0x3A,0x3B,0x3C,0x3D,0x3E,0x3F
 };
 uint8_t player = 1;
 uint8_t current_touch_status[34];
@@ -199,7 +199,7 @@ void Touch_Task(void const * argument)
 	//HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 1);
 	while(1)
 	{
-		osDelay(2);
+		osDelay(1);
 		capsense_check();
 		uint8_t cmd_mai2io[14] = {0xff,1,10,0,0,0,0,0,0,0,0,0,0,10};
 		uint8_t cmd_mai2touch[9] = {0x28,0,0,0,0,0,0,0,0x29};
@@ -250,39 +250,22 @@ void Button_Task(void const * argument)
   /* USER CODE BEGIN Button_Task */
   /* Infinite loop */
 	//mai_key
-	uint8_t keyboard_buffer[10];
-	memset(keyboard_buffer,0,10);
+	uint8_t keyboard_buffer[14];
+	memset(keyboard_buffer,0,12);
 	osDelay(1000);
 	button_init();
 	while(1){
-		osDelay(3);
+		osDelay(1);
 		button_scan();
 		if(heart_beat == 0){
-			uint8_t current_pos = 2;
+			stack_flow_button(current_button_status);
 			for(uint8_t i = 0;i<8;i++){
-				if(current_button_status[0] & (1 << i)){
-					keyboard_buffer[current_pos] = keyboard_sheet[i];
-					current_pos ++;
-				}
+				keyboard_buffer[i] =  (current_button_status[0] & (1 << i)) ? keyboard_sheet[i] : 0;
 			}
-			for(uint8_t i = 0;i<3;i++){
-				if(current_pos > 9){
-					break;
-				}
-				if(current_button_status[1] & (1 << i)){
-					keyboard_buffer[current_pos] = keyboard_sheet[i+8];
-					current_pos ++;
-				}
+			for(uint8_t i = 0;i<6;i++){
+				keyboard_buffer[i+8] =  (current_button_status[1] & (1 << i)) ? keyboard_sheet[i+8] : 0;
 			}
-			if(!(current_pos > 9)){
-				if(player == 1){
-					keyboard_buffer[current_pos] = (current_button_status[1] & (8)) ? keyboard_sheet[11] : 0;
-				}else {
-					keyboard_buffer[current_pos] = (current_button_status[1] & (16)) ? keyboard_sheet[11] : 0;
-				}
-			}
-
-			USBD_HID_Keybaord_SendReport(&hUsbDevice, keyboard_buffer, 10);
+			USBD_HID_Keybaord_SendReport(&hUsbDevice, keyboard_buffer, 14);
 		}
 	}
   /* USER CODE END Button_Task */
@@ -461,6 +444,11 @@ void LED_Task(void const * argument)
   /* Infinite loop */
 	FET_LED_Init();
 	while(1){
+		for(uint8_t i = 0;i<8;i++){
+			LED_set(i*2,0xff,0xff,0xff);
+			LED_set(i*2+1,0xff,0xff,0xff);
+		}
+		LED_refresh();
 		if(heart_beat != 0){
 			for(uint8_t i = 0;i<8;i++){
 				LED_set(i*2,0xff,0xff,0xff);
@@ -479,7 +467,7 @@ void LED_Task(void const * argument)
 				LED_refresh();
 			}
 		}
-		osDelay(5);
+		osDelay(10);
 	}
   /* USER CODE END LED_Task */
 }

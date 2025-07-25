@@ -49,7 +49,7 @@ extern "C" {
 #define HID_KEYBOARD_CONFIG_DESC_SIZE                       34U
 #define HID_KEYBOARD_DESC_SIZE                              9U
 
-#define HID_KEYBOARD_REPORT_DESC_SIZE                       63U
+#define HID_KEYBOARD_REPORT_DESC_SIZE                       23U
 
 #define HID_KEYBOARD_DESCRIPTOR_TYPE                        0x21U
 #define HID_KEYBOARD_REPORT_DESC                            0x22U
@@ -59,7 +59,7 @@ extern "C" {
 #endif /* HID_KEYBOARD_HS_BINTERVAL */
 
 #ifndef HID_KEYBOARD_FS_BINTERVAL
-#define HID_KEYBOARD_FS_BINTERVAL                           0x0AU
+#define HID_KEYBOARD_FS_BINTERVAL                           0x05U
 #endif /* HID_KEYBOARD_FS_BINTERVAL */
 
 #define HID_KEYBOARD_REQ_SET_PROTOCOL                       0x0BU

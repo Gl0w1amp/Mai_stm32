@@ -27,6 +27,7 @@ void button_init(){
 	}
 	if(GPIO_InitStruct.Pin != 0){
 		HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+		osDelay(10);
 	}
 
 	button_flag = 0;
