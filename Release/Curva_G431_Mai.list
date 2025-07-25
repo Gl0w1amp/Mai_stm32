@@ -2376,7 +2376,7 @@ Disassembly of section .text:
  8001930:	4816      	ldr	r0, [pc, #88]	@ (800198c <MX_UART4_Init+0x5c>)
  8001932:	4a17      	ldr	r2, [pc, #92]	@ (8001990 <MX_UART4_Init+0x60>)
  8001934:	b508      	push	{r3, lr}
- 8001936:	f44f 33e1 	mov.w	r3, #115200	@ 0x1c200
+ 8001936:	f44f 3361 	mov.w	r3, #230400	@ 0x38400
  800193a:	e9c0 2300 	strd	r2, r3, [r0]
  800193e:	2300      	movs	r3, #0
  8001940:	220c      	movs	r2, #12
