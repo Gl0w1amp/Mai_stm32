@@ -174,13 +174,13 @@ void HAL_TIM_PWM_MspInit(TIM_HandleTypeDef* tim_pwmHandle)
     /* TIM3_CH2 Init */
     hdma_tim3_ch2.Instance = DMA1_Channel1;
     hdma_tim3_ch2.Init.Request = DMA_REQUEST_TIM3_CH2;
-    hdma_tim3_ch2.Init.Direction = DMA_PERIPH_TO_MEMORY;
+    hdma_tim3_ch2.Init.Direction = DMA_MEMORY_TO_PERIPH;
     hdma_tim3_ch2.Init.PeriphInc = DMA_PINC_DISABLE;
     hdma_tim3_ch2.Init.MemInc = DMA_MINC_ENABLE;
     hdma_tim3_ch2.Init.PeriphDataAlignment = DMA_PDATAALIGN_WORD;
     hdma_tim3_ch2.Init.MemDataAlignment = DMA_MDATAALIGN_HALFWORD;
     hdma_tim3_ch2.Init.Mode = DMA_NORMAL;
-    hdma_tim3_ch2.Init.Priority = DMA_PRIORITY_LOW;
+    hdma_tim3_ch2.Init.Priority = DMA_PRIORITY_HIGH;
     if (HAL_DMA_Init(&hdma_tim3_ch2) != HAL_OK)
     {
       Error_Handler();
