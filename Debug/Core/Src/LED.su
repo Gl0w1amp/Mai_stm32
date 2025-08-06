@@ -1,2 +1,8 @@
-../Core/Src/LED.c:34:6:LED_set	16	static
-../Core/Src/LED.c:42:6:LED_refresh	16	static
+../Core/Src/LED.c:53:6:LED_set	16	static
+../Core/Src/LED.c:62:6:LED_refresh	16	static
+../Core/Src/LED.c:81:6:FET_LED_Init	8	static
+../Core/Src/LED.c:89:6:FET_LED_Update	16	static
+../Core/Src/LED.c:94:6:LED_UART_Init	8	static
+../Core/Src/LED.c:100:6:LED_UART_IRQHandler	16	static
+../Core/Src/LED.c:110:6:LED_Fade_IRQHandler	16	static
+../Core/Src/LED.c:119:6:LED_Task_Process	16	static

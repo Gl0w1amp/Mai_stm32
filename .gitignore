@@ -1,0 +1,66 @@
+# STM32 Project .gitignore
+
+# Build outputs in any directory
+*.elf
+*.bin
+*.hex
+*.map
+*.list
+*.lst
+*.out
+*.o
+*.obj
+*.d
+*.su
+*.cyclo
+*.tmp
+
+# Build artifacts in Debug and Release directories
+Debug/*.elf
+Debug/*.bin  
+Debug/*.hex
+Debug/*.map
+Debug/*.list
+Debug/*.o
+Debug/*.d
+Debug/*.su
+Debug/*.cyclo
+Release/*.elf
+Release/*.bin
+Release/*.hex  
+Release/*.map
+Release/*.list
+Release/*.o
+Release/*.d
+Release/*.su
+Release/*.cyclo
+
+# IDE files
+.vscode/
+.settings/
+.project
+.cproject
+.metadata/
+*.launch
+*.ioc~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Keep important configuration files
+!.github/
+!*.ld

@@ -1,5 +1,5 @@
 ../Core/Src/app_freertos.c:93:6:MX_FREERTOS_Init	96	static
 ../Core/Src/app_freertos.c:144:6:Touch_Task	96	static
-../Core/Src/app_freertos.c:231:6:Button_Task	32	static
-../Core/Src/app_freertos.c:289:6:Command_Task	128	static
-../Core/Src/app_freertos.c:448:6:LED_Task	32	static
+../Core/Src/app_freertos.c:250:6:Button_Task	32	static
+../Core/Src/app_freertos.c:283:6:Command_Task	128	static
+../Core/Src/app_freertos.c:443:6:LED_Task	32	static
