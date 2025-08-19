@@ -1,4 +1,4 @@
-../Core/Src/capsense.c:48:6:Touch_UART_Handler	8	static
-../Core/Src/capsense.c:61:6:capsense_init	8	static
-../Core/Src/capsense.c:72:6:capsense_baseline_updata	8	static
-../Core/Src/capsense.c:87:6:capsense_check	20	static
+../Core/Src/capsense.c:49:6:Touch_UART_Handler	8	static
+../Core/Src/capsense.c:62:6:capsense_init	8	static
+../Core/Src/capsense.c:74:6:capsense_baseline_updata	8	static
+../Core/Src/capsense.c:89:6:capsense_check	72	static

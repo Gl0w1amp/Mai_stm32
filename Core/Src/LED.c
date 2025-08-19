@@ -1,14 +1,20 @@
 #include "LED.h"
 #include "stdio.h"
 #include "usart.h"
+#include "stdbool.h"
 
-#define NUM_LED 16
+#define NUM_LED 32
+#define PRE_BUTTON_LED 2
 #define WS2812_HIGH 140
 #define WS2812_LOW 70
 
 extern UART_HandleTypeDef huart1;
 extern DMA_HandleTypeDef hdma_usart1_rx;
 extern DMA_HandleTypeDef hdma_usart1_tx;
+uint8_t led_write_buffer[16];
+uint8_t dummyEEPRom[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+PacketReq req;
+PacketRes res;
 
 const uint8_t gamma8[256] = {
   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   1,   1,   1,   1,
@@ -39,7 +45,7 @@ uint8_t WS2812_data_raw[24] = {
 0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
 0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff
 };
-static uint8_t WS2812_data[48] = {0xff}; //16LED
+static uint8_t WS2812_data[NUM_LED * 3] = {0xff}; //16LED
 static uint32_t WS2812_data_DMA_buffer[64 + NUM_LED * 24 + 64] = {WS2812_HIGH + WS2812_LOW};
 uint8_t led_uart_buffer_rx[39];
 uint8_t led_uart_buffer_tx[12];
@@ -47,8 +53,13 @@ uint8_t led_uart_tmp[39];
 
 uint8_t led_fade_flag;
 uint8_t led_fade_target[2];
-uint8_t led_fade_buff[3];
+uint8_t led_fade_color[2][3];
 uint16_t led_fade_time;
+uint16_t led_fade_clock;
+
+volatile uint32_t timer7_count = 0;
+volatile uint32_t timer7_target = 0;
+volatile uint8_t timer7_active = 0;
 
 void LED_set(uint8_t led_no,uint8_t r,uint8_t g,uint8_t b){
 	if(led_no >= NUM_LED){
@@ -61,7 +72,7 @@ void LED_set(uint8_t led_no,uint8_t r,uint8_t g,uint8_t b){
 
 void LED_refresh()
 {
-	for(uint8_t i = 0 ;i<16;i++)
+	for(uint8_t i = 0 ;i<NUM_LED;i++)
 	{
 		for(uint8_t j = 0 ;j <8;j++)
 		{
@@ -101,9 +112,10 @@ void LED_UART_IRQHandler(){
 	if(__HAL_UART_GET_FLAG(&huart1, UART_FLAG_IDLE)){
 		HAL_UART_DMAStop(&huart1);
 		__HAL_UART_CLEAR_IDLEFLAG(&huart1);
-		//CDC_Transmit_FS((uint8_t*)uart_dma_buffer, 70);
+		//CDC_Transmit(0,(uint8_t*)led_uart_buffer_rx, 39);
 		memcpy(led_uart_tmp,led_uart_buffer_rx,39);
 		HAL_UART_Receive_DMA(&huart1,led_uart_buffer_rx,39);
+		LED_Task_Process();
 	}
 }
 
@@ -116,74 +128,167 @@ void LED_Fade_IRQHandler(){
 	LED_refresh();
 }
 
-void LED_Task_Process(){
-	if(led_uart_tmp[0] == 0xE0){
-		switch(led_uart_tmp[4]){
-			case 0x31:
-				//setLedGs8Bit
-				LED_set(2*led_uart_tmp[5],led_uart_tmp[6],led_uart_tmp[7],led_uart_tmp[8]);
-				LED_set(2*led_uart_tmp[5]+1,led_uart_tmp[6],led_uart_tmp[7],led_uart_tmp[8]);
-				mai_led_default_response[5] = 0x31;
-				mai_led_default_response[6] = 0x48;
-				HAL_UART_Transmit_DMA(&huart1, mai_led_default_response, 8);
-				break;
-			case 0x32:
-				//setLedGs8BitMulti
-				for(uint8_t i = led_uart_tmp[5];i < led_uart_tmp[6];i++){
-					LED_set(2*i,led_uart_tmp[8],led_uart_tmp[9],led_uart_tmp[10]);
-					LED_set(2*i+1,led_uart_tmp[8],led_uart_tmp[9],led_uart_tmp[10]);
-				}
-				mai_led_default_response[5] = 0x32;
-				mai_led_default_response[6] = 0x49;
-				HAL_UART_Transmit_DMA(&huart1, mai_led_default_response, 8);
-				break;
-			case 0x33:
-				//setLedGs8BitMultiFade
-				led_fade_flag = 2;
-				memcpy(led_fade_target,led_uart_tmp + 5,2);
-				memcpy(led_fade_buff,led_uart_tmp + 8,3);
-				led_fade_time = 4095/led_uart_tmp[9]*8;
-				__HAL_TIM_SetAutoreload(&htim7,led_fade_time);
-				mai_led_default_response[5] = 0x33;
-				mai_led_default_response[6] = 0x4a;
-				HAL_UART_Transmit_DMA(&huart1, mai_led_default_response, 8);
-				break;
-			case 0x39:
-				//setLedFet
-				//BodyLed ExtLed SideLed
-				FET_LED_Update(led_uart_tmp[5],led_uart_tmp[6],led_uart_tmp[7]);
-				mai_led_default_response[5] = 0x39;
-				mai_led_default_response[6] = 0x50;
-				HAL_UART_Transmit_DMA(&huart1, mai_led_default_response, 8);
-				break;
-			case 0x3c:
-				//SetLedGsUpdate
-				if(led_fade_flag == 2){
-					HAL_TIM_Base_Start_IT(&htim7);
-					led_fade_flag = 1;
-				}
-				LED_refresh();
-				mai_led_default_response[5] = 0x3c;
-				mai_led_default_response[6] = 0x53;
-				HAL_UART_Transmit_DMA(&huart1, mai_led_default_response, 8);
-				break;
-			case 0x7c:
-				//GetEEPRom
-				HAL_UART_Transmit_DMA(&huart1, mai_led_eeprom_response, 9);
-				break;
-			case 0xf0:
-				//getBoardInfo
-				HAL_UART_Transmit_DMA(&huart1, mai_led_boardinfo_response, 18);
-				break;
-			case 0xf1:
-				//getBoardStatus
-				HAL_UART_Transmit_DMA(&huart1, mai_led_boardstatus_response, 12);
-				break;
-			case 0xf3:
-				//getProtocolVersion
-				HAL_UART_Transmit_DMA(&huart1, mai_led_protocolversion_response, 11);
-				break;
+uint8_t led_packet_check(uint8_t* data,uint8_t len) {
+	bool escape = false;
+	uint8_t raw_pos = 0;
+	uint8_t req_pos = 0;
+	uint8_t checksum = 0;
+	while(raw_pos<len){
+		if(data[raw_pos] == Sync){
+			req.length = 0x04;
+			raw_pos++;
+			break;
 		}
-		memset(led_uart_tmp,0,39);
+		raw_pos++;
 	}
+	if(raw_pos == len){
+		return 0;
+	}
+	while(req_pos != req.length + 3){
+		if (data[raw_pos] == 0xD0) {
+			escape = true;
+			raw_pos++;
+		}else if (escape) {
+			req.bytes[req_pos] = data[raw_pos] + 1;
+			checksum += req.bytes[req_pos];
+			escape = false;
+			raw_pos++;
+			req_pos++;
+		}else{
+			req.bytes[req_pos] = data[raw_pos];
+			checksum += req.bytes[req_pos];
+			raw_pos++;
+			req_pos++;
+		}
+		if(raw_pos == len){
+			return 0;
+		}
+	}
+	req.bytes[req_pos] = data[raw_pos];
+	if(checksum == req.bytes[req.length + 3]){
+		return req.cmd;
+	}else{
+		return 0;
+	}
+}
+
+void led_packet_write() {
+  uint8_t checksum = 0, len = 0;
+  if (res.cmd == 0) {
+    return;
+  }
+  memset(led_write_buffer,0,16);
+  led_write_buffer[0] = 0xE0;
+  uint8_t current_pos = 0;
+  while (len <= res.length + 3) {
+    uint8_t w;
+    if (len == res.length + 3) {
+      w = checksum;
+    } else {
+      w = res.bytes[len];
+      checksum += w;
+    }
+    if (w == 0xE0 || w == 0xD0) {
+    	led_write_buffer[++current_pos] = 0xD0;
+    	led_write_buffer[++current_pos] = --w;
+    } else {
+    	led_write_buffer[++current_pos] = w;
+    }
+    len++;
+  }
+  res.cmd = 0;
+  HAL_UART_Transmit_DMA(&huart1, led_write_buffer, ++current_pos);
+  memset(res.bytes,0,12);
+}
+
+void res_init(uint8_t length, uint8_t status, uint8_t report) {
+  res.dstNodeID = req.srcNodeID;
+  res.srcNodeID = req.dstNodeID;
+  res.length = 3 + length;
+  res.status = status;
+  res.cmd = req.cmd;
+  res.report = report;
+}
+
+void LED_Task_Process(){
+	switch(led_packet_check(led_uart_tmp,39)){
+		case 0:
+			return;
+		case SetLedGs8Bit:
+			LED_set(2*led_uart_tmp[5],led_uart_tmp[6],led_uart_tmp[7],led_uart_tmp[8]);
+			LED_set(2*led_uart_tmp[5]+1,led_uart_tmp[6],led_uart_tmp[7],led_uart_tmp[8]);
+			res_init(0,AckStatus_Ok,AckReport_Ok);
+			break;
+		case SetLedGs8BitMulti:
+			memcpy(led_fade_color[0],&led_uart_tmp[8],3);
+			for(uint8_t i = led_uart_tmp[5];i < led_uart_tmp[6];i++){
+				LED_set(2*i,led_uart_tmp[8],led_uart_tmp[9],led_uart_tmp[10]);
+				LED_set(2*i+1,led_uart_tmp[8],led_uart_tmp[9],led_uart_tmp[10]);
+			}
+			res_init(0,AckStatus_Ok,AckReport_Ok);
+			break;
+		case SetLedGs8BitMultiFade:
+			//setLedGs8BitMultiFade
+			led_fade_flag = 3;
+			memcpy(led_fade_target,led_uart_tmp + 5,2);
+			memcpy(led_fade_color[1],led_uart_tmp + 8,3);
+			led_fade_time = 4095/led_uart_tmp[9]*8;
+			//__HAL_TIM_SetAutoreload(&htim7,led_fade_time);
+			res_init(0,AckStatus_Ok,AckReport_Ok);
+			break;
+		case SetLedFet:
+			//BodyLed ExtLed SideLed
+			FET_LED_Update(led_uart_tmp[5],led_uart_tmp[6],led_uart_tmp[7]);
+			res_init(0,AckStatus_Ok,AckReport_Ok);
+			break;
+		case SetLedGsUpdate:
+			//SetLedGsUpdate
+			if(led_fade_flag == 3){
+				__HAL_TIM_SET_COUNTER(&htim7, 0);
+				HAL_TIM_Base_Start_IT(&htim7);
+				led_fade_flag = 2;
+			}
+			LED_refresh();
+			res_init(0,AckStatus_Ok,AckReport_Ok);
+			break;
+		case SetEEPRom:
+			dummyEEPRom[req.Set_adress] = req.writeData;
+			res_init(0,AckStatus_Ok,AckReport_Ok);
+			break;
+		case GetEEPRom:
+			//GetEEPRom
+			res.eepData = dummyEEPRom[req.Get_adress];
+			res_init(1,AckStatus_Ok,AckReport_Ok);
+			HAL_UART_Transmit_DMA(&huart1, mai_led_eeprom_response, 9);
+			break;
+		case GetBoardInfo:
+			  memcpy(res.boardNo, "15070-04\xFF\x90\x00\x30", 12);
+			  res.firmRevision = 144;
+			  res_init(10,AckStatus_Ok,AckReport_Ok);
+			  res.dstNodeID = 0x01;
+			  res.srcNodeID = 0x11;
+			break;
+		case GetBoardStatus:
+			res.timeoutStat = 0;
+			res.timeoutSec = 1;
+			res.pwmIo = 0;
+			res.fetTimeout = 0;
+			res_init(4,AckStatus_Ok,AckReport_Ok);
+			break;
+		case GetFirmSum:
+			res.sum_upper = 0;
+			res.sum_lower = 0;
+			res_init(2,AckStatus_Ok,AckReport_Ok);
+			break;
+		case GetProtocolVersion:
+			res.appliMode = 1;         // IsNeedFirmUpdate = false
+			res.major = 1;
+			res.minor = 1;
+			res_init(3,AckStatus_Ok,AckReport_Ok);
+			break;
+		default:
+			res_init(0,AckStatus_Ok,AckReport_Ok);
+	}
+	led_packet_write();
+	memset(led_uart_tmp,0,39);
 }

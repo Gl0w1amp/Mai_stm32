@@ -11,8 +11,7 @@
 #include "usbd_cdc_acm_if.h"
 #include "cmsis_os.h"
 #include "flash.h"
-#define CAPSENSE_BASELINE_VARIANCE 255 //基线计算所能允许的最大方差，如果超过此数值则不更新基线
-#define CAPSENSE_LOW_BASELINE_RESET 500 //低基线复位，如果基线减去raw大于这个数值，则立即以当前的raw作为基线。
+#define CAPSENSE_BASELINE_VARIANCE 300
 
 uint8_t uart_dma_buffer[128];
 
@@ -23,6 +22,8 @@ extern FlashData Flash;
 packet_capsense_t Touch;
 uint16_t capsense_raw_windows[10][34];
 uint8_t capsense_raw_bet = 0;
+uint16_t capsense_duration[34] = {0};
+uint16_t capsense_orinigal[34];
 uint16_t capsense_baseline[34];
 uint16_t capsense_threshold[34];
 uint8_t capsense_data_ready = 0;
@@ -65,6 +66,7 @@ void capsense_init(){
 	osDelay(100);
 	for(uint8_t i = 0;i<34;i++){
 		capsense_baseline[i] = Touch.channel_raw[i];
+		capsense_orinigal[i] = Touch.channel_raw[i];
 	}
 	capsense_data_ready = 0;
 }
@@ -98,13 +100,79 @@ void capsense_check(){
 //			capsense_baseline_updata(i);
 //		}
 //	}
-	for(uint8_t i = 0;i<34;i++){
-		if(capsense_baseline[i] + Flash.touch_threshold[Flash.touch_sheet[i]] < Touch.channel_raw[i]){
+	//BLOCK A
+	for(uint8_t i = 0;i<8;i++){
+		if(capsense_duration[i] > 250){
+			capsense_baseline[i] = capsense_orinigal[i];
+		}
+		if((capsense_baseline[Flash.touch_sheet[i]] + Flash.touch_threshold[i] < Touch.channel_raw[Flash.touch_sheet[i]]) || (Touch.channel_raw[Flash.touch_sheet[i]] > 0xFFF0)){
+			capsense_touch_status[i] = 1;
+			if(capsense_duration[i] < 65535){
+				capsense_duration[i] ++;
+			}
+		}else{
+			capsense_touch_status[i] = 0;
+			capsense_duration[i] = 0;
+		}
+		if((Touch.channel_raw[Flash.touch_sheet[i]] + Flash.touch_threshold[i] < 0xFFF0) && capsense_duration[i] <= 250){
+			float baseline = (capsense_baseline[Flash.touch_sheet[i]] * 0.85) + (Touch.channel_raw[Flash.touch_sheet[i]] * 0.15);
+			if(capsense_touch_status[i]){
+				if(baseline + Flash.touch_threshold[i]+ CAPSENSE_BASELINE_VARIANCE < Touch.channel_raw[Flash.touch_sheet[i]]){
+					capsense_baseline[Flash.touch_sheet[i]] = baseline;
+				}
+			}else{
+				capsense_baseline[Flash.touch_sheet[i]] = baseline;
+			}
+		}
+	}
+	//BLOCK B
+	for(uint8_t i = 8;i<16;i++){
+		if((capsense_baseline[Flash.touch_sheet[i]] + Flash.touch_threshold[i] < Touch.channel_raw[Flash.touch_sheet[i]]) || (Touch.channel_raw[Flash.touch_sheet[i]] > 0xFFF0)){
 			capsense_touch_status[i] = 1;
 		}else{
 			capsense_touch_status[i] = 0;
 		}
-
+	}
+	//BLOCK C
+	for(uint8_t i = 16;i<18;i++){
+		if((capsense_baseline[Flash.touch_sheet[i]] + Flash.touch_threshold[i] < Touch.channel_raw[Flash.touch_sheet[i]]) || (Touch.channel_raw[Flash.touch_sheet[i]] > 0xFFF0)){
+			capsense_touch_status[i] = 1;
+		}else{
+			capsense_touch_status[i] = 0;
+		}
+	}
+	//BLOCK D
+	for(uint8_t i = 18;i<26;i++){
+		if(capsense_duration[i] > 250){
+			capsense_baseline[i] = capsense_orinigal[i];
+		}
+		if((capsense_baseline[Flash.touch_sheet[i]] + Flash.touch_threshold[i] < Touch.channel_raw[Flash.touch_sheet[i]]) || (Touch.channel_raw[Flash.touch_sheet[i]] > 0xFFF0)){
+			capsense_touch_status[i] = 1;
+			if(capsense_duration[i] < 65535){
+				capsense_duration[i] ++;
+			}
+		}else{
+			capsense_touch_status[i] = 0;
+			capsense_duration[i] = 0;
+		}
+		if((Touch.channel_raw[Flash.touch_sheet[i]] + Flash.touch_threshold[i] < 0xFFF0) && capsense_duration[i] <= 250){
+			float baseline = (capsense_baseline[Flash.touch_sheet[i]] * 0.85) + (Touch.channel_raw[Flash.touch_sheet[i]] * 0.15);
+			if(capsense_touch_status[i]){
+				if(baseline + Flash.touch_threshold[i]+ CAPSENSE_BASELINE_VARIANCE < Touch.channel_raw[Flash.touch_sheet[i]]){
+					capsense_baseline[Flash.touch_sheet[i]] = baseline;
+				}
+			}else{
+				capsense_baseline[Flash.touch_sheet[i]] = baseline;
+			}
+		}
+	}
+	//BLOCK E
+	for(uint8_t i = 26;i<34;i++){
+		if((capsense_baseline[Flash.touch_sheet[i]] + Flash.touch_threshold[i] < Touch.channel_raw[Flash.touch_sheet[i]]) || (Touch.channel_raw[Flash.touch_sheet[i]] > 0xFFF0)){
+			capsense_touch_status[i] = 1;
+		}else{
+			capsense_touch_status[i] = 0;
+		}
 	}
 	capsense_data_ready = 0;
 

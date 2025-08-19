@@ -27,7 +27,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "LED.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -210,7 +210,13 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */
-
+  if (htim->Instance == TIM7) {
+	  led_fade_clock++;
+    if (led_fade_clock >= led_fade_time) {
+      HAL_TIM_Base_Stop_IT(&htim7);
+      led_fade_flag = 1;
+    }
+  }
   /* USER CODE END Callback 1 */
 }
 

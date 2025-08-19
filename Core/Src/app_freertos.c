@@ -59,7 +59,7 @@
 extern USBD_HandleTypeDef hUsbDevice;
 uint8_t touch_cmd_flag = 0;
 uint8_t touch_scan_flag = 0;
-uint8_t heart_beat = 0xff;
+uint8_t heart_beat = 50;
 extern FlashData Flash;
 uint8_t keyboard_sheet[14] = {
 	0x1A,0x08,0x07,0x06,0x1B,0x1D,0x04,0x14,0x3A,0x3B,0x3C,0x3D,0x3E,0x3F
@@ -153,34 +153,12 @@ void Touch_Task(void const * argument)
 		for(uint8_t i = 0;i<34;i++){
 			Flash.touch_threshold[i] = 2000;
 		}
-//		uint8_t touch_sheet[34] = {
-//			32,28,23,19,15,11,6,2,
-//			33,29,24,20,16,12,7,3,
-//			27,8,
-//			0,30,25,21,17,13,9,4,
-//			1,31,26,22,18,14,10,5,
-//		};
 		uint8_t touch_sheet_default[34] ={
 				0,1,2,3,4,5,6,7,8,
 				9,10,11,12,13,14,15,
 				16,17,
 				18,19,20,21,22,23,24,
 				25,26,27,28,29,30,31,32,33
-
-				//wuyu
-//				32,28,23,19,15,11,6,2,
-//				33,29,24,20,16,12,7,3,
-//				27,10,
-//				0,30,25,21,17,13,8,4,
-//				2,31,26,22,18,14,9,5
-
-//				jing
-//				31,27,22,18,14,10,5,1,
-//				32,28,23,19,15,11,6,2,
-//				25,8,
-//				33,29,24,20,16,12,7,3,
-//				0,30,26,21,17,13,9,4
-
 		};
 		memcpy(Flash.touch_sheet,touch_sheet_default,34);
 		Flash.delay_setting[0] = 0;
@@ -213,7 +191,7 @@ void Touch_Task(void const * argument)
 					break;
 					//没有35个触摸点
 				}
-				if(current_touch_status[Flash.touch_sheet[i+j*5]]){
+				if(current_touch_status[i+j*5]){
 					cmd_mai2io[j+6] |= (1 << i);
 				}
 			}
@@ -257,7 +235,7 @@ void Button_Task(void const * argument)
 	osDelay(1000);
 	button_init();
 	while(1){
-		osDelay(1);
+		osDelay(3);
 		button_scan();
 		if(heart_beat == 0){
 			stack_flow_button(current_button_status);
@@ -320,13 +298,15 @@ void Command_Task(void const * argument)
 			}
 			case SERIAL_CMD_READ_TOUCH_SHEET:{
 				uint8_t cmd_tmp[38] = {0xff,7,34};
-				memcpy(cmd_tmp + 3,Flash.touch_sheet,34);
+				for(uint8_t i = 0;i<34;i++){
+					cmd_tmp[i + 3] = Flash.touch_sheet[i];
+				}
+//				memcpy(cmd_tmp + 3,Flash.touch_sheet,34);
 				for(uint8_t i = 0;i<37;i++){
 					cmd_tmp[37] += cmd_tmp[i];
 				}
 				CDC_Transmit(0,(uint8_t*)cmd_tmp, 38);
 				break;
-
 			}
 			case SERIAL_CMD_WRITE_TOUCH_SHEET:{
 				//memcpy(Flash.touch_sheet,&rxBuffer[3],34);
@@ -371,7 +351,7 @@ void Command_Task(void const * argument)
 			case SERIAL_CMD_RESET:
 				break;
 			case SERIAL_CMD_HEART_BEAT:
-				heart_beat = 0xff;
+				heart_beat = 50;
 				break;
 			case SERIAL_CMD_GET_BOARD_INFO:
 				break;
@@ -444,32 +424,38 @@ void LED_Task(void const * argument)
 {
   /* USER CODE BEGIN LED_Task */
   /* Infinite loop */
+	LED_UART_Init();
 	FET_LED_Init();
+	for(uint8_t i = 0;i<32;i++){
+		LED_set(i,0xff,0xff,0xff);
+	}
+	LED_refresh();
 	while(1){
-		for(uint8_t i = 0;i<8;i++){
-			LED_set(i*2,0xff,0xff,0xff);
-			LED_set(i*2+1,0xff,0xff,0xff);
-		}
-		LED_refresh();
-		if(heart_beat != 0){
-			for(uint8_t i = 0;i<8;i++){
-				LED_set(i*2,0xff,0xff,0xff);
-				LED_set(i*2+1,0xff,0xff,0xff);
-			}
-			LED_refresh();
-		}else{
-			LED_Task_Process();
-			if(led_fade_flag == 1){
-				uint16_t current_fade_time = TIM7->CNT;
-				float process = current_fade_time / led_fade_time;
+//		if(heart_beat != 0){
+//			for(uint8_t i = 0;i<8;i++){
+//				LED_set(i*2,0xff,0xff,0xff);
+//				LED_set(i*2+1,0xff,0xff,0xff);
+//			}
+//			LED_refresh();
+//		}else{
+			//LED_Task_Process();
+			if(led_fade_flag == 2){
+				float process = 1 - (led_fade_clock / led_fade_time);
 				for(uint8_t i = led_fade_target[0];i < led_fade_target[1];i++){
-					LED_set(2*i,led_fade_buff[0] * process ,led_fade_buff[1] * process ,led_fade_buff[2] * process);
-					LED_set(2*i+1,led_fade_buff[0] * process ,led_fade_buff[1] * process ,led_fade_buff[2] * process);
+					LED_set(2*i,led_fade_color[0][0] * process ,led_fade_color[0][1] * process ,led_fade_color[0][2] * process);
+					LED_set(2*i+1,led_fade_color[0][0] * process ,led_fade_color[0][1] * process ,led_fade_color[0][2] * process);
 				}
 				LED_refresh();
+			}else if(led_fade_flag == 1){
+				for(uint8_t i = led_fade_target[0];i < led_fade_target[1];i++){
+					LED_set(2*i,led_fade_color[1][0] ,led_fade_color[1][1] ,led_fade_color[1][2]);
+					LED_set(2*i+1,led_fade_color[1][0] ,led_fade_color[1][1] ,led_fade_color[1][2]);
+				}
+				LED_refresh();
+				led_fade_flag = 0;
 			}
-		}
-		osDelay(10);
+//		}
+		osDelay(1);
 	}
   /* USER CODE END LED_Task */
 }
