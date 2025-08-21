@@ -1,0 +1,257 @@
+name: Build STM32 Firmware
+
+on:
+  push:
+    branches: [ main, master, G431 ]
+  pull_request:
+    branches: [ main, master, G431 ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Install ARM GCC toolchain
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi
+        
+    - name: Verify toolchain installation
+      run: |
+        arm-none-eabi-gcc --version
+        arm-none-eabi-objcopy --version
+        arm-none-eabi-size --version
+        
+    - name: Create Linux-compatible makefile
+      run: |
+        cd Release
+        
+        # Backup original makefile
+        if [ -f "makefile" ]; then
+          mv makefile makefile.original
+          echo "Backed up original makefile"
+        fi
+        
+        # Create Linux-compatible makefile
+        cat > Makefile << 'EOF'
+        # Linux-compatible makefile for STM32G431 project
+        
+        TARGET = Curva_G431_Mai
+        
+        # Toolchain
+        CC = arm-none-eabi-gcc
+        OBJCOPY = arm-none-eabi-objcopy
+        OBJDUMP = arm-none-eabi-objdump
+        SIZE = arm-none-eabi-size
+        
+        # Source files
+        CSRCS = ../Core/Src/main.c \
+                ../Core/Src/app_freertos.c \
+                ../Core/Src/button.c \
+                ../Core/Src/capsense.c \
+                ../Core/Src/dma.c \
+                ../Core/Src/flash.c \
+                ../Core/Src/gpio.c \
+                ../Core/Src/LED.c \
+                ../Core/Src/slider.c \
+                ../Core/Src/stack.c \
+                ../Core/Src/stm32g4xx_hal_msp.c \
+                ../Core/Src/stm32g4xx_hal_timebase_tim.c \
+                ../Core/Src/stm32g4xx_it.c \
+                ../Core/Src/syscalls.c \
+                ../Core/Src/sysmem.c \
+                ../Core/Src/system_stm32g4xx.c \
+                ../Core/Src/tim.c \
+                ../Core/Src/usart.c \
+                ../Core/Src/usb.c \
+                ../Core/ThreadSafe/newlib_lock_glue.c
+                
+        # Find all HAL driver sources
+        HAL_SRCS = $(shell find ../Drivers/STM32G4xx_HAL_Driver/Src -name "*.c")
+        
+        # Find all FreeRTOS sources
+        FREERTOS_SRCS = $(shell find ../Middlewares/Third_Party/FreeRTOS/Source -name "*.c" | grep -v Template)
+        
+        # Find all USB composite sources
+        USB_SRCS = $(shell find ../Middlewares/Third_Party/AL94_USB_Composite -name "*.c")
+        
+        # Assembly source
+        ASRCS = ../Core/Startup/startup_stm32g431cbux.s
+        
+        # Combine all sources
+        ALL_CSRCS = $(CSRCS) $(HAL_SRCS) $(FREERTOS_SRCS) $(USB_SRCS)
+        
+        # Include paths
+        INCLUDES = -I../Core/Inc \
+                   -I../Drivers/STM32G4xx_HAL_Driver/Inc \
+                   -I../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy \
+                   -I../Drivers/CMSIS/Device/ST/STM32G4xx/Include \
+                   -I../Drivers/CMSIS/Include \
+                   -I../Middlewares/Third_Party/FreeRTOS/Source/include \
+                   -I../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS \
+                   -I../Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM4F \
+                   -I../Composite \
+                   -I../Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/App \
+                   -I../Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Target \
+                   -I../Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Core/Inc \
+                   -I../Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/COMPOSITE/Inc \
+                   -I../Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/CDC_ACM/Inc \
+                   -I../Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/HID_KEYBOARD/Inc
+        
+        # Defines
+        DEFINES = -DUSE_HAL_DRIVER -DSTM32G431xx -DSTM32_THREAD_SAFE_STRATEGY=4
+        
+        # Compiler flags for Release build
+        CFLAGS = -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard \
+                 -std=gnu11 -Os -ffunction-sections -fdata-sections \
+                 -Wall -fstack-usage --specs=nano.specs $(DEFINES) $(INCLUDES)
+        
+        # Assembly flags
+        ASFLAGS = -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard \
+                  -x assembler-with-cpp $(INCLUDES)
+        
+        # Linker flags
+        LDFLAGS = -mcpu=cortex-m4 -T../STM32G431CBUX_FLASH.ld --specs=nosys.specs \
+                  -Wl,-Map=$(TARGET).map -Wl,--gc-sections -static --specs=nano.specs \
+                  -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb \
+                  -Wl,--start-group -lc -lm -Wl,--end-group
+        
+        # Object files
+        COBJS = $(notdir $(ALL_CSRCS:.c=.o))
+        AOBJS = $(notdir $(ASRCS:.s=.o))
+        OBJS = $(COBJS) $(AOBJS)
+        
+        # Tell make where to find source files
+        vpath %.c $(sort $(dir $(ALL_CSRCS)))
+        vpath %.s $(sort $(dir $(ASRCS)))
+        
+        .PHONY: all clean
+        
+        all: $(TARGET).bin
+        
+        $(TARGET).elf: $(OBJS)
+        	@echo 'Building target: $@'
+        	$(CC) $(OBJS) $(LDFLAGS) -o $@
+        	@echo 'Finished building target: $@'
+        	$(SIZE) $@
+        	@echo ' '
+        
+        $(TARGET).bin: $(TARGET).elf
+        	@echo 'Building binary: $@'
+        	$(OBJCOPY) -O binary $< $@
+        	@echo 'Finished building: $@'
+        	@echo ' '
+        	
+        $(TARGET).list: $(TARGET).elf
+        	@echo 'Building list: $@'
+        	$(OBJDUMP) -h -S $< > $@
+        	@echo 'Finished building: $@'
+        	@echo ' '
+        
+        %.o: %.c
+        	@echo 'Building file: $<'
+        	$(CC) $(CFLAGS) -c $< -o $@
+        	@echo 'Finished building: $<'
+        	@echo ' '
+        	
+        %.o: %.s
+        	@echo 'Building file: $<'
+        	$(CC) $(ASFLAGS) -c $< -o $@
+        	@echo 'Finished building: $<'
+        	@echo ' '
+        
+        clean:
+        	@echo 'Cleaning build artifacts...'
+        	rm -f $(OBJS) $(TARGET).elf $(TARGET).bin $(TARGET).hex $(TARGET).map $(TARGET).list
+        	rm -f Curva_G431_*.bin
+        	@echo 'Clean finished'
+        	@echo ' '
+        
+        # Debug target to show variables
+        debug:
+        	@echo "CSRCS count: $(words $(CSRCS))"
+        	@echo "HAL_SRCS count: $(words $(HAL_SRCS))"
+        	@echo "FREERTOS_SRCS count: $(words $(FREERTOS_SRCS))"
+        	@echo "USB_SRCS count: $(words $(USB_SRCS))"
+        	@echo "Total C sources: $(words $(ALL_CSRCS))"
+        	@echo "Assembly sources: $(words $(ASRCS))"
+        	@echo "Object files: $(words $(OBJS))"
+        EOF
+        
+    - name: Build firmware
+      run: |
+        cd Release
+        echo "Starting clean build..."
+        
+        make clean || echo "Nothing to clean"
+        
+        echo "Debugging makefile variables..."
+        make debug
+        
+        echo "Building firmware..."
+        make all -j$(nproc)
+        
+        # Generate timestamped filename and rename the binary
+        TIMESTAMP=$(date +%y%m%d%H%M)
+        TIMESTAMPED_BIN="Curva_G431_${TIMESTAMP}.bin"
+        
+        if [ -f "Curva_G431_Mai.bin" ]; then
+          mv "Curva_G431_Mai.bin" "$TIMESTAMPED_BIN"
+          echo "Created timestamped binary: $TIMESTAMPED_BIN"
+          ls -lh "$TIMESTAMPED_BIN"
+        fi
+        
+        echo "Build completed, checking outputs..."
+        ls -la *.bin 2>/dev/null || echo "Binary files missing"
+        
+    - name: Verify build output
+      run: |
+        cd Release
+        TIMESTAMP=$(date +%y%m%d%H%M)
+        TIMESTAMPED_BIN="Curva_G431_${TIMESTAMP}.bin"
+        
+        if [ -f "$TIMESTAMPED_BIN" ]; then
+          echo "✓ Timestamped binary file generated successfully: $TIMESTAMPED_BIN"
+          ls -lh "$TIMESTAMPED_BIN"
+        else
+          echo "✗ Timestamped binary file not found"
+          exit 1
+        fi
+        
+    - name: Upload firmware artifacts
+      uses: actions/upload-artifact@v4
+      if: success()
+      with:
+        name: stm32-firmware-${{ github.sha }}
+        path: Release/Curva_G431_*.bin
+        retention-days: 30
+        
+    - name: Create release on tag
+      if: startsWith(github.ref, 'refs/tags/')
+      id: create_release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        TIMESTAMP=$(date +%y%m%d%H%M)
+        TIMESTAMPED_BIN="Curva_G431_${TIMESTAMP}.bin"
+        
+        gh release create ${{ github.ref_name }} \
+          --title "Firmware Release ${{ github.ref_name }}" \
+          --notes "Automatically built STM32G431 firmware
+
+        **Build Information:**
+        - Commit: ${{ github.sha }}
+        - Branch: ${{ github.ref_name }}
+        - Build Time: $(date -u)
+        - Built with: GNU ARM Embedded Toolchain
+
+        **File:**
+        - \`${TIMESTAMPED_BIN}\` - Binary firmware file for flashing" \
+          "Release/${TIMESTAMPED_BIN}"
+
