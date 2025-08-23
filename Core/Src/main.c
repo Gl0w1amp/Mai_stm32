@@ -61,6 +61,68 @@ static void MX_NVIC_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+/**
+  * @brief  Jump to DFU mode for STM32G431
+  * @retval None
+  */
+void Jump_To_DFU_Mode(void)
+{
+    uint32_t i;
+    void (*SysMemBootJump)(void);
+    
+    /* Disable all interrupts */
+    __disable_irq();
+    
+    /* Disable SysTick */
+    SysTick->CTRL = 0;
+    SysTick->LOAD = 0;
+    SysTick->VAL = 0;
+    
+    /* Clear Interrupt Enable Register & Interrupt Pending Register */
+    for (i = 0; i < 8; i++)
+    {
+        NVIC->ICER[i] = 0xFFFFFFFF;
+        NVIC->ICPR[i] = 0xFFFFFFFF;
+    }
+    
+    /* Set the clock to the default state */
+    HAL_RCC_DeInit();
+    
+    /* Reset all peripherals */
+    RCC->AHB1RSTR = 0xFFFFFFFF;
+    RCC->AHB2RSTR = 0xFFFFFFFF;
+    RCC->APB1RSTR1 = 0xFFFFFFFF;
+    RCC->APB1RSTR2 = 0xFFFFFFFF;
+    RCC->APB2RSTR = 0xFFFFFFFF;
+    
+    RCC->AHB1RSTR = 0;
+    RCC->AHB2RSTR = 0;
+    RCC->APB1RSTR1 = 0;
+    RCC->APB1RSTR2 = 0;
+    RCC->APB2RSTR = 0;
+    
+    /* Enable the SYSCFG peripheral clock*/
+    RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN;
+    
+    /* Remap system memory to address 0x0000 0000 in address space */
+    SYSCFG->MEMRMP = 0x01;
+    
+    /* Set jump memory location for system memory */
+    /* Use address with 4 bytes offset as reset location is 0x0000 0004 */
+    SysMemBootJump = (void (*)(void)) (*((uint32_t *)(0x1FFF0000 + 4)));
+    
+    /* Set the main stack pointer to the system memory value */
+    __set_MSP(*(uint32_t *)0x1FFF0000);
+    
+    /* Call the function to jump to system memory */
+    SysMemBootJump();
+    
+    /* Jump is done successfully */
+    while (1)
+    {
+        /* Code should not reach this loop */
+    }
+}
 
 /* USER CODE END 0 */
 
@@ -72,7 +134,11 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-
+  /* Check if DFU mode was requested before reset */
+  if (Check_DFU_Request())
+  {
+    Enhanced_Jump_To_DFU_Mode();
+  }
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/

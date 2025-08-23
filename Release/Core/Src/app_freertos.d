@@ -40,6 +40,7 @@ Core/Src/app_freertos.o: ../Core/Src/app_freertos.c \
  ../Drivers/STM32G4xx_HAL_Driver/Inc/stm32g4xx_hal_tim_ex.h \
  ../Drivers/STM32G4xx_HAL_Driver/Inc/stm32g4xx_hal_uart.h \
  ../Drivers/STM32G4xx_HAL_Driver/Inc/stm32g4xx_hal_uart_ex.h \
+ ../Core/Inc/dfu_jump.h \
  ../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS/cmsis_os.h \
  ../Middlewares/Third_Party/FreeRTOS/Source/include/timers.h \
  ../Middlewares/Third_Party/FreeRTOS/Source/include/task.h \
@@ -63,7 +64,8 @@ Core/Src/app_freertos.o: ../Core/Src/app_freertos.c \
  ../Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Core/Inc/usbd_ctlreq.h \
  ../Composite/AL94.I-CUBE-USBD-COMPOSITE_conf.h \
  ../Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/HID_KEYBOARD/Inc/usbd_hid_keyboard.h \
- ../Core/Inc/capsense.h ../Core/Inc/flash.h ../Core/Inc/stack.h
+ ../Core/Inc/capsense.h ../Core/Inc/flash.h ../Core/Inc/stack.h \
+ ../Core/Inc/dfu_jump.h
 ../Middlewares/Third_Party/FreeRTOS/Source/include/FreeRTOS.h:
 ../Core/Inc/FreeRTOSConfig.h:
 ../Middlewares/Third_Party/FreeRTOS/Source/include/projdefs.h:
@@ -106,6 +108,7 @@ Core/Src/app_freertos.o: ../Core/Src/app_freertos.c \
 ../Drivers/STM32G4xx_HAL_Driver/Inc/stm32g4xx_hal_tim_ex.h:
 ../Drivers/STM32G4xx_HAL_Driver/Inc/stm32g4xx_hal_uart.h:
 ../Drivers/STM32G4xx_HAL_Driver/Inc/stm32g4xx_hal_uart_ex.h:
+../Core/Inc/dfu_jump.h:
 ../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS/cmsis_os.h:
 ../Middlewares/Third_Party/FreeRTOS/Source/include/timers.h:
 ../Middlewares/Third_Party/FreeRTOS/Source/include/task.h:
@@ -138,3 +141,4 @@ Core/Src/app_freertos.o: ../Core/Src/app_freertos.c \
 ../Core/Inc/capsense.h:
 ../Core/Inc/flash.h:
 ../Core/Inc/stack.h:
+../Core/Inc/dfu_jump.h:

@@ -2,6 +2,7 @@
 "./Core/Src/app_freertos.o"
 "./Core/Src/button.o"
 "./Core/Src/capsense.o"
+"./Core/Src/dfu_jump.o"
 "./Core/Src/dma.o"
 "./Core/Src/flash.o"
 "./Core/Src/gpio.o"

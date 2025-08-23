@@ -1,0 +1,3 @@
+../Core/Src/dfu_jump.c:18:6:Request_DFU_Mode_And_Reset	1
+../Core/Src/dfu_jump.c:35:9:Check_DFU_Request	2
+../Core/Src/dfu_jump.c:50:6:Enhanced_Jump_To_DFU_Mode	3
