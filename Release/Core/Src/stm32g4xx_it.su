@@ -12,5 +12,5 @@
 ../Core/Src/stm32g4xx_it.c:245:6:TIM2_IRQHandler	0	static
 ../Core/Src/stm32g4xx_it.c:259:6:USART1_IRQHandler	8	static
 ../Core/Src/stm32g4xx_it.c:273:6:UART4_IRQHandler	8	static
-../Core/Src/stm32g4xx_it.c:287:6:TIM7_IRQHandler	8	static
-../Core/Src/stm32g4xx_it.c:301:6:DMA2_Channel1_IRQHandler	0	static
+../Core/Src/stm32g4xx_it.c:287:6:TIM7_IRQHandler	0	static
+../Core/Src/stm32g4xx_it.c:300:6:DMA2_Channel1_IRQHandler	0	static

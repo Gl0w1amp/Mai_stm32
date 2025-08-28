@@ -1,5 +1,5 @@
 ../Core/Src/app_freertos.c:144:6:Touch_Task	14
 ../Core/Src/app_freertos.c:228:6:Button_Task	6
 ../Core/Src/app_freertos.c:261:6:Command_Task	30
-../Core/Src/app_freertos.c:423:6:LED_Task	6
+../Core/Src/app_freertos.c:423:6:LED_Task	4
 ../Core/Src/app_freertos.c:93:6:MX_FREERTOS_Init	1
