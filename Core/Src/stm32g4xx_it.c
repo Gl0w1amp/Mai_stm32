@@ -291,7 +291,6 @@ void TIM7_IRQHandler(void)
   /* USER CODE END TIM7_IRQn 0 */
   HAL_TIM_IRQHandler(&htim7);
   /* USER CODE BEGIN TIM7_IRQn 1 */
-  LED_Fade_IRQHandler();
   /* USER CODE END TIM7_IRQn 1 */
 }
 

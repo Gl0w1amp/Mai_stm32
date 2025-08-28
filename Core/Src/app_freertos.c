@@ -490,35 +490,39 @@ void LED_Task(void const * argument)
   /* Infinite loop */
 	LED_UART_Init();
 	FET_LED_Init();
+	HAL_TIM_Base_Start_IT(&htim7);
 	for(uint8_t i = 0;i<8;i++){
 		LED_set(i,0xff,0xff,0xff);
 	}
 	LED_refresh();
 	while(1){
-//		if(heart_beat != 0){
-//			for(uint8_t i = 0;i<8;i++){
-//				LED_set(i*2,0xff,0xff,0xff);
-//				LED_set(i*2+1,0xff,0xff,0xff);
-//			}
-//			LED_refresh();
-//		}else{
-			//LED_Task_Process();
-			if(led_fade_flag == 2){
-				float process = 1 - (led_fade_clock / led_fade_time);
-				for(uint8_t i = led_fade_target[0];i < led_fade_target[1];i++){
-					LED_set(2*i,led_fade_color[0][0] * process ,led_fade_color[0][1] * process ,led_fade_color[0][2] * process);
-					LED_set(2*i+1,led_fade_color[0][0] * process ,led_fade_color[0][1] * process ,led_fade_color[0][2] * process);
-				}
-				LED_refresh();
-			}else if(led_fade_flag == 1){
-				for(uint8_t i = led_fade_target[0];i < led_fade_target[1];i++){
-					LED_set(2*i,led_fade_color[1][0] ,led_fade_color[1][1] ,led_fade_color[1][2]);
-					LED_set(2*i+1,led_fade_color[1][0] ,led_fade_color[1][1] ,led_fade_color[1][2]);
-				}
-				LED_refresh();
-				led_fade_flag = 0;
+				uint8_t tmp = 0x77;
+				CDC_Transmit(0, &tmp, 1);
+		if(heart_beat != 0){
+			for(uint8_t i = 0;i<8;i++){
+				LED_set(i*2,0xff,0xff,0xff);
+				LED_set(i*2+1,0xff,0xff,0xff);
 			}
-//		}
+			LED_refresh();
+		}else{
+			LED_Task_Process();
+			LED_Fade_IRQHandler();
+//			if(led_fade_flag == 2){
+//				float process = 1 - (led_fade_clock / led_fade_time);
+//				for(uint8_t i = led_fade_target[0];i < led_fade_target[1];i++){
+//					LED_set(2*i,led_fade_color[0][0] * process ,led_fade_color[0][1] * process ,led_fade_color[0][2] * process);
+//					LED_set(2*i+1,led_fade_color[0][0] * process ,led_fade_color[0][1] * process ,led_fade_color[0][2] * process);
+//				}
+//				LED_refresh();
+//			}else if(led_fade_flag == 1){
+//				for(uint8_t i = led_fade_target[0];i < led_fade_target[1];i++){
+//					LED_set(2*i,led_fade_color[1][0] ,led_fade_color[1][1] ,led_fade_color[1][2]);
+//					LED_set(2*i+1,led_fade_color[1][0] ,led_fade_color[1][1] ,led_fade_color[1][2]);
+//				}
+//				LED_refresh();
+//				led_fade_flag = 0;
+//			}
+		}
 		osDelay(1);
 	}
   /* USER CODE END LED_Task */
