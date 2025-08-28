@@ -37,6 +37,7 @@
 #include "capsense.h"
 #include "flash.h"
 #include "stack.h"
+#include "dfu_jump.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -47,6 +48,49 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define VERSION 1
+
+/* DFU jump function */
+void Jump_To_DFU_Bootloader(void)
+{
+    uint32_t i;
+    void (*SysMemBootJump)(void);
+    
+    /* Disable all interrupts */
+    __disable_irq();
+    
+    /* Set the clock to the default state */
+    HAL_RCC_DeInit();
+    
+    /* Clear Interrupt Enable Register & Interrupt Pending Register */
+    for (i = 0; i < 5; i++)
+    {
+        NVIC->ICER[i] = 0xFFFFFFFF;
+        NVIC->ICPR[i] = 0xFFFFFFFF;
+    }
+    
+    /* Enable the SYSCFG peripheral clock*/
+    __HAL_RCC_SYSCFG_CLK_ENABLE();
+    
+    /* Remap system memory to address 0x0000 0000 in address space */
+    __HAL_SYSCFG_REMAPMEMORY_SYSTEMFLASH();
+    
+    /* Set jump memory location for system memory */
+    /* Use address with 4 bytes offset as reset location is 0x0000 0004 */
+    SysMemBootJump = (void (*)(void)) (*((uint32_t *)(0x1FFF0000 + 4)));
+    
+    /* Set the main stack pointer to the system memory value */
+    __set_MSP(*(uint32_t *)0x1FFF0000);
+    
+    /* Call the function to jump to system memory */
+    SysMemBootJump();
+    
+    /* Jump is done successfully */
+    while (1)
+    {
+        /* Code should not reach this loop */
+    }
+}
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -348,8 +392,28 @@ void Command_Task(void const * argument)
 				}
 				break;
 			}
-			case SERIAL_CMD_RESET:
+			case SERIAL_CMD_RESET:{
+				// Send acknowledge before reset
+				uint8_t cmd_tmp[5] = {0xff,0x10,1,1,0x11};
+				CDC_Transmit(0,(uint8_t*)cmd_tmp, 5);
+				// Wait for transmission to complete
+				osDelay(100);
+				// Perform software reset
+				__disable_irq();
+				NVIC_SystemReset();
 				break;
+			}
+			case SERIAL_CMD_JUMP_TO_DFU:{
+				// Send acknowledge before jumping to DFU
+				uint8_t cmd_tmp[5] = {0xff,0x21,1,1,0x22};
+				CDC_Transmit(0,(uint8_t*)cmd_tmp, 5);
+				// Wait for transmission to complete
+				osDelay(200);  // Increased delay
+				
+				// Request DFU mode and reset (more reliable method)
+				Request_DFU_Mode_And_Reset();
+				break;
+			}
 			case SERIAL_CMD_HEART_BEAT:
 				heart_beat = 50;
 				break;

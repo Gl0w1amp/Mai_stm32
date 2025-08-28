@@ -31,7 +31,7 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "dfu_jump.h"
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
@@ -53,7 +53,8 @@ extern "C" {
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
-
+// Legacy function name for backward compatibility
+void Jump_To_DFU_Mode(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
