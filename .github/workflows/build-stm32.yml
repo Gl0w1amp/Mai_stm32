@@ -55,6 +55,7 @@ jobs:
                 ../Core/Src/app_freertos.c \
                 ../Core/Src/button.c \
                 ../Core/Src/capsense.c \
+                ../Core/Src/dfu_jump.c \
                 ../Core/Src/dma.c \
                 ../Core/Src/flash.c \
                 ../Core/Src/gpio.c \
