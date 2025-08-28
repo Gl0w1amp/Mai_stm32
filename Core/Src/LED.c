@@ -52,11 +52,12 @@ uint8_t led_uart_buffer_rx[64];
 uint8_t led_uart_buffer_tx[64];
 uint8_t led_uart_tmp[64];
 
-uint8_t led_fade_flag;
+uint8_t led_fade_flag = 0;
 uint8_t led_fade_target[2];
 uint8_t led_fade_color[2][3];
-uint16_t led_fade_time;
-uint16_t led_fade_clock;
+uint16_t led_fade_time = 0;
+uint16_t led_fade_clock = 0;
+float fade_rgb[3];
 
 volatile uint32_t timer7_count = 0;
 volatile uint32_t timer7_target = 0;
@@ -122,25 +123,30 @@ void LED_UART_IRQHandler(){
 		//CDC_Transmit(0,(uint8_t*)led_uart_buffer_rx, 39);
 		memcpy(led_uart_tmp,led_uart_buffer_rx,64);
 		HAL_UART_Receive_DMA(&huart1,led_uart_buffer_rx,64);
-		LED_Task_Process();
+		//LED_Task_Process();
 	}
 }
 
 void LED_Fade_IRQHandler(){
 	if(led_fade_flag != 2){
+//		uint8_t tmp = 0x77;
+//		CDC_Transmit(0, &tmp, 1);
 		return;
 	}
 	if(led_fade_clock == 0){
 		led_fade_flag = 0;
 	}
-	float process = led_fade_clock / led_fade_time;
-	uint8_t fade_r = led_fade_color[0][0] * process + led_fade_color[1][0] * (1 - process);
-	uint8_t fade_g = led_fade_color[0][1] * process + led_fade_color[1][1] * (1 - process);
-	uint8_t fade_b = led_fade_color[0][2] * process + led_fade_color[1][2] * (1 - process);
+	float process = (float)led_fade_clock / led_fade_time;
+	fade_rgb[0] = led_fade_color[0][0] * process + led_fade_color[1][0] * (1 - process);
+	fade_rgb[1] = led_fade_color[0][1] * process + led_fade_color[1][1] * (1 - process);
+	fade_rgb[2] = led_fade_color[0][2] * process + led_fade_color[1][2] * (1 - process);
 	for(uint8_t i = led_fade_target[0];i < led_fade_target[1];i++){
-		LED_set(i,fade_r,fade_g,fade_b);
+		LED_set(i,(uint8_t)fade_rgb[0],(uint8_t)fade_rgb[1],(uint8_t)fade_rgb[2]);
 //		LED_set(i,255,0,0);
 	}
+//	char buffer[128];
+//	snprintf(buffer, sizeof(buffer), "%d / %d = %.3f\r\n", led_fade_clock,led_fade_time,process);
+//	CDC_Transmit(0, buffer, strlen(buffer));
 	LED_refresh();
 	led_fade_clock --;
 }
@@ -232,13 +238,11 @@ void LED_Task_Process(){
 //		case 0:
 //			return;
 		case SetLedGs8Bit:
-			memset(WS2812_data,0,NUM_LED * 3);
 			LED_set(led_uart_tmp[5],led_uart_tmp[6],led_uart_tmp[7],led_uart_tmp[8]);
 			//LED_set(2*led_uart_tmp[5]+1,led_uart_tmp[6],led_uart_tmp[7],led_uart_tmp[8]);
 			res_init(0,AckStatus_Ok,AckReport_Ok);
 			break;
 		case SetLedGs8BitMulti:
-			memset(WS2812_data,0,NUM_LED * 3);
 			memcpy(led_fade_color[0],&led_uart_tmp[8],3);
 //			 if (req.end == 0x20) {  // SetLedDataAllOff
 //			    req.end = NUM_LEDS;
@@ -247,11 +251,11 @@ void LED_Task_Process(){
 				LED_set(i,led_uart_tmp[8],led_uart_tmp[9],led_uart_tmp[10]);
 				//LED_set(2*i+1,led_uart_tmp[8],led_uart_tmp[9],led_uart_tmp[10]);
 			}
+			led_fade_flag = 1;
 			res_init(0,AckStatus_Ok,AckReport_Ok);
 			break;
 		case SetLedGs8BitMultiFade:
 			//setLedGs8BitMultiFade
-			memset(WS2812_data,0,NUM_LED * 3);
 //			for(uint8_t i = led_uart_tmp[5];i < led_uart_tmp[6];i++){
 //				LED_set(i,led_uart_tmp[8],led_uart_tmp[9],led_uart_tmp[10]);
 //				//LED_set(2*i+1,led_uart_tmp[8],led_uart_tmp[9],led_uart_tmp[10]);
@@ -259,7 +263,7 @@ void LED_Task_Process(){
 			led_fade_flag = 3;
 			memcpy(led_fade_target,led_uart_tmp + 5,2);
 			memcpy(led_fade_color[1],led_uart_tmp + 8,3);
-			led_fade_time = 409/led_uart_tmp[9]*8;
+			led_fade_time = (4095 / req.speed * 8);
 			led_fade_clock = led_fade_time;
 //			__HAL_TIM_SetAutoreload(&htim7,led_fade_time);
 			res_init(0,AckStatus_Ok,AckReport_Ok);
@@ -272,13 +276,13 @@ void LED_Task_Process(){
 		case SetLedGsUpdate:
 			//SetLedGsUpdate
 			if(led_fade_flag == 3){
-				__HAL_TIM_SET_COUNTER(&htim7, 0);
-				HAL_TIM_Base_Start_IT(&htim7);
+				//__HAL_TIM_SET_COUNTER(&htim7, 0);
 				led_fade_flag = 2;
 			}else{
 				led_fade_flag = 0;
 			}
 			LED_refresh();
+			memset(WS2812_data,0,NUM_LED * 3);
 			res_init(0,AckStatus_Ok,AckReport_Ok);
 			break;
 		case SetEEPRom:

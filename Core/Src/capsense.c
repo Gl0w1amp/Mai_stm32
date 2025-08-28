@@ -11,7 +11,7 @@
 #include "usbd_cdc_acm_if.h"
 #include "cmsis_os.h"
 #include "flash.h"
-#define CAPSENSE_BASELINE_VARIANCE 300
+#define CAPSENSE_BASELINE_VARIANCE 500
 
 uint8_t uart_dma_buffer[128];
 
