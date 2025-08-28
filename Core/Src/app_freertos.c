@@ -490,7 +490,7 @@ void LED_Task(void const * argument)
   /* Infinite loop */
 	LED_UART_Init();
 	FET_LED_Init();
-	for(uint8_t i = 0;i<32;i++){
+	for(uint8_t i = 0;i<8;i++){
 		LED_set(i,0xff,0xff,0xff);
 	}
 	LED_refresh();
