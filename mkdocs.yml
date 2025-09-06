@@ -1,0 +1,11 @@
+site_name: Mai STM32 Docs
+site_url: https://gl0w1amp.github.io/Mai_stm32/
+theme:
+  name: material
+
+nav:
+  - Home: index.md
+
+repo_url: https://github.com/Gl0w1amp/Mai_stm32
+repo_name: Mai_stm32
+edit_uri: edit/G431/docs/
