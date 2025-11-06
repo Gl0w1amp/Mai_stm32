@@ -3,8 +3,11 @@ name: Build STM32 Firmware
 on:
   push:
     branches: [ main, master, G431 ]
+    tags: [ '*' ]
   pull_request:
     branches: [ main, master, G431 ]
+  release:
+    types: [ published ]
   workflow_dispatch:
 
 jobs:
@@ -206,6 +209,8 @@ jobs:
           mv "Curva_G431_Mai.bin" "$TIMESTAMPED_BIN"
           echo "Created timestamped binary: $TIMESTAMPED_BIN"
           ls -lh "$TIMESTAMPED_BIN"
+          # Save filename for later steps
+          echo "$TIMESTAMPED_BIN" > firmware_filename.txt
         fi
         
         echo "Build completed, checking outputs..."
@@ -214,8 +219,7 @@ jobs:
     - name: Verify build output
       run: |
         cd Release
-        TIMESTAMP=$(date +%y%m%d%H%M)
-        TIMESTAMPED_BIN="Curva_G431_${TIMESTAMP}.bin"
+        TIMESTAMPED_BIN=$(cat firmware_filename.txt)
         
         if [ -f "$TIMESTAMPED_BIN" ]; then
           echo "✓ Timestamped binary file generated successfully: $TIMESTAMPED_BIN"
@@ -239,8 +243,8 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        TIMESTAMP=$(date +%y%m%d%H%M)
-        TIMESTAMPED_BIN="Curva_G431_${TIMESTAMP}.bin"
+        cd Release
+        TIMESTAMPED_BIN=$(cat firmware_filename.txt)
         
         gh release create ${{ github.ref_name }} \
           --title "Firmware Release ${{ github.ref_name }}" \
@@ -254,5 +258,64 @@ jobs:
 
         **File:**
         - \`${TIMESTAMPED_BIN}\` - Binary firmware file for flashing" \
-          "Release/${TIMESTAMPED_BIN}"
+          "${TIMESTAMPED_BIN}"
+
+    - name: Install AWS CLI
+      if: github.event_name == 'release' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y awscli
+        aws --version
+
+    - name: Upload firmware to Cloudflare R2 (tag subdir + latest.json)
+      if: github.event_name == 'release' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
+      working-directory: Release
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+        R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      run: |
+        if [ "${{ github.event_name }}" = "release" ]; then
+          tag="${{ github.event.release.tag_name }}"
+        else
+          tag="${{ github.ref_name }}"
+        fi
+
+        TIMESTAMPED_BIN=$(cat firmware_filename.txt)
+
+        base="s3://${R2_BUCKET}/public/firmwares/affine/mai2"
+        dest="${base}/${tag}/"
+
+        # Upload firmware binary
+        aws s3 cp "${TIMESTAMPED_BIN}" "${dest}" \
+          --endpoint-url "${R2_ENDPOINT}" \
+          --cache-control "public,max-age=31536000,immutable"
+
+        # Create manifest.json
+        hash=$(sha256sum "${TIMESTAMPED_BIN}" | awk '{print $1}')
+        size=$(stat -c%s "${TIMESTAMPED_BIN}")
+        uploaded_at=$(date -u +"%Y-%m-%dT%H:%M:%S")
+        
+        cat > manifest.json << EOF
+        {
+          "version": "${tag}",
+          "file": "${TIMESTAMPED_BIN}",
+          "size": ${size},
+          "sha256": "${hash}",
+          "path": "/public/firmwares/affine/mai2/${tag}/${TIMESTAMPED_BIN}",
+          "uploaded_at": "${uploaded_at}"
+        }
+        EOF
+
+        # Upload manifest.json to tag directory
+        aws s3 cp "manifest.json" "${dest}" \
+          --endpoint-url "${R2_ENDPOINT}" \
+          --cache-control "public,max-age=31536000,immutable"
+
+        # Upload latest.json to base directory
+        cp "manifest.json" "latest.json"
+        aws s3 cp "latest.json" "${base}/latest.json" \
+          --endpoint-url "${R2_ENDPOINT}" \
+          --cache-control "public,max-age=60"
 
