@@ -260,15 +260,7 @@ jobs:
         - \`${TIMESTAMPED_BIN}\` - Binary firmware file for flashing" \
           "${TIMESTAMPED_BIN}"
 
-    - name: Install AWS CLI
-      if: github.event_name == 'release' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
-      run: |
-        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-        unzip awscliv2.zip
-        sudo ./aws/install
-        aws --version
-
-    - name: Upload firmware to Cloudflare R2 (tag subdir + latest.json)
+    - name: Upload firmware to Cloudflare R2
       if: github.event_name == 'release' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
       working-directory: Release
       env:
