@@ -496,8 +496,8 @@ void LED_Task(void const * argument)
 	}
 	LED_refresh();
 	while(1){
-				uint8_t tmp = 0x77;
-				CDC_Transmit(0, &tmp, 1);
+//				uint8_t tmp = 0x77;
+//				CDC_Transmit(0, &tmp, 1);
 		if(heart_beat != 0){
 			for(uint8_t i = 0;i<8;i++){
 				LED_set(i*2,0xff,0xff,0xff);
