@@ -10,10 +10,11 @@
 
 #include <stdint.h>
 
+//#define PSOC_DEBUG
+
 typedef union{
-	uint8_t data[70];
+	uint8_t data[68];
 	struct{
-		uint8_t syn[2];
 		uint16_t channel_raw[34];
 	};
 }packet_capsense_t;

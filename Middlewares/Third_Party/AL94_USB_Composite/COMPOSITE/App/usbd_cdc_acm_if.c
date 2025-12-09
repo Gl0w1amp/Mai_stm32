@@ -24,6 +24,7 @@
 
 /* USER CODE BEGIN INCLUDE */
 #include "slider.h"
+#include "capsense.h"
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -421,6 +422,11 @@ static int8_t CDC_Receive(uint8_t cdc_ch, uint8_t *Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 6 */
   //HAL_UART_Transmit_DMA(CDC_CH_To_UART_Handle(cdc_ch), Buf, *Len);
+#ifdef VOFA_DEBUG
+		if(*Len == 1){
+			vofa_channel = Buf[0] <= 33 ? Buf[0] : 33;
+		}
+#endif
 	rxLen = *Len;
 	memcpy(rxBuffer,Buf,rxLen);
 	USBD_CDC_SetRxBuffer(cdc_ch, &hUsbDevice, &Buf[0]);

@@ -1,0 +1,4 @@
+../Core/Src/capsense.c:71:6:check_checksum	2
+../Core/Src/capsense.c:83:6:Touch_UART_Handler	5
+../Core/Src/capsense.c:102:6:capsense_init	2
+../Core/Src/capsense.c:129:6:capsense_check	27

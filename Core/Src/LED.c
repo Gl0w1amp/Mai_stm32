@@ -6,8 +6,8 @@
 
 #define NUM_LED 16
 #define PRE_BUTTON_LED 2
-#define WS2812_HIGH 140
-#define WS2812_LOW 70
+#define WS2812_HIGH 143
+#define WS2812_LOW 67
 
 extern UART_HandleTypeDef huart1;
 extern DMA_HandleTypeDef hdma_usart1_rx;

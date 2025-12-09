@@ -11,7 +11,6 @@
 
 static float button_init_state[8];
 uint8_t button[2];
-extern vofa_test vofa1;
 bool button_disable_flag = false;
 
 void button_init(){

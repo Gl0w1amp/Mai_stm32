@@ -48,7 +48,6 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define VERSION 1
-
 /* DFU jump function */
 void Jump_To_DFU_Bootloader(void)
 {
@@ -111,6 +110,7 @@ uint8_t keyboard_sheet[14] = {
 uint8_t player = 1;
 uint8_t current_touch_status[34];
 uint8_t current_button_status[2];
+
 /* USER CODE END Variables */
 osThreadId TouchTaskHandle;
 osThreadId ButtonTaskHandle;
@@ -198,9 +198,9 @@ void Touch_Task(void const * argument)
 			Flash.touch_threshold[i] = 2000;
 		}
 		uint8_t touch_sheet_default[34] ={
-				0,1,2,3,4,5,6,7,8,
+				0,16,2,3,4,5,6,7,8,
 				9,10,11,12,13,14,15,
-				16,17,
+				1,17,
 				18,19,20,21,22,23,24,
 				25,26,27,28,29,30,31,32,33
 		};
@@ -224,6 +224,7 @@ void Touch_Task(void const * argument)
 	while(1)
 	{
 		osDelay(1);
+		Flash.touch_threshold[0] = 3000;
 		capsense_check();
 		uint8_t cmd_mai2io[14] = {0xff,1,10,0,0,0,0,0,0,0,0,0,0,10};
 		uint8_t cmd_mai2touch[9] = {0x28,0,0,0,0,0,0,0,0x29};
@@ -245,13 +246,14 @@ void Touch_Task(void const * argument)
 		cmd_mai2io[5] = current_button_status[1];
 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 0);
 //		if(touch_cmd_flag == 1){
+#ifndef PSOC_DEBUG
 		if(heart_beat != 0){
 			CDC_Transmit(0,(uint8_t*)cmd_mai2io, 14);
 		}else if(touch_scan_flag != 0){
 			memcpy(cmd_mai2touch+1,cmd_mai2io+6,7);
 			CDC_Transmit(0,(uint8_t*)cmd_mai2touch, 9);
 		}
-			//CDC_Transmit((uint8_t*)vofa1.data, 8);
+#endif
 			//touch_cmd_flag = 0;
 //		}
 //		else if(touch_scan_flag == 1){
@@ -275,6 +277,7 @@ void Button_Task(void const * argument)
   /* Infinite loop */
 	//mai_key
 	uint8_t keyboard_buffer[14];
+	uint8_t last_keyboard_buffer[14];
 	memset(keyboard_buffer,0,12);
 	osDelay(1000);
 	button_init();
@@ -289,7 +292,10 @@ void Button_Task(void const * argument)
 			for(uint8_t i = 0;i<6;i++){
 				keyboard_buffer[i+8] =  (current_button_status[1] & (1 << i)) ? keyboard_sheet[i+8] : 0;
 			}
-			USBD_HID_Keybaord_SendReport(&hUsbDevice, keyboard_buffer, 14);
+			if(memcmp(last_keyboard_buffer,keyboard_buffer,14) != 0){
+				USBD_HID_Keybaord_SendReport(&hUsbDevice, keyboard_buffer, 14);
+				memcpy(last_keyboard_buffer,keyboard_buffer,14);
+			}
 		}
 	}
   /* USER CODE END Button_Task */
@@ -490,14 +496,12 @@ void LED_Task(void const * argument)
   /* Infinite loop */
 	LED_UART_Init();
 	FET_LED_Init();
-	HAL_TIM_Base_Start_IT(&htim7);
+//	HAL_TIM_Base_Start_IT(&htim7);
 	for(uint8_t i = 0;i<8;i++){
 		LED_set(i,0xff,0xff,0xff);
 	}
 	LED_refresh();
 	while(1){
-				uint8_t tmp = 0x77;
-				CDC_Transmit(0, &tmp, 1);
 		if(heart_beat != 0){
 			for(uint8_t i = 0;i<8;i++){
 				LED_set(i*2,0xff,0xff,0xff);
@@ -507,21 +511,6 @@ void LED_Task(void const * argument)
 		}else{
 			LED_Task_Process();
 			LED_Fade_IRQHandler();
-//			if(led_fade_flag == 2){
-//				float process = 1 - (led_fade_clock / led_fade_time);
-//				for(uint8_t i = led_fade_target[0];i < led_fade_target[1];i++){
-//					LED_set(2*i,led_fade_color[0][0] * process ,led_fade_color[0][1] * process ,led_fade_color[0][2] * process);
-//					LED_set(2*i+1,led_fade_color[0][0] * process ,led_fade_color[0][1] * process ,led_fade_color[0][2] * process);
-//				}
-//				LED_refresh();
-//			}else if(led_fade_flag == 1){
-//				for(uint8_t i = led_fade_target[0];i < led_fade_target[1];i++){
-//					LED_set(2*i,led_fade_color[1][0] ,led_fade_color[1][1] ,led_fade_color[1][2]);
-//					LED_set(2*i+1,led_fade_color[1][0] ,led_fade_color[1][1] ,led_fade_color[1][2]);
-//				}
-//				LED_refresh();
-//				led_fade_flag = 0;
-//			}
 		}
 		osDelay(1);
 	}
