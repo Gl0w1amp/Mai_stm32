@@ -38,6 +38,7 @@
 #include "flash.h"
 #include "stack.h"
 #include "dfu_jump.h"
+#include "app_version.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -48,7 +49,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define CONFIG_VERSION 1
-const char VERSION[] = "v1.0.1";
+const char VERSION[] = FIRMWARE_VERSION;
 
 /* DFU jump function */
 void Jump_To_DFU_Bootloader(void)

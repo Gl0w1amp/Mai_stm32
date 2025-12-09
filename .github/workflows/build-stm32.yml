@@ -19,6 +19,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         submodules: recursive
+        fetch-depth: 0
     
     - name: Install ARM GCC toolchain
       run: |
@@ -30,9 +31,27 @@ jobs:
         arm-none-eabi-gcc --version
         arm-none-eabi-objcopy --version
         arm-none-eabi-size --version
+
+    - name: Generate version header
+      run: |
+        # Get version from git tags
+        VERSION=$(git describe --tags --always --dirty)
+        echo "Detected version: $VERSION"
+        
+        # Create header file
+        echo "#ifndef APP_VERSION_H" > Core/Inc/app_version.h
+        echo "#define APP_VERSION_H" >> Core/Inc/app_version.h
+        echo "" >> Core/Inc/app_version.h
+        echo "#define FIRMWARE_VERSION \"$VERSION\"" >> Core/Inc/app_version.h
+        echo "" >> Core/Inc/app_version.h
+        echo "#endif // APP_VERSION_H" >> Core/Inc/app_version.h
+        
+        # Verify file content
+        cat Core/Inc/app_version.h
         
     - name: Create Linux-compatible makefile
       run: |
+        mkdir -p Release
         cd Release
         
         # Backup original makefile
