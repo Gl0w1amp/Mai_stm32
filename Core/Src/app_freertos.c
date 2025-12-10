@@ -104,9 +104,7 @@ uint8_t touch_cmd_flag = 0;
 uint8_t touch_scan_flag = 0;
 uint8_t heart_beat = 50;
 extern FlashData Flash;
-uint8_t keyboard_sheet[14] = {
-	0x1A,0x08,0x07,0x06,0x1B,0x1D,0x04,0x14,0x3A,0x3B,0x3C,0x3D,0x3E,0x3F
-};
+extern uint8_t keyboard_sheet[14];
 uint8_t player = 1;
 uint8_t current_touch_status[34];
 uint8_t current_button_status[2];
@@ -292,6 +290,13 @@ void Button_Task(void const * argument)
 			for(uint8_t i = 0;i<6;i++){
 				keyboard_buffer[i+8] =  (current_button_status[1] & (1 << i)) ? keyboard_sheet[i+8] : 0;
 			}
+			if(memcmp(last_keyboard_buffer,keyboard_buffer,14) != 0){
+				USBD_HID_Keybaord_SendReport(&hUsbDevice, keyboard_buffer, 14);
+				memcpy(last_keyboard_buffer,keyboard_buffer,14);
+			}
+		}else{
+			memset(keyboard_buffer,0,14);
+			keyboard_buffer[11] =  (current_button_status[1] & (1 << 3)) ? keyboard_sheet[11] : 0;
 			if(memcmp(last_keyboard_buffer,keyboard_buffer,14) != 0){
 				USBD_HID_Keybaord_SendReport(&hUsbDevice, keyboard_buffer, 14);
 				memcpy(last_keyboard_buffer,keyboard_buffer,14);

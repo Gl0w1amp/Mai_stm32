@@ -1,2 +1,2 @@
-../Core/Src/button.c:16:6:button_init	7
-../Core/Src/button.c:58:6:button_scan	11
+../Core/Src/button.c:18:6:button_init	7
+../Core/Src/button.c:43:6:button_scan	11

@@ -7,11 +7,13 @@
 #include "button.h"
 #include "gpio.h"
 #include <stdbool.h>
-//#include "adc.h"
 
 static float button_init_state[8];
 uint8_t button[2];
 bool button_disable_flag = false;
+uint8_t keyboard_sheet[14] = {
+	0x1A,0x08,0x07,0x06,0x1B,0x1D,0x04,0x14,0x3A,0x3B,0x3C,0x28,0x3E,0x3F
+};
 
 void button_init(){
 	GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -36,23 +38,6 @@ void button_init(){
 	if((button_flag == 0) && (GPIO_InitStruct.Pin == 0xff)){
 		button_disable_flag = true;
 	}
-
-//	HAL_ADCEx_Calibration_GetValue(&hadc1,ADC_SINGLE_ENDED);
-//	HAL_ADCEx_Calibration_GetValue(&hadc2,ADC_SINGLE_ENDED);
-//
-//	for(uint8_t j = 0; j < 3;j++){
-//		for(uint8_t i =0;i<4;i++){
-//			HAL_ADC_Start(&hadc1);
-//			HAL_ADC_Start(&hadc2);
-//			HAL_ADC_PollForConversion(&hadc1, 10);
-//			HAL_ADC_PollForConversion(&hadc2, 10);
-//			button_init_state[2*i] += HAL_ADC_GetValue(&hadc1) / 3;
-//			button_init_state[2*i+1] = HAL_ADC_GetValue(&hadc2) / 3;
-//		}
-//	}
-////	for(uint8_t i = 0;i < 8;i++){
-////		button_init_state[i] += 20;
-////	}
 }
 
 void button_scan(){
@@ -66,29 +51,6 @@ void button_scan(){
 			}
 		}
 	}
-//	float tmp[8]={0,0,0,0,0,0,0,0};
-//	button = 0;
-//	for(uint8_t j = 0; j < 10;j++){
-//		for(uint8_t i =0;i<4;i++){
-//			HAL_ADC_Start(&hadc1);
-//			HAL_ADC_Start(&hadc2);
-//			HAL_ADC_PollForConversion(&hadc1, 10);
-//			HAL_ADC_PollForConversion(&hadc2, 10);
-//			tmp[2*i] += HAL_ADC_GetValue(&hadc1)/10;
-//			tmp[2*i+1] += HAL_ADC_GetValue(&hadc2)/10;
-//		}
-//	}
-//	//CDC_Transmit_FS((uint8_t*)tmp, 8);
-//	for(uint8_t i = 0;i < 8;i++){
-//		if((button_init_state[i] < 2048) && (tmp[i] > button_init_state[i])){
-//			button |= (1 << i);
-//		}else if((button_init_state[i] > 2048) && (tmp[i] < button_init_state[i])){
-//			button |= (1 << i);
-//		}
-//	}
-//	if(button == 0xff){
-//		button = 0;
-//	}
 	button[1] = 0;
 	if(!HAL_GPIO_ReadPin(GPIOC,GPIO_PIN_4)){
 		button[1] = button[1] | 1;

@@ -1,6 +1,6 @@
-../Core/Src/app_freertos.c:188:6:Touch_Task	13
-../Core/Src/app_freertos.c:274:6:Button_Task	7
-../Core/Src/app_freertos.c:311:6:Command_Task	31
-../Core/Src/app_freertos.c:493:6:LED_Task	4
+../Core/Src/app_freertos.c:186:6:Touch_Task	13
+../Core/Src/app_freertos.c:272:6:Button_Task	9
+../Core/Src/app_freertos.c:316:6:Command_Task	31
+../Core/Src/app_freertos.c:498:6:LED_Task	4
 ../Core/Src/app_freertos.c:52:6:Jump_To_DFU_Bootloader	1
-../Core/Src/app_freertos.c:137:6:MX_FREERTOS_Init	1
+../Core/Src/app_freertos.c:135:6:MX_FREERTOS_Init	1
