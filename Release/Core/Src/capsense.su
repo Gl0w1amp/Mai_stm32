@@ -2,4 +2,4 @@
 ../Core/Src/capsense.c:83:6:Touch_UART_Handler	8	static
 ../Core/Src/capsense.c:102:6:Boot_Buttom_IRQHandler	8	static
 ../Core/Src/capsense.c:118:6:capsense_init	8	static
-../Core/Src/capsense.c:145:6:capsense_check	80	static
+../Core/Src/capsense.c:144:6:capsense_check	80	static

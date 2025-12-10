@@ -36,7 +36,7 @@ uint16_t capsense_raw_windows[10][34];
 uint8_t capsense_raw_bet = 0;
 uint16_t capsense_duration[8] = {0};
 uint16_t capsense_level[8] = {0};
-uint16_t capsense_orinigal[34];
+uint16_t capsense_freeze[34];
 uint16_t capsense_baseline[34];
 uint16_t capsense_threshold[34];
 uint8_t capsense_data_ready = 0;
@@ -103,7 +103,7 @@ void Boot_Buttom_IRQHandler(){
 		HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,1);
 		for(uint8_t i = 0;i<34;i++){
 			capsense_baseline[i] = 0;
-			capsense_orinigal[i] = 0;
+			capsense_freeze[i] = 0;
 
 			Touch.channel_raw[i] = 0;
 			capsense_touch_status[i] = 0;
@@ -122,7 +122,6 @@ void capsense_init(){
 	osDelay(100);
 	for(uint8_t i = 0;i<34;i++){
 		capsense_baseline[i] = Touch.channel_raw[i];
-		capsense_orinigal[i] = Touch.channel_raw[i];
 	}
 	capsense_data_ready = 0;
 }
@@ -147,7 +146,6 @@ void capsense_check(){
 	for(uint8_t i = 0;i<8;i++){
 		if(capsense_baseline[i] == 0){
 			capsense_baseline[i] = Touch.channel_raw[i];
-			capsense_orinigal[i] = Touch.channel_raw[i];
 		}
 //		if(capsense_duration[i] == 0){
 //			capsense_level[i] = Touch.channel_raw[Flash.touch_sheet[i]];
@@ -160,7 +158,9 @@ void capsense_check(){
 //			capsense_level[i] = level;
 //		}
 		if(capsense_duration[i] > CAPSENSE_DURATION_A){
-			capsense_baseline[i] = capsense_orinigal[i];
+			capsense_baseline[i] = capsense_freeze[i];
+		}else{
+			capsense_freeze[i] = capsense_baseline[i];
 		}
 		int variance = Touch.channel_raw[Flash.touch_sheet[i]] - capsense_baseline[Flash.touch_sheet[i]];
 		if((variance > Flash.touch_threshold[i]) || (Touch.channel_raw[Flash.touch_sheet[i]] >= 0xFF00)){

@@ -501,7 +501,6 @@ void LED_Task(void const * argument)
 		LED_set(i,0xff,0xff,0xff);
 	}
 	LED_refresh();
-	uint8_t no = 0;
 	while(1){
 		if(heart_beat != 0){
 			for(uint8_t i = 0;i<8;i++){
@@ -513,8 +512,6 @@ void LED_Task(void const * argument)
 			LED_Task_Process();
 			LED_Fade_IRQHandler();
 		}
-		FET_LED_Update(no,no,no);
-		no ++;
 		osDelay(1);
 	}
   /* USER CODE END LED_Task */
