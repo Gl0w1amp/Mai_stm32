@@ -34,17 +34,38 @@ jobs:
 
     - name: Generate version header
       run: |
-        # Get version from git tags
+        # Get version info
         VERSION=$(git describe --tags --always --dirty)
-        echo "Detected version: $VERSION"
+        GIT_HASH=$(git rev-parse --short=8 HEAD)
+        TIMESTAMP=$(date "+%Y-%m-%d %H:%M")
+        
+        # Parse semantic version
+        if [[ $VERSION =~ v?([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
+          MAJOR="${BASH_REMATCH[1]}"
+          MINOR="${BASH_REMATCH[2]}"
+          PATCH="${BASH_REMATCH[3]}"
+        else
+          MAJOR=0
+          MINOR=0
+          PATCH=0
+        fi
+        
+        echo "Detected version: $VERSION (Major:$MAJOR Minor:$MINOR Patch:$PATCH)"
         
         # Create header file
-        echo "#ifndef APP_VERSION_H" > Core/Inc/app_version.h
-        echo "#define APP_VERSION_H" >> Core/Inc/app_version.h
-        echo "" >> Core/Inc/app_version.h
-        echo "#define FIRMWARE_VERSION \"$VERSION\"" >> Core/Inc/app_version.h
-        echo "" >> Core/Inc/app_version.h
-        echo "#endif // APP_VERSION_H" >> Core/Inc/app_version.h
+        cat > Core/Inc/app_version.h << EOF
+        #ifndef APP_VERSION_H
+        #define APP_VERSION_H
+        
+        #define FIRMWARE_VERSION "$VERSION"
+        #define FW_VER_MAJOR $MAJOR
+        #define FW_VER_MINOR $MINOR
+        #define FW_VER_PATCH $PATCH
+        #define FW_GIT_HASH "$GIT_HASH"
+        #define FW_BUILD_TIME "$TIMESTAMP"
+        
+        #endif // APP_VERSION_H
+        EOF
         
         # Verify file content
         cat Core/Inc/app_version.h
@@ -220,12 +241,16 @@ jobs:
         echo "Building firmware..."
         make all -j$(nproc)
         
+        # --- Post-Build: Sign Firmware ---
+        echo "Signing firmware..."
+        python3 ../scripts/sign_firmware.py "Curva_G431_Mai.bin" "Curva_G431_Mai_Signed.bin"
+        
         # Generate timestamped filename and rename the binary
         TIMESTAMP=$(date +%y%m%d%H%M)
         TIMESTAMPED_BIN="Curva_G431_${TIMESTAMP}.bin"
         
-        if [ -f "Curva_G431_Mai.bin" ]; then
-          mv "Curva_G431_Mai.bin" "$TIMESTAMPED_BIN"
+        if [ -f "Curva_G431_Mai_Signed.bin" ]; then
+          mv "Curva_G431_Mai_Signed.bin" "$TIMESTAMPED_BIN"
           echo "Created timestamped binary: $TIMESTAMPED_BIN"
           ls -lh "$TIMESTAMPED_BIN"
           # Save filename for later steps

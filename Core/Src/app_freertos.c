@@ -39,6 +39,7 @@
 #include "stack.h"
 #include "dfu_jump.h"
 #include "app_version.h"
+#include "firmware_header.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -50,6 +51,19 @@
 /* USER CODE BEGIN PD */
 #define CONFIG_VERSION 1
 const char VERSION[] = FIRMWARE_VERSION;
+
+// Firmware Header instance placed in specific section
+__attribute__((section(".fw_header"))) __attribute__((used))
+const FirmwareHeader_t fw_header = {
+    .magic = FW_HEADER_MAGIC,
+    .version_major = FW_VER_MAJOR,
+    .version_minor = FW_VER_MINOR,
+    .version_patch = FW_VER_PATCH,
+    .git_hash = FW_GIT_HASH,
+    .build_timestamp = FW_BUILD_TIME,
+    .crc32 = 0,
+    .reserved = {0} 
+};
 
 /* DFU jump function */
 void Jump_To_DFU_Bootloader(void)

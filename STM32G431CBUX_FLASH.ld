@@ -59,6 +59,14 @@ SECTIONS
     . = ALIGN(4);
   } >FLASH
 
+  /* Firmware Header Section */
+  .fw_header :
+  {
+    . = ALIGN(4);
+    KEEP(*(.fw_header))
+    . = ALIGN(4);
+  } >FLASH
+
   /* The program code and other data into "FLASH" Rom type memory */
   .text :
   {
