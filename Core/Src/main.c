@@ -173,6 +173,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
   MX_USB_DEVICE_Init();
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, 1);
+  FET_LED_Init();
   /* USER CODE END 2 */
 
   /* Call init function for freertos objects (in cmsis_os2.c) */

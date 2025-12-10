@@ -99,6 +99,22 @@ void Touch_UART_Handler(){
 	}
 }
 
+void Boot_Buttom_IRQHandler(){
+		HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,1);
+		for(uint8_t i = 0;i<34;i++){
+			capsense_baseline[i] = 0;
+			capsense_orinigal[i] = 0;
+
+			Touch.channel_raw[i] = 0;
+			capsense_touch_status[i] = 0;
+		}
+		for(uint8_t i = 0;i<8;i++){
+			capsense_duration[i] = 0;
+		}
+		HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,0);
+}
+
+
 void capsense_init(){
 	__HAL_UART_ENABLE_IT(&huart4, UART_IT_IDLE);
 	HAL_UART_Receive_DMA(&huart4, uart_dma_buffer, 70);

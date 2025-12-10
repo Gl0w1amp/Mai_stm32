@@ -2,10 +2,10 @@
 ../Core/Src/LED.c:77:6:LED_refresh	24	static
 ../Core/Src/LED.c:96:6:FET_LED_Init	8	static
 ../Core/Src/LED.c:104:6:FET_LED_Update	0	static
-../Core/Src/LED.c:109:6:LED_UART_Init	16	static
-../Core/Src/LED.c:119:6:LED_UART_IRQHandler	16	static
-../Core/Src/LED.c:130:6:LED_Fade_IRQHandler	32	static
-../Core/Src/LED.c:154:9:led_packet_check	28	static
-../Core/Src/LED.c:198:6:led_packet_write	16	static
-../Core/Src/LED.c:227:6:res_init	4	static
-../Core/Src/LED.c:236:6:LED_Task_Process	16	static
+../Core/Src/LED.c:109:6:LED_UART_Init	8	static
+../Core/Src/LED.c:122:6:LED_UART_IRQHandler	16	static
+../Core/Src/LED.c:133:6:LED_Fade_IRQHandler	32	static
+../Core/Src/LED.c:157:9:led_packet_check	28	static
+../Core/Src/LED.c:201:6:led_packet_write	16	static
+../Core/Src/LED.c:230:6:res_init	4	static
+../Core/Src/LED.c:239:6:LED_Task_Process	16	static

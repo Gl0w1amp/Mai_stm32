@@ -109,5 +109,10 @@ void button_scan(){
 		button[1] = button[1] | (1 << 5);
 	}
 
+	if(button[0] || button[1]){
+		HAL_GPIO_WritePin(GPIOB,GPIO_PIN_15,1);
+	}else{
+		HAL_GPIO_WritePin(GPIOB,GPIO_PIN_15,0);
+	}
 	return;
 }

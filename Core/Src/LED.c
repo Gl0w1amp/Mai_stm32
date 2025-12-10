@@ -94,12 +94,12 @@ void LED_refresh()
 	HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_2, (uint32_t *)WS2812_data_DMA_buffer,2 * (128 + NUM_LED * 24 + 64));
 }
 void FET_LED_Init(){
-	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_1,0);
-	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_2,0);
-	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_4,0);
 	HAL_TIM_PWM_Start(&htim4,TIM_CHANNEL_1);
 	HAL_TIM_PWM_Start(&htim4,TIM_CHANNEL_2);
 	HAL_TIM_PWM_Start(&htim4,TIM_CHANNEL_4);
+	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_1,5);
+	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_2,5);
+	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_4,5);
 }
 void FET_LED_Update(uint8_t BodyLed,uint8_t ExtLed,uint8_t SideLed){
 	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_1,BodyLed);
@@ -108,9 +108,12 @@ void FET_LED_Update(uint8_t BodyLed,uint8_t ExtLed,uint8_t SideLed){
 }
 void LED_UART_Init(){
 	//memset(WS2812_data_DMA_buffer,0,64);
-	memset(WS2812_data_DMA_buffer,0xff,64);
-	memset(WS2812_data_DMA_buffer + NUM_LED * 24 + 64, 0xff ,64);
-	memset(WS2812_data_DMA_buffer + NUM_LED * 24 + 128, 0 ,64);
+	for(uint16_t i = 0;i < 128 + NUM_LED * 24 + 64;i++){
+		WS2812_data_DMA_buffer[i] = 0;
+	}
+//	memset(WS2812_data_DMA_buffer,0xff,64);
+//	memset(WS2812_data_DMA_buffer + NUM_LED * 24 + 64, 0xff ,64);
+//	memset(WS2812_data_DMA_buffer + NUM_LED * 24 + 128, 0 ,64);
 	__HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE);
 	HAL_UART_Receive_DMA(&huart1, led_uart_buffer_rx, 64);
 	__HAL_DMA_DISABLE_IT(&hdma_usart1_rx, DMA_IT_HT);
