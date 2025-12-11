@@ -239,7 +239,7 @@ void Touch_Task(void const * argument)
 	while(1)
 	{
 		osDelay(1);
-		Flash.touch_threshold[0] = 3000;
+//		Flash.touch_threshold[0] = 3000;
 		capsense_check();
 		uint8_t cmd_mai2io[14] = {0xff,1,10,0,0,0,0,0,0,0,0,0,0,10};
 		uint8_t cmd_mai2touch[9] = {0x28,0,0,0,0,0,0,0,0x29};

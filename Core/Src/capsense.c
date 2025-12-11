@@ -23,8 +23,6 @@
 #define CAPSENSE_DURATION_A 100
 #define CAPSENSE_DURATION_B 1000
 
-#define PSOC_DEBUG
-
 uint8_t uart_dma_buffer[128];
 
 extern UART_HandleTypeDef huart4;
@@ -50,6 +48,7 @@ typedef union{
 }vofa;
 
 vofa vofa1;
+uint8_t debug_channel = 0;
 #endif
 
 //void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
@@ -331,7 +330,6 @@ void capsense_check(){
 
 
 #ifdef PSOC_DEBUG
-	uint8_t debug_channel = 0;
 	vofa1.raw_data_fl[0] = Touch.channel_raw[debug_channel];
 //	vofa1.raw_data_fl[1] = capsense_baseline[debug_channel];
 	vofa1.raw_data_fl[1] = capsense_baseline[debug_channel] + Flash.touch_threshold[debug_channel];
