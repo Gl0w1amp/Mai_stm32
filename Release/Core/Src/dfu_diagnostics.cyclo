@@ -1,4 +1,0 @@
-../Core/Src/dfu_diagnostics.c:18:6:Send_DFU_Diagnostic	2
-../Core/Src/dfu_diagnostics.c:32:6:Diagnose_DFU_Capability	3
-../Core/Src/dfu_diagnostics.c:81:6:Alternative_DFU_Jump	3
-../Core/Src/dfu_diagnostics.c:125:6:Comprehensive_DFU_Jump	5

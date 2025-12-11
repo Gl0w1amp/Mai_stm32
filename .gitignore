@@ -53,3 +53,14 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# Release and debug folders
+Release/
+Debug/
+
+# IDE specific files
+.settings/
+.vscode/
+
+# Application version header
+Core/Inc/app_version.h

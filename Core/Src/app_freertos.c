@@ -38,6 +38,8 @@
 #include "flash.h"
 #include "stack.h"
 #include "dfu_jump.h"
+#include "app_version.h"
+#include "firmware_header.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -47,7 +49,22 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define VERSION 1
+#define CONFIG_VERSION 1
+const char VERSION[] = FIRMWARE_VERSION;
+
+// Firmware Header instance placed in specific section
+__attribute__((section(".fw_header"))) __attribute__((used))
+const FirmwareHeader_t fw_header = {
+    .magic = FW_HEADER_MAGIC,
+    .version_major = FW_VER_MAJOR,
+    .version_minor = FW_VER_MINOR,
+    .version_patch = FW_VER_PATCH,
+    .git_hash = FW_GIT_HASH,
+    .build_timestamp = FW_BUILD_TIME,
+    .crc32 = 0,
+    .reserved = {0} 
+};
+
 /* DFU jump function */
 void Jump_To_DFU_Bootloader(void)
 {
@@ -193,7 +210,7 @@ void Touch_Task(void const * argument)
 	LED_set(0,255,255,255);
 	LED_refresh();
 	flash_read(Flash.raw_flash);
-	if(Flash.system_config != VERSION){
+	if(Flash.system_config != CONFIG_VERSION){
 		for(uint8_t i = 0;i<34;i++){
 			Flash.touch_threshold[i] = 2000;
 		}
@@ -207,7 +224,7 @@ void Touch_Task(void const * argument)
 		memcpy(Flash.touch_sheet,touch_sheet_default,34);
 		Flash.delay_setting[0] = 0;
 		Flash.delay_setting[1] = 0;
-		Flash.system_config = VERSION;
+		Flash.system_config = CONFIG_VERSION;
 		flash_write(Flash.raw_flash);
 	}
 	if(Flash.delay_setting[0] > 9){
@@ -318,11 +335,29 @@ void Command_Task(void const * argument)
 	if ((rxLen != 0)&&(rxBuffer[0] == 0xff)){
 		switch(rxBuffer[1]){
 			case SERIAL_CMD_LED:
-				if(rxBuffer[2] != 27){
+//				if(rxBuffer[2] != 27){
+//					break;
+//				}
+//				memcpy(WS2812_data_raw,rxBuffer+3,24);
+//				FET_LED_Update(rxBuffer[27],rxBuffer[28],rxBuffer[29],0,0);
+				break;
+			case SERIAL_CMD_LED_BUTTON:
+				if(rxBuffer[2] != 24){
 					break;
 				}
-				memcpy(WS2812_data_raw,rxBuffer+3,24);
-				FET_LED_Update(rxBuffer[27],rxBuffer[28],rxBuffer[29]);
+				memcpy(WS2812_data_button,rxBuffer+3,24);
+				break;
+			case SERIAL_CMD_LED_BILLBOARD:
+				if(rxBuffer[2] != 24){
+					break;
+				}
+				memcpy(WS2812_data_billboard,rxBuffer+3,24);
+				break;
+			case SERIAL_CMD_LED_PWM:
+				if(rxBuffer[2] != 5){
+					break;
+				}
+				FET_LED_Update(rxBuffer[3],rxBuffer[4],rxBuffer[5],rxBuffer[6],rxBuffer[7]);
 				break;
 			case SERIAL_CMD_SCAN_START:
 				break;
@@ -423,8 +458,44 @@ void Command_Task(void const * argument)
 			case SERIAL_CMD_HEART_BEAT:
 				heart_beat = 50;
 				break;
-			case SERIAL_CMD_GET_BOARD_INFO:
+			case SERIAL_CMD_GET_BOARD_INFO:{
+				char board_name[] = "1020-050201";
+				uint8_t name_len = strlen(board_name);
+				uint8_t version_len = strlen(VERSION);
+				
+				uint32_t uid[3];
+				uid[0] = HAL_GetUIDw0();
+				uid[1] = HAL_GetUIDw1();
+				uid[2] = HAL_GetUIDw2();
+				uint8_t uid_len = 12;
+
+				uint8_t data_len = 1 + version_len + 1 + name_len + 1 + uid_len;
+				uint8_t cmd_tmp[64];
+				
+				cmd_tmp[0] = 0xFF;
+				cmd_tmp[1] = SERIAL_CMD_GET_BOARD_INFO;
+				cmd_tmp[2] = data_len;
+				
+				uint8_t idx = 3;
+				cmd_tmp[idx++] = version_len;
+				memcpy(&cmd_tmp[idx], VERSION, version_len);
+				idx += version_len;
+				
+				cmd_tmp[idx++] = name_len;
+				memcpy(&cmd_tmp[idx], board_name, name_len);
+				idx += name_len;
+
+				cmd_tmp[idx++] = uid_len;
+				memcpy(&cmd_tmp[idx], uid, uid_len);
+				idx += uid_len;
+				
+				cmd_tmp[idx] = 0;
+				for(uint8_t i = 0; i < idx; i++){
+					cmd_tmp[idx] += cmd_tmp[i];
+				}
+				CDC_Transmit(0, cmd_tmp, idx + 1);
 				break;
+			}
 		}
 	}else if((rxLen != 0)&&(rxBuffer[0] == 0x7B)){
 		char cmd_tmp[6] = "(RSET)";
