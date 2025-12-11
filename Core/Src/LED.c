@@ -46,18 +46,23 @@ uint8_t WS2812_data_raw[24] = {
 0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
 0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff
 };
+uint8_t WS2812_data_button[24];
+uint8_t WS2812_data_billboard[24];
 uint8_t WS2812_data[NUM_LED * 3]; //16LED
 uint32_t WS2812_data_DMA_buffer[128 + NUM_LED * 24 + 64];
 uint8_t led_uart_buffer_rx[64];
 uint8_t led_uart_buffer_tx[64];
 uint8_t led_uart_tmp[64];
 
-uint8_t led_fade_flag = 0;
-uint8_t led_fade_target[2];
-uint8_t led_fade_color[2][3];
-uint16_t led_fade_time = 0;
-uint16_t led_fade_clock = 0;
-float fade_rgb[3];
+typedef struct {
+    uint8_t start[3];
+    uint8_t current[3];
+    uint8_t target[3];
+    uint16_t duration;
+    uint16_t elapsed;
+} FadeContext;
+
+FadeContext fade_ctx[NUM_LED];
 
 volatile uint32_t timer7_count = 0;
 volatile uint32_t timer7_target = 0;
@@ -101,10 +106,10 @@ void FET_LED_Init(){
 	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_2,5);
 	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_4,5);
 }
-void FET_LED_Update(uint8_t BodyLed,uint8_t ExtLed,uint8_t SideLed){
-	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_1,BodyLed);
-	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_2,ExtLed);
-	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_4,SideLed);
+void FET_LED_Update(uint8_t BodyLED,uint8_t SideLED,uint8_t CamRingLED,uint8_t CamRecLED,uint8_t ReaderLED){
+	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_1,BodyLED);
+	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_2,CamRingLED);
+	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_4,SideLED);
 }
 void LED_UART_Init(){
 	//memset(WS2812_data_DMA_buffer,0,64);
@@ -130,28 +135,56 @@ void LED_UART_IRQHandler(){
 	}
 }
 
+void set_led_immediate(uint8_t index, uint8_t r, uint8_t g, uint8_t b) {
+    if (index >= NUM_LED) return;
+    fade_ctx[index].start[0] = r;
+    fade_ctx[index].start[1] = g;
+    fade_ctx[index].start[2] = b;
+    fade_ctx[index].current[0] = r;
+    fade_ctx[index].current[1] = g;
+    fade_ctx[index].current[2] = b;
+    fade_ctx[index].target[0] = r;
+    fade_ctx[index].target[1] = g;
+    fade_ctx[index].target[2] = b;
+    fade_ctx[index].duration = 0;
+    LED_set(index, r, g, b);
+}
+
+void set_led_fade(uint8_t index, uint8_t r, uint8_t g, uint8_t b, uint8_t speed) {
+    if (index >= NUM_LED) return;
+    if (speed == 0) {
+        set_led_immediate(index, r, g, b);
+        return;
+    }
+    // Start from current color
+    memcpy(fade_ctx[index].start, fade_ctx[index].current, 3);
+    fade_ctx[index].target[0] = r;
+    fade_ctx[index].target[1] = g;
+    fade_ctx[index].target[2] = b;
+    fade_ctx[index].duration = (4095 / speed * 8);
+    fade_ctx[index].elapsed = 0;
+}
+
 void LED_Fade_IRQHandler(){
-	if(led_fade_flag != 2){
-//		uint8_t tmp = 0x77;
-//		CDC_Transmit(0, &tmp, 1);
-		return;
-	}
-	if(led_fade_clock == 0){
-		led_fade_flag = 0;
-	}
-	float process = (float)led_fade_clock / led_fade_time;
-	fade_rgb[0] = led_fade_color[0][0] * process + led_fade_color[1][0] * (1 - process);
-	fade_rgb[1] = led_fade_color[0][1] * process + led_fade_color[1][1] * (1 - process);
-	fade_rgb[2] = led_fade_color[0][2] * process + led_fade_color[1][2] * (1 - process);
-	for(uint8_t i = led_fade_target[0];i < led_fade_target[1];i++){
-		LED_set(i,(uint8_t)fade_rgb[0],(uint8_t)fade_rgb[1],(uint8_t)fade_rgb[2]);
-//		LED_set(i,255,0,0);
-	}
-//	char buffer[128];
-//	snprintf(buffer, sizeof(buffer), "%d / %d = %.3f\r\n", led_fade_clock,led_fade_time,process);
-//	CDC_Transmit(0, buffer, strlen(buffer));
-	LED_refresh();
-	led_fade_clock --;
+    for(int i=0; i<NUM_LED; i++) {
+        if(fade_ctx[i].duration > 0) {
+            fade_ctx[i].elapsed++;
+            if(fade_ctx[i].elapsed >= fade_ctx[i].duration) {
+                fade_ctx[i].elapsed = fade_ctx[i].duration;
+                memcpy(fade_ctx[i].current, fade_ctx[i].target, 3);
+                fade_ctx[i].duration = 0;
+            } else {
+                // Integer Lerp
+                for(int c=0; c<3; c++) {
+                    int32_t start = fade_ctx[i].start[c];
+                    int32_t target = fade_ctx[i].target[c];
+                    fade_ctx[i].current[c] = start + (target - start) * fade_ctx[i].elapsed / fade_ctx[i].duration;
+                }
+            }
+            LED_set(i, fade_ctx[i].current[0], fade_ctx[i].current[1], fade_ctx[i].current[2]);
+        }
+    }
+    LED_refresh();
 }
 
 uint8_t led_packet_check(uint8_t* data,uint8_t len) {
@@ -241,51 +274,27 @@ void LED_Task_Process(){
 //		case 0:
 //			return;
 		case SetLedGs8Bit:
-			LED_set(led_uart_tmp[5],led_uart_tmp[6],led_uart_tmp[7],led_uart_tmp[8]);
-			//LED_set(2*led_uart_tmp[5]+1,led_uart_tmp[6],led_uart_tmp[7],led_uart_tmp[8]);
+			set_led_immediate(req.index, req.color[0], req.color[1], req.color[2]);
 			res_init(0,AckStatus_Ok,AckReport_Ok);
 			break;
 		case SetLedGs8BitMulti:
-			memcpy(led_fade_color[0],&led_uart_tmp[8],3);
-//			 if (req.end == 0x20) {  // SetLedDataAllOff
-//			    req.end = NUM_LEDS;
-//			  }
-			for(uint8_t i = led_uart_tmp[5];i < led_uart_tmp[6];i++){
-				LED_set(i,led_uart_tmp[8],led_uart_tmp[9],led_uart_tmp[10]);
-				//LED_set(2*i+1,led_uart_tmp[8],led_uart_tmp[9],led_uart_tmp[10]);
+			for(uint8_t i = 0; i < req.end; i++){
+                set_led_immediate(req.start + i, req.Multi_color[0], req.Multi_color[1], req.Multi_color[2]);
 			}
-			led_fade_flag = 1;
 			res_init(0,AckStatus_Ok,AckReport_Ok);
 			break;
 		case SetLedGs8BitMultiFade:
-			//setLedGs8BitMultiFade
-//			for(uint8_t i = led_uart_tmp[5];i < led_uart_tmp[6];i++){
-//				LED_set(i,led_uart_tmp[8],led_uart_tmp[9],led_uart_tmp[10]);
-//				//LED_set(2*i+1,led_uart_tmp[8],led_uart_tmp[9],led_uart_tmp[10]);
-//			}
-			led_fade_flag = 3;
-			memcpy(led_fade_target,led_uart_tmp + 5,2);
-			memcpy(led_fade_color[1],led_uart_tmp + 8,3);
-			led_fade_time = (4095 / req.speed * 8);
-			led_fade_clock = led_fade_time;
-//			__HAL_TIM_SetAutoreload(&htim7,led_fade_time);
+			for(uint8_t i = 0; i < req.end; i++){
+                set_led_fade(req.start + i, req.Multi_color[0], req.Multi_color[1], req.Multi_color[2], req.speed);
+			}
 			res_init(0,AckStatus_Ok,AckReport_Ok);
 			break;
 		case SetLedFet:
-			//BodyLed ExtLed SideLed
-			//FET_LED_Update(led_uart_tmp[5],led_uart_tmp[6],led_uart_tmp[7]);
+			FET_LED_Update(req.BodyLED, req.SideLED, req.CamRingLED, req.CamRecLED, req.ReaderLED);
 			res_init(0,AckStatus_Ok,AckReport_Ok);
 			break;
 		case SetLedGsUpdate:
-			//SetLedGsUpdate
-			if(led_fade_flag == 3){
-				//__HAL_TIM_SET_COUNTER(&htim7, 0);
-				led_fade_flag = 2;
-			}else{
-				led_fade_flag = 0;
-			}
 			LED_refresh();
-			memset(WS2812_data,0,NUM_LED * 3);
 			res_init(0,AckStatus_Ok,AckReport_Ok);
 			break;
 		case SetEEPRom:
