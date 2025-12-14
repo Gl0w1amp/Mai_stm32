@@ -205,8 +205,6 @@ void Touch_Task(void const * argument)
   /* USER CODE BEGIN Touch_Task */
 	/* Infinite loop */
 	//mai_touch
-	LED_set(0,255,255,255);
-	LED_refresh();
 	flash_read(Flash.raw_flash);
 	if(Flash.system_config != CONFIG_VERSION){
 		for(uint8_t i = 0;i<34;i++){

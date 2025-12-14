@@ -49,7 +49,7 @@ uint8_t WS2812_data_raw[24] = {
 uint8_t WS2812_data_button[24];
 uint8_t WS2812_data_billboard[24];
 uint8_t WS2812_data[NUM_LED * 3]; //16LED
-uint32_t WS2812_data_DMA_buffer[128 + NUM_LED * 24 + 64];
+uint16_t WS2812_data_DMA_buffer[64 + NUM_LED * 24 + 64];
 uint8_t led_uart_buffer_rx[64];
 uint8_t led_uart_buffer_tx[64];
 uint8_t led_uart_tmp[64];
@@ -96,7 +96,7 @@ void LED_refresh()
 			WS2812_data_DMA_buffer[(i*3+2)*8+j+ 64] = (gamma8[WS2812_data[i*3+2]] & (1<<(7-j))) ? WS2812_HIGH:WS2812_LOW;
 		}
 	}
-	HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_2, (uint32_t *)WS2812_data_DMA_buffer,2 * (128 + NUM_LED * 24 + 64));
+	HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_2, (uint32_t *)WS2812_data_DMA_buffer, (64 + NUM_LED * 24 + 64));
 }
 void FET_LED_Init(){
 	HAL_TIM_PWM_Start(&htim4,TIM_CHANNEL_1);
