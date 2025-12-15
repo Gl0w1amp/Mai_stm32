@@ -37,7 +37,7 @@ jobs:
         # Get version info
         VERSION=$(git describe --tags --always --dirty)
         GIT_HASH=$(git rev-parse --short=8 HEAD)
-        TIMESTAMP=$(date "+%Y-%m-%d %H:%M")
+        TIMESTAMP=$(TZ='Asia/Shanghai' date "+%Y-%m-%d %H:%M")
         
         # Parse semantic version
         if [[ $VERSION =~ v?([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
@@ -246,7 +246,7 @@ jobs:
         python3 ../scripts/sign_firmware.py "Curva_G431_Mai.bin" "Curva_G431_Mai_Signed.bin"
         
         # Generate timestamped filename and rename the binary
-        TIMESTAMP=$(date +%y%m%d%H%M)
+        TIMESTAMP=$(TZ='Asia/Shanghai' date +%y%m%d%H%M)
         TIMESTAMPED_BIN="Curva_G431_${TIMESTAMP}.bin"
         
         if [ -f "Curva_G431_Mai_Signed.bin" ]; then
@@ -255,6 +255,12 @@ jobs:
           ls -lh "$TIMESTAMPED_BIN"
           # Save filename for later steps
           echo "$TIMESTAMPED_BIN" > firmware_filename.txt
+          
+          # Remove the original unsigned binary so it doesn't get uploaded
+          if [ -f "Curva_G431_Mai.bin" ]; then
+            rm "Curva_G431_Mai.bin"
+            echo "Removed original unsigned binary"
+          fi
         fi
         
         echo "Build completed, checking outputs..."
@@ -297,7 +303,7 @@ jobs:
         **Build Information:**
         - Commit: ${{ github.sha }}
         - Branch: ${{ github.ref_name }}
-        - Build Time: $(date -u)
+        - Build Time: $(TZ='Asia/Shanghai' date)
         - Built with: GNU ARM Embedded Toolchain
 
         **File:**
