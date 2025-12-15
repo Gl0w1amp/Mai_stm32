@@ -138,6 +138,7 @@ void FET_LED_Init();
 void FET_LED_Update(uint8_t BodyLED,uint8_t SideLED,uint8_t CamRingLED,uint8_t CamRecLED,uint8_t ReaderLED);
 void LED_set(uint8_t led_no,uint8_t r,uint8_t g,uint8_t b);
 void LED_refresh();
+void LED_update_button();
 void LED_UART_Init();
 void LED_UART_IRQHandler();
 void LED_Fade_IRQHandler();
