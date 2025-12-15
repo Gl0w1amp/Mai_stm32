@@ -255,6 +255,12 @@ jobs:
           ls -lh "$TIMESTAMPED_BIN"
           # Save filename for later steps
           echo "$TIMESTAMPED_BIN" > firmware_filename.txt
+          
+          # Remove the original unsigned binary so it doesn't get uploaded
+          if [ -f "Curva_G431_Mai.bin" ]; then
+            rm "Curva_G431_Mai.bin"
+            echo "Removed original unsigned binary"
+          fi
         fi
         
         echo "Build completed, checking outputs..."
