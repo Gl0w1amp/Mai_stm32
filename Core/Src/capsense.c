@@ -40,6 +40,7 @@ uint16_t capsense_threshold[34];
 uint8_t capsense_data_ready = 0;
 uint8_t capsense_bit;
 uint8_t capsense_touch_status[34];
+uint8_t capsense_procotl_version = 0;
 
 #ifdef PSOC_DEBUG
 typedef union{
@@ -83,21 +84,60 @@ void Touch_UART_Handler(){
 	if(__HAL_UART_GET_FLAG(&huart4, UART_FLAG_IDLE)){
 		__HAL_UART_CLEAR_IDLEFLAG(&huart4);
 		HAL_UART_DMAStop(&huart4);
-        if(uart_dma_buffer[0] == 0){
-            checksum = 0;
-            for(uint8_t i = 0;i<69;i++){
-                checksum += uart_dma_buffer[i];
-            }
-            if(checksum == uart_dma_buffer[69])
-            {
-            	memcpy(&Touch.data[0],uart_dma_buffer+1,68);
-            	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 1);
-            }
-        }
+//        if(uart_dma_buffer[0] == 0){
+//            checksum = 0;
+//            for(uint8_t i = 0;i<69;i++){
+//                checksum += uart_dma_buffer[i];
+//            }
+//            if(checksum == uart_dma_buffer[69])
+//            {
+//            	memcpy(&Touch.data[0],uart_dma_buffer+1,68);
+//            	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 1);
+//            }
+//        }
+		if(!capsense_data_proc(uart_dma_buffer)){
+			capsense_data_proc_legacy(uart_dma_buffer);
+		}
 		HAL_UART_Receive_DMA(&huart4,uart_dma_buffer,70);
 	}
 }
 
+bool capsense_data_proc(uint8_t *uart_dma_buffer){
+	if((capsense_procotl_version != 0) && (capsense_procotl_version != 1)){
+		return false;
+	}
+    if(uart_dma_buffer[0] == 0){
+        checksum = 0;
+        for(uint8_t i = 0;i<69;i++){
+            checksum += uart_dma_buffer[i];
+        }
+        if(checksum == uart_dma_buffer[69])
+        {
+        	memcpy(&Touch.data[0],uart_dma_buffer+1,68);
+        	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 1);
+        	if(capsense_procotl_version == 0){
+        		capsense_procotl_version = 1;
+        	}
+        	return true;
+        }
+    }
+    return false;
+}
+
+bool capsense_data_proc_legacy(uint8_t *uart_dma_buffer){
+	if((capsense_procotl_version != 0) && (capsense_procotl_version != 2)){
+		return false;
+	}
+    if(uart_dma_buffer[0] == 0 && uart_dma_buffer[1] == 0){
+       memcpy(&Touch.data[0],uart_dma_buffer+1,68);
+       HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 1);
+   	if(capsense_procotl_version == 0){
+   		capsense_procotl_version = 2;
+   	}
+       return true;
+    }
+    return false;
+}
 void Boot_Buttom_IRQHandler(){
 		HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,1);
 		for(uint8_t i = 0;i<34;i++){

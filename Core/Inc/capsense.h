@@ -9,6 +9,7 @@
 #define INC_CAPSENSE_H_
 
 #include <stdint.h>
+#include <stdbool.h>
 
 //#define PSOC_DEBUG
 
@@ -28,5 +29,7 @@ extern uint8_t touch_sheet[34];
 void Touch_UART_Handler();
 void capsense_init();
 void capsense_check();
+bool capsense_data_proc(uint8_t *uart_dma_buffer);
+bool capsense_data_proc_legacy(uint8_t *uart_dma_buffer);
 
 #endif /* INC_CAPSENSE_H_ */
