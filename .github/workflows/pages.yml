@@ -2,7 +2,7 @@ name: Deploy MkDocs to GitHub Pages
 
 on:
   push:
-    branches: [ G431 ]   # ← 你的默认分支
+    branches: [ G431 ]
   workflow_dispatch:
 
 permissions:
