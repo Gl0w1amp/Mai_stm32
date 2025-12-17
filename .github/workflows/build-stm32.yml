@@ -24,7 +24,7 @@ jobs:
     - name: Install ARM GCC toolchain
       run: |
         sudo apt-get update
-        sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi
+        sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi openssl
         
     - name: Verify toolchain installation
       run: |
@@ -241,16 +241,16 @@ jobs:
         echo "Building firmware..."
         make all -j$(nproc)
         
-        # --- Post-Build: Sign Firmware ---
-        echo "Signing firmware..."
-        python3 ../scripts/sign_firmware.py "Curva_G431_Mai.bin" "Curva_G431_Mai_Signed.bin"
+        # --- Post-Build: Patch Firmware ---
+        echo "Patching firmware..."
+        python3 ../scripts/patch_firmware.py "Curva_G431_Mai.bin" "Curva_G431_Mai_Patched.bin"
         
         # Generate timestamped filename and rename the binary
         TIMESTAMP=$(TZ='Asia/Shanghai' date +%y%m%d%H%M)
         TIMESTAMPED_BIN="Curva_G431_${TIMESTAMP}.bin"
         
-        if [ -f "Curva_G431_Mai_Signed.bin" ]; then
-          mv "Curva_G431_Mai_Signed.bin" "$TIMESTAMPED_BIN"
+        if [ -f "Curva_G431_Mai_Patched.bin" ]; then
+          mv "Curva_G431_Mai_Patched.bin" "$TIMESTAMPED_BIN"
           echo "Created timestamped binary: $TIMESTAMPED_BIN"
           ls -lh "$TIMESTAMPED_BIN"
           # Save filename for later steps
@@ -278,13 +278,56 @@ jobs:
           echo "✗ Timestamped binary file not found"
           exit 1
         fi
+
+    - name: OpenSSL sign firmware (dev/release)
+      if: github.event_name != 'pull_request'
+      run: |
+        cd Release
+        TIMESTAMPED_BIN=$(cat firmware_filename.txt)
+
+        DEV_KEY_B64="${{ secrets.DEV_FW_SIGNING_PRIV_PEM_B64 }}"
+        REL_KEY_B64="${{ secrets.REL_FW_SIGNING_PRIV_PEM_B64 }}"
+
+        IS_TAG_OR_RELEASE=0
+        if [ "$GITHUB_EVENT_NAME" = "release" ] || [[ "$GITHUB_REF" == refs/tags/* ]]; then
+          IS_TAG_OR_RELEASE=1
+        fi
+
+        umask 077
+
+        if [ "$IS_TAG_OR_RELEASE" -eq 1 ] && [ -n "$REL_KEY_B64" ]; then
+          echo "Signing as RELEASE -> ${TIMESTAMPED_BIN}.sig"
+          echo "$REL_KEY_B64" | base64 -d > rel_priv.pem
+          openssl dgst -sha256 -sign rel_priv.pem -out "${TIMESTAMPED_BIN}.sig" "${TIMESTAMPED_BIN}"
+          if [ -f ../keys/rel_fw_pub.pem ]; then
+            openssl dgst -sha256 -verify ../keys/rel_fw_pub.pem -signature "${TIMESTAMPED_BIN}.sig" "${TIMESTAMPED_BIN}"
+          fi
+          rm -f rel_priv.pem
+          ls -lh "${TIMESTAMPED_BIN}.sig"
+        elif [ -n "$DEV_KEY_B64" ]; then
+          echo "Signing as DEV -> ${TIMESTAMPED_BIN}.dev.sig"
+          echo "$DEV_KEY_B64" | base64 -d > dev_priv.pem
+          openssl dgst -sha256 -sign dev_priv.pem -out "${TIMESTAMPED_BIN}.dev.sig" "${TIMESTAMPED_BIN}"
+          if [ -f ../keys/dev_fw_pub.pem ]; then
+            openssl dgst -sha256 -verify ../keys/dev_fw_pub.pem -signature "${TIMESTAMPED_BIN}.dev.sig" "${TIMESTAMPED_BIN}"
+          fi
+          rm -f dev_priv.pem
+          ls -lh "${TIMESTAMPED_BIN}.dev.sig"
+        else
+          echo "No signing key configured; skipping OpenSSL signing."
+        fi
         
     - name: Upload firmware artifacts
       uses: actions/upload-artifact@v4
       if: success()
       with:
         name: stm32-firmware-${{ github.sha }}
-        path: Release/Curva_G431_*.bin
+        path: |
+          Release/Curva_G431_*.bin
+          Release/Curva_G431_*.bin.sig
+          Release/Curva_G431_*.bin.dev.sig
+          keys/dev_fw_pub.pem
+          keys/rel_fw_pub.pem
         retention-days: 30
         
     - name: Create release on tag
@@ -295,6 +338,20 @@ jobs:
       run: |
         cd Release
         TIMESTAMPED_BIN=$(cat firmware_filename.txt)
+
+        FILES=("${TIMESTAMPED_BIN}")
+        if [ -f "${TIMESTAMPED_BIN}.sig" ]; then
+          FILES+=("${TIMESTAMPED_BIN}.sig")
+        fi
+        if [ -f "${TIMESTAMPED_BIN}.dev.sig" ]; then
+          FILES+=("${TIMESTAMPED_BIN}.dev.sig")
+        fi
+        if [ -f ../keys/rel_fw_pub.pem ]; then
+          FILES+=("../keys/rel_fw_pub.pem")
+        fi
+        if [ -f ../keys/dev_fw_pub.pem ]; then
+          FILES+=("../keys/dev_fw_pub.pem")
+        fi
         
         gh release create ${{ github.ref_name }} \
           --title "Firmware Release ${{ github.ref_name }}" \
@@ -308,7 +365,7 @@ jobs:
 
         **File:**
         - \`${TIMESTAMPED_BIN}\` - Binary firmware file for flashing" \
-          "${TIMESTAMPED_BIN}"
+          "${FILES[@]}"
 
     - name: Upload firmware to Cloudflare R2
       if: github.event_name == 'release' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
@@ -335,6 +392,41 @@ jobs:
           --endpoint-url "${R2_ENDPOINT}" \
           --cache-control "public,max-age=31536000,immutable"
 
+        sig_file=""
+        sig_alg=""
+        pubkey_path=""
+        sig_sha256=""
+
+        if [ -f "${TIMESTAMPED_BIN}.sig" ]; then
+          sig_file="${TIMESTAMPED_BIN}.sig"
+          sig_alg="ecdsa-p256-sha256"
+          pubkey_path="/public/firmwares/affine/mai2/${tag}/../rel_fw_pub.pem"
+          aws s3 cp "${sig_file}" "${dest}" \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --cache-control "public,max-age=31536000,immutable"
+          if [ -f ../keys/rel_fw_pub.pem ]; then
+            aws s3 cp "../keys/rel_fw_pub.pem" "${base}/rel_fw_pub.pem" \
+              --endpoint-url "${R2_ENDPOINT}" \
+              --cache-control "public,max-age=31536000,immutable"
+            pubkey_path="/public/firmwares/affine/mai2/rel_fw_pub.pem"
+          fi
+          sig_sha256=$(sha256sum "${sig_file}" | awk '{print $1}')
+        elif [ -f "${TIMESTAMPED_BIN}.dev.sig" ]; then
+          sig_file="${TIMESTAMPED_BIN}.dev.sig"
+          sig_alg="ecdsa-p256-sha256"
+          pubkey_path="/public/firmwares/affine/mai2/${tag}/../dev_fw_pub.pem"
+          aws s3 cp "${sig_file}" "${dest}" \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --cache-control "public,max-age=31536000,immutable"
+          if [ -f ../keys/dev_fw_pub.pem ]; then
+            aws s3 cp "../keys/dev_fw_pub.pem" "${base}/dev_fw_pub.pem" \
+              --endpoint-url "${R2_ENDPOINT}" \
+              --cache-control "public,max-age=31536000,immutable"
+            pubkey_path="/public/firmwares/affine/mai2/dev_fw_pub.pem"
+          fi
+          sig_sha256=$(sha256sum "${sig_file}" | awk '{print $1}')
+        fi
+
         # Create manifest.json
         hash=$(sha256sum "${TIMESTAMPED_BIN}" | awk '{print $1}')
         size=$(stat -c%s "${TIMESTAMPED_BIN}")
@@ -346,6 +438,10 @@ jobs:
           "file": "${TIMESTAMPED_BIN}",
           "size": ${size},
           "sha256": "${hash}",
+          "signature": "${sig_file}",
+          "signature_sha256": "${sig_sha256}",
+          "sig_alg": "${sig_alg}",
+          "pubkey": "${pubkey_path}",
           "path": "/public/firmwares/affine/mai2/${tag}/${TIMESTAMPED_BIN}",
           "uploaded_at": "${uploaded_at}"
         }
