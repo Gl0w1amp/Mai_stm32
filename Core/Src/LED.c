@@ -98,6 +98,14 @@ void LED_refresh()
 	}
 	HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_2, (uint32_t *)WS2812_data_DMA_buffer, (64 + NUM_LED * 24 + 64));
 }
+
+void LED_update_button(){
+	for(uint8_t i = 0;i<8;i++){
+		LED_set(i,WS2812_data_button[i*3],WS2812_data_button[i*3+1],WS2812_data_button[i*3+2]);
+	}
+	LED_refresh();
+}
+
 void FET_LED_Init(){
 	HAL_TIM_PWM_Start(&htim4,TIM_CHANNEL_1);
 	HAL_TIM_PWM_Start(&htim4,TIM_CHANNEL_2);

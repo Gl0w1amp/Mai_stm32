@@ -349,6 +349,7 @@ void Command_Task(void const * argument)
 					break;
 				}
 				memcpy(WS2812_data_button,rxBuffer+3,24);
+				LED_update_button();
 				break;
 			case SERIAL_CMD_LED_BILLBOARD:
 				if(rxBuffer[2] != 24){
@@ -576,16 +577,8 @@ void LED_Task(void const * argument)
 	}
 	LED_refresh();
 	while(1){
-		if(heart_beat != 0){
-			for(uint8_t i = 0;i<8;i++){
-				LED_set(i*2,0xff,0xff,0xff);
-				LED_set(i*2+1,0xff,0xff,0xff);
-			}
-			LED_refresh();
-		}else{
-			LED_Task_Process();
-			LED_Fade_IRQHandler();
-		}
+		LED_Task_Process();
+		LED_Fade_IRQHandler();
 		osDelay(1);
 	}
   /* USER CODE END LED_Task */
