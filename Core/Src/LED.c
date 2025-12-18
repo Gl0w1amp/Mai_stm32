@@ -63,6 +63,8 @@ typedef struct {
 } FadeContext;
 
 FadeContext fade_ctx[NUM_LED];
+static uint16_t fade_pending_duration[NUM_LED];
+static uint8_t fade_pending_active[NUM_LED];
 
 volatile uint32_t timer7_count = 0;
 volatile uint32_t timer7_target = 0;
@@ -155,6 +157,7 @@ void set_led_immediate(uint8_t index, uint8_t r, uint8_t g, uint8_t b) {
     fade_ctx[index].target[1] = g;
     fade_ctx[index].target[2] = b;
     fade_ctx[index].duration = 0;
+    fade_pending_active[index] = 0;
     LED_set(index, r, g, b);
 }
 
@@ -171,6 +174,46 @@ void set_led_fade(uint8_t index, uint8_t r, uint8_t g, uint8_t b, uint8_t speed)
     fade_ctx[index].target[2] = b;
     fade_ctx[index].duration = (4095 / speed * 8);
     fade_ctx[index].elapsed = 0;
+}
+
+static uint8_t resolve_multi_len(uint8_t start, uint8_t end_field) {
+    uint8_t count = end_field;
+    if (count == 0x20) {
+        count = NUM_LED; // host shortcut for "all"
+    }
+    if (start >= NUM_LED) {
+        return 0;
+    }
+    if (start + count > NUM_LED) {
+        count = NUM_LED - start;
+    }
+    return count;
+}
+
+static void schedule_led_fade(uint8_t index, uint8_t r, uint8_t g, uint8_t b, uint8_t speed) {
+    if (index >= NUM_LED) return;
+    if (speed == 0) {
+        set_led_immediate(index, r, g, b);
+        return;
+    }
+    fade_ctx[index].target[0] = r;
+    fade_ctx[index].target[1] = g;
+    fade_ctx[index].target[2] = b;
+    fade_pending_duration[index] = (4095 / speed * 8);
+    fade_pending_active[index] = 1;
+}
+
+static void start_pending_fades(void) {
+    for (uint8_t i = 0; i < NUM_LED; i++) {
+        if (fade_pending_active[i]) {
+            fade_ctx[i].start[0] = fade_ctx[i].current[0];
+            fade_ctx[i].start[1] = fade_ctx[i].current[1];
+            fade_ctx[i].start[2] = fade_ctx[i].current[2];
+            fade_ctx[i].elapsed = 0;
+            fade_ctx[i].duration = fade_pending_duration[i];
+            fade_pending_active[i] = 0;
+        }
+    }
 }
 
 void LED_Fade_IRQHandler(){
@@ -322,22 +365,29 @@ void LED_Task_Process(){
 			res_init(0,AckStatus_Ok,AckReport_Ok);
 			break;
 		case SetLedGs8BitMulti:
-			for(uint8_t i = 0; i < req.end; i++){
+		{
+			uint8_t count = resolve_multi_len(req.start, req.end);
+			for(uint8_t i = 0; i < count; i++){
                 set_led_immediate(req.start + i, req.Multi_color[0], req.Multi_color[1], req.Multi_color[2]);
 			}
 			res_init(0,AckStatus_Ok,AckReport_Ok);
 			break;
+		}
 		case SetLedGs8BitMultiFade:
-			for(uint8_t i = 0; i < req.end; i++){
-                set_led_fade(req.start + i, req.Multi_color[0], req.Multi_color[1], req.Multi_color[2], req.speed);
+		{
+			uint8_t count = resolve_multi_len(req.start, req.end);
+			for(uint8_t i = 0; i < count; i++){
+                schedule_led_fade(req.start + i, req.Multi_color[0], req.Multi_color[1], req.Multi_color[2], req.speed);
 			}
 			res_init(0,AckStatus_Ok,AckReport_Ok);
 			break;
+		}
 		case SetLedFet:
 			FET_LED_Update(req.BodyLed, req.ExtLed, req.SideLed);
 			res_init(0,AckStatus_Ok,AckReport_Ok);
 			break;
 		case SetLedGsUpdate:
+			start_pending_fades();
 			LED_refresh();
 			res_init(0,AckStatus_Ok,AckReport_Ok);
 			break;
