@@ -195,48 +195,75 @@ void LED_Fade_IRQHandler(){
     LED_refresh();
 }
 
-uint8_t led_packet_check(uint8_t* data,uint8_t len) {
+uint8_t led_packet_check(uint8_t* data, uint8_t len, uint8_t* consumed) {
 	bool escape = false;
 	uint8_t raw_pos = 0;
 	uint8_t req_pos = 0;
 	uint8_t checksum = 0;
-	while(raw_pos<len){
-		if(data[raw_pos] == Sync){
-			req.length = 0x04;
-			raw_pos++;
-			break;
-		}
+	uint8_t expected_len = 0xFF;
+	*consumed = 0;
+
+	/* find sync */
+	while(raw_pos < len && data[raw_pos] != Sync){
 		raw_pos++;
 	}
-	if(raw_pos == len){
+	if(raw_pos >= len){
+		*consumed = len;
 		return 0;
 	}
-	while(req_pos != req.length + 3){
-		if (data[raw_pos] == 0xD0) {
+	raw_pos++; // skip Sync
+
+	/* decode payload */
+	while(raw_pos < len){
+		if(data[raw_pos] == Marker){
 			escape = true;
 			raw_pos++;
-		}else if (escape) {
-			req.bytes[req_pos] = data[raw_pos] + 1;
-			checksum += req.bytes[req_pos];
-			escape = false;
-			raw_pos++;
-			req_pos++;
-		}else{
-			req.bytes[req_pos] = data[raw_pos];
-			checksum += req.bytes[req_pos];
-			raw_pos++;
-			req_pos++;
+			continue;
 		}
-		if(raw_pos == len){
-			return 0;
+		uint8_t byte = data[raw_pos];
+		if(escape){
+			byte += 1;
+			escape = false;
+		}
+		req.bytes[req_pos] = byte;
+		checksum += req.bytes[req_pos];
+		raw_pos++;
+		req_pos++;
+
+		if(req_pos == 3){
+			expected_len = req.length;
+			/* sanity: avoid buffer overflow */
+			if(expected_len > sizeof(req.bytes) - 4){
+				*consumed = raw_pos;
+				return 0;
+			}
+		}
+
+		if(expected_len != 0xFF && req_pos == expected_len + 3){
+			break; // next byte is checksum
 		}
 	}
-	req.bytes[req_pos] = data[raw_pos];
-	if(checksum == req.bytes[req.length + 3]){
-		return req.cmd;
-	}else{
+
+	if(raw_pos >= len || expected_len == 0xFF){
+		*consumed = raw_pos;
 		return 0;
 	}
+
+	/* read checksum (supports escaped checksum) */
+	if(data[raw_pos] == Marker){
+		raw_pos++;
+		if(raw_pos >= len){
+			*consumed = raw_pos;
+			return 0;
+		}
+		req.bytes[req_pos] = data[raw_pos] + 1;
+	}else{
+		req.bytes[req_pos] = data[raw_pos];
+	}
+	raw_pos++;
+	*consumed = raw_pos;
+
+	return (checksum == req.bytes[expected_len + 3]) ? req.cmd : 0;
 }
 
 void led_packet_write() {
@@ -278,9 +305,18 @@ void res_init(uint8_t length, uint8_t status, uint8_t report) {
 }
 
 void LED_Task_Process(){
-	switch(led_packet_check(led_uart_tmp,64)){
-//		case 0:
-//			return;
+	uint8_t offset = 0;
+	while(offset < 64){
+		uint8_t consumed = 0;
+		uint8_t cmd = led_packet_check(led_uart_tmp + offset, 64 - offset, &consumed);
+		offset += consumed;
+		if(consumed == 0){
+			break;
+		}
+		if(cmd == 0){
+			continue;
+		}
+		switch(cmd){
 		case SetLedGs8Bit:
 			set_led_immediate(req.index, req.color[0], req.color[1], req.color[2]);
 			res_init(0,AckStatus_Ok,AckReport_Ok);
@@ -342,7 +378,8 @@ void LED_Task_Process(){
 			break;
 		default:
 			res_init(0,AckStatus_Ok,AckReport_Ok);
+		}
+		led_packet_write();
 	}
-	led_packet_write();
 	memset(led_uart_tmp,0,64);
 }
