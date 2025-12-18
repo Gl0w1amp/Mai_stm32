@@ -2,7 +2,7 @@ name: Deploy MkDocs to GitHub Pages
 
 on:
   push:
-    branches: [ G431 ]   # ← 你的默认分支
+    branches: [ G431 ]
   workflow_dispatch:
 
 permissions:
@@ -29,6 +29,30 @@ jobs:
       - name: Install MkDocs
         run: |
           pip install mkdocs mkdocs-material
+
+      - name: Patch mkdocs.yml from variables
+        run: |
+          set -euo pipefail
+
+          REPO_URL="https://github.com/${GITHUB_REPOSITORY}"
+          REPO_NAME="${GITHUB_REPOSITORY}"
+          SITE_URL="${{ vars.MKDOCS_SITE_URL }}"
+
+          if [ -n "$SITE_URL" ]; then
+            case "$SITE_URL" in
+              */) : ;;
+              *) SITE_URL="${SITE_URL}/" ;;
+            esac
+            sed -i "s|^site_url:.*|site_url: ${SITE_URL}|" mkdocs.yml
+          else
+            echo "MKDOCS_SITE_URL is not set; leaving site_url unchanged."
+          fi
+
+          sed -i "s|^repo_url:.*|repo_url: ${REPO_URL}|" mkdocs.yml
+          sed -i "s|^repo_name:.*|repo_name: ${REPO_NAME}|" mkdocs.yml
+
+          echo "Patched mkdocs.yml:"
+          grep -E '^(site_url|repo_url|repo_name):' mkdocs.yml || true
 
       - name: Build site
         run: mkdocs build --strict
