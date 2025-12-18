@@ -95,8 +95,10 @@ void Touch_UART_Handler(){
 //            	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 1);
 //            }
 //        }
-		if(!capsense_data_proc(uart_dma_buffer)){
-			capsense_data_proc_legacy(uart_dma_buffer);
+		if(!__HAL_DMA_GET_COUNTER(huart4.hdmarx)){
+			if(!capsense_data_proc(uart_dma_buffer)){
+				capsense_data_proc_legacy(uart_dma_buffer);
+			}
 		}
 		HAL_UART_Receive_DMA(&huart4,uart_dma_buffer,70);
 	}

@@ -577,7 +577,7 @@ void LED_Task(void const * argument)
 	}
 	LED_refresh();
 	while(1){
-		LED_Task_Process();
+//		LED_Task_Process();
 		LED_Fade_IRQHandler();
 		osDelay(1);
 	}

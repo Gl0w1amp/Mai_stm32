@@ -139,7 +139,7 @@ void LED_UART_IRQHandler(){
 		//CDC_Transmit(0,(uint8_t*)led_uart_buffer_rx, 39);
 		memcpy(led_uart_tmp,led_uart_buffer_rx,64);
 		HAL_UART_Receive_DMA(&huart1,led_uart_buffer_rx,64);
-		//LED_Task_Process();
+		LED_Task_Process();
 	}
 }
 
