@@ -342,7 +342,7 @@ void Command_Task(void const * argument)
 //					break;
 //				}
 //				memcpy(WS2812_data_raw,rxBuffer+3,24);
-//				FET_LED_Update(rxBuffer[27],rxBuffer[28],rxBuffer[29],0,0);
+//				FET_LED_Update(rxBuffer[27],rxBuffer[28],rxBuffer[29]);
 				break;
 			case SERIAL_CMD_LED_BUTTON:
 				if(rxBuffer[2] != 24){
@@ -358,10 +358,10 @@ void Command_Task(void const * argument)
 				memcpy(WS2812_data_billboard,rxBuffer+3,24);
 				break;
 			case SERIAL_CMD_LED_PWM:
-				if(rxBuffer[2] != 5){
+				if(rxBuffer[2] < 3){
 					break;
 				}
-				FET_LED_Update(rxBuffer[3],rxBuffer[4],rxBuffer[5],rxBuffer[6],rxBuffer[7]);
+				FET_LED_Update(rxBuffer[3],rxBuffer[4],rxBuffer[5]);
 				break;
 			case SERIAL_CMD_SCAN_START:
 				break;

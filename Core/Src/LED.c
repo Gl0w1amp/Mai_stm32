@@ -114,10 +114,10 @@ void FET_LED_Init(){
 	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_2,5);
 	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_4,5);
 }
-void FET_LED_Update(uint8_t BodyLED,uint8_t SideLED,uint8_t CamRingLED,uint8_t CamRecLED,uint8_t ReaderLED){
-	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_1,BodyLED);
-	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_2,CamRingLED);
-	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_4,SideLED);
+void FET_LED_Update(uint8_t BodyLed,uint8_t ExtLed,uint8_t SideLed){
+	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_1,BodyLed);
+	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_2,ExtLed);
+	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_4,SideLed);
 }
 void LED_UART_Init(){
 	//memset(WS2812_data_DMA_buffer,0,64);
@@ -298,7 +298,7 @@ void LED_Task_Process(){
 			res_init(0,AckStatus_Ok,AckReport_Ok);
 			break;
 		case SetLedFet:
-			FET_LED_Update(req.BodyLED, req.SideLED, req.CamRingLED, req.CamRecLED, req.ReaderLED);
+			FET_LED_Update(req.BodyLed, req.ExtLed, req.SideLed);
 			res_init(0,AckStatus_Ok,AckReport_Ok);
 			break;
 		case SetLedGsUpdate:
