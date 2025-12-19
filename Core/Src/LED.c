@@ -70,6 +70,9 @@ volatile uint32_t timer7_count = 0;
 volatile uint32_t timer7_target = 0;
 volatile uint8_t timer7_active = 0;
 
+void set_led_immediate(uint8_t index, uint8_t r, uint8_t g, uint8_t b);
+void set_led_fade(uint8_t index, uint8_t r, uint8_t g, uint8_t b, uint8_t speed);
+
 void LED_set(uint8_t led_no,uint8_t r,uint8_t g,uint8_t b){
 	if(led_no > 8){
 		return;
@@ -101,11 +104,13 @@ void LED_refresh()
 	HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_2, (uint32_t *)WS2812_data_DMA_buffer, (64 + NUM_LED * 24 + 64));
 }
 
-void LED_update_button(){
+void LED_update_button(uint8_t speed){
 	for(uint8_t i = 0;i<8;i++){
-		LED_set(i,WS2812_data_button[i*3],WS2812_data_button[i*3+1],WS2812_data_button[i*3+2]);
+		set_led_fade(i, WS2812_data_button[i*3], WS2812_data_button[i*3+1], WS2812_data_button[i*3+2], speed);
 	}
-	LED_refresh();
+	if (speed == 0) {
+		LED_refresh();
+	}
 }
 
 void FET_LED_Init(){

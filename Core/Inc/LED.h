@@ -136,7 +136,7 @@ void FET_LED_Init();
 void FET_LED_Update(uint8_t BodyLed,uint8_t ExtLed,uint8_t SideLed);
 void LED_set(uint8_t led_no,uint8_t r,uint8_t g,uint8_t b);
 void LED_refresh();
-void LED_update_button();
+void LED_update_button(uint8_t speed);
 void LED_UART_Init();
 void LED_UART_IRQHandler();
 void LED_Fade_IRQHandler();
