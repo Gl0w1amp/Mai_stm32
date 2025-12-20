@@ -52,22 +52,6 @@ vofa vofa1;
 uint8_t debug_channel = 0;
 #endif
 
-//void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
-//{
-////	if(Size != 70){
-////		return;
-////	}
-//	//CDC_Transmit_FS((uint8_t*)uart_dma_buffer, Size);
-//    if (huart->Instance == UART4)
-//    {
-//        HAL_UART_DMAStop(&huart4);
-//        if((uart_dma_buffer[0] == 0) && (uart_dma_buffer[1] == 0)){
-//        	memcpy(&Touch.data[0],uart_dma_buffer,70);
-//        }
-//        HAL_UARTEx_ReceiveToIdle_DMA(&huart4, uart_dma_buffer, 70);
-//        __HAL_DMA_DISABLE_IT(&hdma_uart4_rx, DMA_IT_HT);
-//    }
-//}
 bool check_checksum(uint8_t* data){
 	uint8_t checksum = 0;
 	for(uint8_t i = 0;i<69;i++){
@@ -80,28 +64,36 @@ bool check_checksum(uint8_t* data){
 	}
 }
 uint8_t checksum = 0;
+
+static inline void UART_ClearIdle(UART_HandleTypeDef *huart)
+{
+	//dont use on stm32F1/F2/F3/F4,them have usart v1
+	huart->Instance->ICR = USART_ICR_IDLECF;
+}
+
 void Touch_UART_Handler(){
-	if(__HAL_UART_GET_FLAG(&huart4, UART_FLAG_IDLE)){
-		__HAL_UART_CLEAR_IDLEFLAG(&huart4);
-		HAL_UART_DMAStop(&huart4);
-//        if(uart_dma_buffer[0] == 0){
-//            checksum = 0;
-//            for(uint8_t i = 0;i<69;i++){
-//                checksum += uart_dma_buffer[i];
-//            }
-//            if(checksum == uart_dma_buffer[69])
-//            {
-//            	memcpy(&Touch.data[0],uart_dma_buffer+1,68);
-//            	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 1);
-//            }
-//        }
-		if(!__HAL_DMA_GET_COUNTER(huart4.hdmarx)){
-			if(!capsense_data_proc(uart_dma_buffer)){
-				capsense_data_proc_legacy(uart_dma_buffer);
+	UART_ClearIdle(&huart4);
+//	HAL_UART_DMAStop(&huart4);
+	uint8_t len = 128 - __HAL_DMA_GET_COUNTER(huart4.hdmarx);
+	if(len >= 70 ){
+		uint8_t ret = 0;
+		for(uint8_t i = 0;i<70;i++){
+			if(uart_dma_buffer[i] == 0){
+				ret++;
+			}else{
+				break;
 			}
 		}
-		HAL_UART_Receive_DMA(&huart4,uart_dma_buffer,70);
+		if(ret >= 69){
+			goto end;
+		}
+		if(!capsense_data_proc(uart_dma_buffer)){
+			if(!capsense_data_proc_legacy(uart_dma_buffer)){
+			}
+		}
 	}
+end:
+	return;
 }
 
 bool capsense_data_proc(uint8_t *uart_dma_buffer){
@@ -120,6 +112,7 @@ bool capsense_data_proc(uint8_t *uart_dma_buffer){
         	if(capsense_procotl_version == 0){
         		capsense_procotl_version = 1;
         	}
+        	capsense_data_ready = 255;
         	return true;
         }
     }
@@ -131,40 +124,42 @@ bool capsense_data_proc_legacy(uint8_t *uart_dma_buffer){
 		return false;
 	}
     if(uart_dma_buffer[0] == 0 && uart_dma_buffer[1] == 0){
-       memcpy(&Touch.data[0],uart_dma_buffer+1,68);
-       HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 1);
-   	if(capsense_procotl_version == 0){
-   		capsense_procotl_version = 2;
-   	}
-       return true;
+		memcpy(&Touch.data[0],uart_dma_buffer+1,68);
+		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 1);
+		if(capsense_procotl_version == 0){
+			capsense_procotl_version = 2;
+		}
+		capsense_data_ready = 255;
+		return true;
     }
     return false;
 }
 void Boot_Buttom_IRQHandler(){
-		HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,1);
-		for(uint8_t i = 0;i<34;i++){
-			capsense_baseline[i] = 0;
-			capsense_freeze[i] = 0;
+	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,1);
+	for(uint8_t i = 0;i<34;i++){
+		capsense_baseline[i] = 0;
+		capsense_freeze[i] = 0;
 
-			Touch.channel_raw[i] = 0;
-			capsense_touch_status[i] = 0;
-		}
-		for(uint8_t i = 0;i<8;i++){
-			capsense_duration[i] = 0;
-		}
-		HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,0);
+		Touch.channel_raw[i] = 0;
+		capsense_touch_status[i] = 0;
+	}
+	for(uint8_t i = 0;i<8;i++){
+		capsense_duration[i] = 0;
+	}
+	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,0);
 }
 
 
 void capsense_init(){
 	__HAL_UART_ENABLE_IT(&huart4, UART_IT_IDLE);
-	HAL_UART_Receive_DMA(&huart4, uart_dma_buffer, 70);
+	UART_ClearIdle(&huart4);
+	HAL_UART_Receive_DMA(&huart4, uart_dma_buffer, 128);
 	__HAL_DMA_DISABLE_IT(&hdma_uart4_rx, DMA_IT_HT);
 	osDelay(100);
 	for(uint8_t i = 0;i<34;i++){
 		capsense_baseline[i] = Touch.channel_raw[i];
 	}
-	capsense_data_ready = 0;
+//	capsense_data_ready = 0;
 }
 
 //void capsense_baseline_updata(uint8_t channel){
@@ -291,7 +286,6 @@ void capsense_check(){
 			capsense_touch_status[i] = 0;
 		}
 	}
-	capsense_data_ready = 0;
 
 //	//BLOCK A
 //	for(uint8_t i = 0;i<8;i++){
