@@ -125,6 +125,7 @@ extern uint8_t keyboard_sheet[14];
 uint8_t player = 1;
 uint8_t current_touch_status[34];
 uint8_t current_button_status[2];
+extern uint8_t capsense_data_ready;
 
 /* USER CODE END Variables */
 osThreadId TouchTaskHandle;
@@ -205,6 +206,7 @@ void Touch_Task(void const * argument)
   /* USER CODE BEGIN Touch_Task */
 	/* Infinite loop */
 	//mai_touch
+	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 0);
 	flash_read(Flash.raw_flash);
 	if(Flash.system_config != CONFIG_VERSION){
 		for(uint8_t i = 0;i<34;i++){
@@ -237,41 +239,38 @@ void Touch_Task(void const * argument)
 	while(1)
 	{
 		osDelay(1);
-//		Flash.touch_threshold[0] = 3000;
-		capsense_check();
-		uint8_t cmd_mai2io[14] = {0xff,1,10,0,0,0,0,0,0,0,0,0,0,10};
-		uint8_t cmd_mai2touch[9] = {0x28,0,0,0,0,0,0,0,0x29};
-		stack_flow_touch(current_touch_status);
-		stack_flow_button(current_button_status);
-		for(uint8_t j = 0;j<7;j++){
-			for(uint8_t i = 0;i<5;i++){
-				if(j == 6 && i == 4){
-					break;
-					//没有35个触摸点
-				}
-				if(current_touch_status[i+j*5]){
-					cmd_mai2io[j+6] |= (1 << i);
+		if(!capsense_data_ready){
+			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 0);
+		}else{
+			capsense_check();
+			uint8_t cmd_mai2io[14] = {0xff,1,10,0,0,0,0,0,0,0,0,0,0,10};
+			uint8_t cmd_mai2touch[9] = {0x28,0,0,0,0,0,0,0,0x29};
+			stack_flow_touch(current_touch_status);
+			stack_flow_button(current_button_status);
+			for(uint8_t j = 0;j<7;j++){
+				for(uint8_t i = 0;i<5;i++){
+					if(j == 6 && i == 4){
+						break;
+						//没有35个触摸点
+					}
+					if(current_touch_status[i+j*5]){
+						cmd_mai2io[j+6] |= (1 << i);
+					}
 				}
 			}
+			cmd_mai2io[3] = current_button_status[0] & 0b00001111;
+			cmd_mai2io[4] = current_button_status[0] & 0b11110000;
+			cmd_mai2io[5] = current_button_status[1];
+			capsense_data_ready -- ;
+	#ifndef PSOC_DEBUG
+			if(heart_beat != 0){
+				CDC_Transmit(0,(uint8_t*)cmd_mai2io, 14);
+			}else if(touch_scan_flag != 0){
+				memcpy(cmd_mai2touch+1,cmd_mai2io+6,7);
+				CDC_Transmit(0,(uint8_t*)cmd_mai2touch, 9);
+			}
+	#endif
 		}
-		cmd_mai2io[3] = current_button_status[0] & 0b00001111;
-		cmd_mai2io[4] = current_button_status[0] & 0b11110000;
-		cmd_mai2io[5] = current_button_status[1];
-		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 0);
-//		if(touch_cmd_flag == 1){
-#ifndef PSOC_DEBUG
-		if(heart_beat != 0){
-			CDC_Transmit(0,(uint8_t*)cmd_mai2io, 14);
-		}else if(touch_scan_flag != 0){
-			memcpy(cmd_mai2touch+1,cmd_mai2io+6,7);
-			CDC_Transmit(0,(uint8_t*)cmd_mai2touch, 9);
-		}
-#endif
-			//touch_cmd_flag = 0;
-//		}
-//		else if(touch_scan_flag == 1){
-//			CDC_Transmit(0,(uint8_t*)cmd_touch, 9);
-//		}
 
 	}
   /* USER CODE END Touch_Task */

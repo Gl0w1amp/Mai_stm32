@@ -43,7 +43,8 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
-
+extern uint8_t uart_dma_buffer[128];
+extern uint8_t led_uart_buffer_rx[64];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -273,11 +274,15 @@ void TIM2_IRQHandler(void)
 void USART1_IRQHandler(void)
 {
   /* USER CODE BEGIN USART1_IRQn 0 */
-	LED_UART_IRQHandler();
+
+    if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_IDLE))
+    {
+    	LED_UART_IRQHandler();
+    }
   /* USER CODE END USART1_IRQn 0 */
   HAL_UART_IRQHandler(&huart1);
   /* USER CODE BEGIN USART1_IRQn 1 */
-
+  HAL_UART_Receive_DMA(&huart1,led_uart_buffer_rx,64);
   /* USER CODE END USART1_IRQn 1 */
 }
 
@@ -287,11 +292,14 @@ void USART1_IRQHandler(void)
 void UART4_IRQHandler(void)
 {
   /* USER CODE BEGIN UART4_IRQn 0 */
-	Touch_UART_Handler();
+    if (__HAL_UART_GET_FLAG(&huart4, UART_FLAG_IDLE))
+    {
+        Touch_UART_Handler();
+    }
   /* USER CODE END UART4_IRQn 0 */
   HAL_UART_IRQHandler(&huart4);
   /* USER CODE BEGIN UART4_IRQn 1 */
-
+	HAL_UART_Receive_DMA(&huart4,uart_dma_buffer,128);
   /* USER CODE END UART4_IRQn 1 */
 }
 
