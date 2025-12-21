@@ -63,10 +63,15 @@ typedef struct {
 } FadeContext;
 
 FadeContext fade_ctx[NUM_LED];
+static uint16_t fade_pending_duration[NUM_LED];
+static uint8_t fade_pending_active[NUM_LED];
 
 volatile uint32_t timer7_count = 0;
 volatile uint32_t timer7_target = 0;
 volatile uint8_t timer7_active = 0;
+
+void set_led_immediate(uint8_t index, uint8_t r, uint8_t g, uint8_t b);
+void set_led_fade(uint8_t index, uint8_t r, uint8_t g, uint8_t b, uint8_t speed);
 
 void LED_set(uint8_t led_no,uint8_t r,uint8_t g,uint8_t b){
 	if(led_no > 8){
@@ -99,11 +104,13 @@ void LED_refresh()
 	HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_2, (uint32_t *)WS2812_data_DMA_buffer, (64 + NUM_LED * 24 + 64));
 }
 
-void LED_update_button(){
+void LED_update_button(uint8_t speed){
 	for(uint8_t i = 0;i<8;i++){
-		LED_set(i,WS2812_data_button[i*3],WS2812_data_button[i*3+1],WS2812_data_button[i*3+2]);
+		set_led_fade(i, WS2812_data_button[i*3], WS2812_data_button[i*3+1], WS2812_data_button[i*3+2], speed);
 	}
-	LED_refresh();
+	if (speed == 0) {
+		LED_refresh();
+	}
 }
 
 void FET_LED_Init(){
@@ -114,10 +121,10 @@ void FET_LED_Init(){
 	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_2,5);
 	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_4,5);
 }
-void FET_LED_Update(uint8_t BodyLED,uint8_t SideLED,uint8_t CamRingLED,uint8_t CamRecLED,uint8_t ReaderLED){
-	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_1,BodyLED);
-	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_2,CamRingLED);
-	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_4,SideLED);
+void FET_LED_Update(uint8_t BodyLed,uint8_t ExtLed,uint8_t SideLed){
+	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_1,BodyLed);
+	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_2,ExtLed);
+	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_4,SideLed);
 }
 void LED_UART_Init(){
 	//memset(WS2812_data_DMA_buffer,0,64);
@@ -153,6 +160,7 @@ void set_led_immediate(uint8_t index, uint8_t r, uint8_t g, uint8_t b) {
     fade_ctx[index].target[1] = g;
     fade_ctx[index].target[2] = b;
     fade_ctx[index].duration = 0;
+    fade_pending_active[index] = 0;
     LED_set(index, r, g, b);
 }
 
@@ -169,6 +177,46 @@ void set_led_fade(uint8_t index, uint8_t r, uint8_t g, uint8_t b, uint8_t speed)
     fade_ctx[index].target[2] = b;
     fade_ctx[index].duration = (4095 / speed * 8);
     fade_ctx[index].elapsed = 0;
+}
+
+static uint8_t resolve_multi_len(uint8_t start, uint8_t end_field) {
+    uint8_t count = end_field;
+    if (count == 0x20) {
+        count = NUM_LED; // host shortcut for "all"
+    }
+    if (start >= NUM_LED) {
+        return 0;
+    }
+    if (start + count > NUM_LED) {
+        count = NUM_LED - start;
+    }
+    return count;
+}
+
+static void schedule_led_fade(uint8_t index, uint8_t r, uint8_t g, uint8_t b, uint8_t speed) {
+    if (index >= NUM_LED) return;
+    if (speed == 0) {
+        set_led_immediate(index, r, g, b);
+        return;
+    }
+    fade_ctx[index].target[0] = r;
+    fade_ctx[index].target[1] = g;
+    fade_ctx[index].target[2] = b;
+    fade_pending_duration[index] = (4095 / speed * 8);
+    fade_pending_active[index] = 1;
+}
+
+static void start_pending_fades(void) {
+    for (uint8_t i = 0; i < NUM_LED; i++) {
+        if (fade_pending_active[i]) {
+            fade_ctx[i].start[0] = fade_ctx[i].current[0];
+            fade_ctx[i].start[1] = fade_ctx[i].current[1];
+            fade_ctx[i].start[2] = fade_ctx[i].current[2];
+            fade_ctx[i].elapsed = 0;
+            fade_ctx[i].duration = fade_pending_duration[i];
+            fade_pending_active[i] = 0;
+        }
+    }
 }
 
 void LED_Fade_IRQHandler(){
@@ -193,48 +241,75 @@ void LED_Fade_IRQHandler(){
     LED_refresh();
 }
 
-uint8_t led_packet_check(uint8_t* data,uint8_t len) {
+uint8_t led_packet_check(uint8_t* data, uint8_t len, uint8_t* consumed) {
 	bool escape = false;
 	uint8_t raw_pos = 0;
 	uint8_t req_pos = 0;
 	uint8_t checksum = 0;
-	while(raw_pos<len){
-		if(data[raw_pos] == Sync){
-			req.length = 0x04;
-			raw_pos++;
-			break;
-		}
+	uint8_t expected_len = 0xFF;
+	*consumed = 0;
+
+	/* find sync */
+	while(raw_pos < len && data[raw_pos] != Sync){
 		raw_pos++;
 	}
-	if(raw_pos == len){
+	if(raw_pos >= len){
+		*consumed = len;
 		return 0;
 	}
-	while(req_pos != req.length + 3){
-		if (data[raw_pos] == 0xD0) {
+	raw_pos++; // skip Sync
+
+	/* decode payload */
+	while(raw_pos < len){
+		if(data[raw_pos] == Marker){
 			escape = true;
 			raw_pos++;
-		}else if (escape) {
-			req.bytes[req_pos] = data[raw_pos] + 1;
-			checksum += req.bytes[req_pos];
-			escape = false;
-			raw_pos++;
-			req_pos++;
-		}else{
-			req.bytes[req_pos] = data[raw_pos];
-			checksum += req.bytes[req_pos];
-			raw_pos++;
-			req_pos++;
+			continue;
 		}
-		if(raw_pos == len){
-			return 0;
+		uint8_t byte = data[raw_pos];
+		if(escape){
+			byte += 1;
+			escape = false;
+		}
+		req.bytes[req_pos] = byte;
+		checksum += req.bytes[req_pos];
+		raw_pos++;
+		req_pos++;
+
+		if(req_pos == 3){
+			expected_len = req.length;
+			/* sanity: avoid buffer overflow */
+			if(expected_len > sizeof(req.bytes) - 4){
+				*consumed = raw_pos;
+				return 0;
+			}
+		}
+
+		if(expected_len != 0xFF && req_pos == expected_len + 3){
+			break; // next byte is checksum
 		}
 	}
-	req.bytes[req_pos] = data[raw_pos];
-	if(checksum == req.bytes[req.length + 3]){
-		return req.cmd;
-	}else{
+
+	if(raw_pos >= len || expected_len == 0xFF){
+		*consumed = raw_pos;
 		return 0;
 	}
+
+	/* read checksum (supports escaped checksum) */
+	if(data[raw_pos] == Marker){
+		raw_pos++;
+		if(raw_pos >= len){
+			*consumed = raw_pos;
+			return 0;
+		}
+		req.bytes[req_pos] = data[raw_pos] + 1;
+	}else{
+		req.bytes[req_pos] = data[raw_pos];
+	}
+	raw_pos++;
+	*consumed = raw_pos;
+
+	return (checksum == req.bytes[expected_len + 3]) ? req.cmd : 0;
 }
 
 void led_packet_write() {
@@ -276,30 +351,46 @@ void res_init(uint8_t length, uint8_t status, uint8_t report) {
 }
 
 void LED_Task_Process(){
-	switch(led_packet_check(led_uart_tmp,64)){
-//		case 0:
-//			return;
+	uint8_t offset = 0;
+	while(offset < 64){
+		uint8_t consumed = 0;
+		uint8_t cmd = led_packet_check(led_uart_tmp + offset, 64 - offset, &consumed);
+		offset += consumed;
+		if(consumed == 0){
+			break;
+		}
+		if(cmd == 0){
+			continue;
+		}
+		switch(cmd){
 		case SetLedGs8Bit:
 			set_led_immediate(req.index, req.color[0], req.color[1], req.color[2]);
 			res_init(0,AckStatus_Ok,AckReport_Ok);
 			break;
 		case SetLedGs8BitMulti:
-			for(uint8_t i = 0; i < req.end; i++){
+		{
+			uint8_t count = resolve_multi_len(req.start, req.end);
+			for(uint8_t i = 0; i < count; i++){
                 set_led_immediate(req.start + i, req.Multi_color[0], req.Multi_color[1], req.Multi_color[2]);
 			}
 			res_init(0,AckStatus_Ok,AckReport_Ok);
 			break;
+		}
 		case SetLedGs8BitMultiFade:
-			for(uint8_t i = 0; i < req.end; i++){
-                set_led_fade(req.start + i, req.Multi_color[0], req.Multi_color[1], req.Multi_color[2], req.speed);
+		{
+			uint8_t count = resolve_multi_len(req.start, req.end);
+			for(uint8_t i = 0; i < count; i++){
+                schedule_led_fade(req.start + i, req.Multi_color[0], req.Multi_color[1], req.Multi_color[2], req.speed);
 			}
 			res_init(0,AckStatus_Ok,AckReport_Ok);
 			break;
+		}
 		case SetLedFet:
-			FET_LED_Update(req.BodyLED, req.SideLED, req.CamRingLED, req.CamRecLED, req.ReaderLED);
+			FET_LED_Update(req.BodyLed, req.ExtLed, req.SideLed);
 			res_init(0,AckStatus_Ok,AckReport_Ok);
 			break;
 		case SetLedGsUpdate:
+			start_pending_fades();
 			LED_refresh();
 			res_init(0,AckStatus_Ok,AckReport_Ok);
 			break;
@@ -340,7 +431,8 @@ void LED_Task_Process(){
 			break;
 		default:
 			res_init(0,AckStatus_Ok,AckReport_Ok);
+		}
+		led_packet_write();
 	}
-	led_packet_write();
 	memset(led_uart_tmp,0,64);
 }

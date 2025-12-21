@@ -67,11 +67,9 @@ typedef union {
         uint8_t speed;  // SetDc no exist
       };
       struct {  // SetLedFet
-        uint8_t BodyLED;
-        uint8_t SideLED;
-        uint8_t CamRingLED;
-        uint8_t CamRecLED;
-        uint8_t ReaderLED;
+        uint8_t BodyLed;
+        uint8_t ExtLed;
+        uint8_t SideLed;
       };
       struct {  // SetEEPRom
         uint8_t Set_adress;
@@ -135,10 +133,10 @@ extern uint8_t led_fade_color[2][3];
 extern uint16_t led_fade_clock;
 
 void FET_LED_Init();
-void FET_LED_Update(uint8_t BodyLED,uint8_t SideLED,uint8_t CamRingLED,uint8_t CamRecLED,uint8_t ReaderLED);
+void FET_LED_Update(uint8_t BodyLed,uint8_t ExtLed,uint8_t SideLed);
 void LED_set(uint8_t led_no,uint8_t r,uint8_t g,uint8_t b);
 void LED_refresh();
-void LED_update_button();
+void LED_update_button(uint8_t speed);
 void LED_UART_Init();
 void LED_UART_IRQHandler();
 void LED_Fade_IRQHandler();
