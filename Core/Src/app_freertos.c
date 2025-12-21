@@ -235,7 +235,6 @@ void Touch_Task(void const * argument)
 	}
 	osDelay(1000);
 	capsense_init();
-	//HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 1);
 	while(1)
 	{
 		osDelay(1);

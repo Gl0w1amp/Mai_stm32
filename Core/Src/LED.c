@@ -127,26 +127,12 @@ void FET_LED_Update(uint8_t BodyLed,uint8_t ExtLed,uint8_t SideLed){
 	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_4,SideLed);
 }
 void LED_UART_Init(){
-	//memset(WS2812_data_DMA_buffer,0,64);
 	for(uint16_t i = 0;i < 128 + NUM_LED * 24 + 64;i++){
 		WS2812_data_DMA_buffer[i] = 0;
 	}
-//	memset(WS2812_data_DMA_buffer,0xff,64);
-//	memset(WS2812_data_DMA_buffer + NUM_LED * 24 + 64, 0xff ,64);
-//	memset(WS2812_data_DMA_buffer + NUM_LED * 24 + 128, 0 ,64);
-//	__HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE);
-//	HAL_UART_Receive_DMA(&huart1, led_uart_buffer_rx, 64);
 	while(HAL_UARTEx_ReceiveToIdle_IT(&huart1, led_uart_buffer_rx,64) != HAL_OK);
 	__HAL_DMA_DISABLE_IT(&hdma_usart1_rx, DMA_IT_HT);
 }
-
-//void LED_UART_IRQHandler(){
-//	if(__HAL_UART_GET_FLAG(&huart1, UART_FLAG_IDLE)){
-//		HAL_UART_DMAStop(&huart1);
-//		__HAL_UART_CLEAR_IDLEFLAG(&huart1);
-//		//CDC_Transmit(0,(uint8_t*)led_uart_buffer_rx, 39);
-//	}
-//}
 
 void set_led_immediate(uint8_t index, uint8_t r, uint8_t g, uint8_t b) {
     if (index >= NUM_LED) return;

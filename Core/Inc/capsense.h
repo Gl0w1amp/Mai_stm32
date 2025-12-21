@@ -11,7 +11,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define PSOC_DEBUG
+//#define PSOC_DEBUG
 
 typedef union{
 	uint8_t data[68];

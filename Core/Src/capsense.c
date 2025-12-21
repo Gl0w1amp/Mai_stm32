@@ -169,53 +169,7 @@ void Boot_Buttom_IRQHandler(){
 	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,0);
 }
 
-//void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
-//{
-////	if(Size != 70){
-////		return;
-////	}
-//	//CDC_Transmit_FS((uint8_t*)uart_dma_buffer, Size);
-//    if (huart->Instance == UART4)
-//    {
-//        HAL_UART_DMAStop(&huart4);
-//		if(Size >= 70 ){
-//			uint8_t ret = 0;
-//			for(uint8_t i = 0;i<70;i++){
-//				if(uart_dma_buffer[i] == 0){
-//					ret++;
-//				}else{
-//					break;
-//				}
-//			}
-//			if(ret >= 69){
-////				uint8_t tes5 = 0x47;
-////						CDC_Transmit(0,&tes5,1);
-//				goto end;
-//			}
-//			if(!capsense_data_proc(uart_dma_buffer)){
-//				if(!capsense_data_proc_legacy(uart_dma_buffer)){
-////					uint8_t tes5 = 0x77;
-////					CDC_Transmit(0,&tes5,1);
-//					goto end;
-//				}
-//			}
-//		}else{
-////			uint8_t tes5[71] = {0x17};
-////						memcpy(tes5+1,uart_dma_buffer,70);
-////								CDC_Transmit(0,&tes5,71);
-//		}
-//		end:
-//		while(HAL_UARTEx_ReceiveToIdle_IT(&huart4, uart_dma_buffer, 128) != HAL_OK){
-//		}
-//        __HAL_DMA_DISABLE_IT(&hdma_uart4_rx, DMA_IT_HT);
-//    }
-//}
-
 void capsense_init(){
-//	__HAL_UART_ENABLE_IT(&huart4, UART_IT_IDLE);
-//	UART_ClearIdle(&huart4);
-//	HAL_UART_Receive_DMA(&huart4, uart_dma_buffer, 70);
-//	__HAL_DMA_DISABLE_IT(&hdma_uart4_rx, DMA_IT_HT);
 	while(HAL_UARTEx_ReceiveToIdle_IT(&huart4, uart_dma_buffer, 128) != HAL_OK){
 
 	}
@@ -224,7 +178,6 @@ void capsense_init(){
 	for(uint8_t i = 0;i<34;i++){
 		capsense_baseline[i] = Touch.channel_raw[i];
 	}
-//	capsense_data_ready = 0;
 }
 
 //void capsense_baseline_updata(uint8_t channel){
