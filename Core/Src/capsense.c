@@ -65,36 +65,56 @@ bool check_checksum(uint8_t* data){
 }
 uint8_t checksum = 0;
 
-static inline void UART_ClearIdle(UART_HandleTypeDef *huart)
-{
-	//dont use on stm32F1/F2/F3/F4,them have usart v1
-	huart->Instance->ICR = USART_ICR_IDLECF;
-}
+//static inline void UART_ClearIdle(UART_HandleTypeDef *huart)
+//{
+//	//dont use on stm32F1/F2/F3/F4,them has usart v1
+//	huart->Instance->ICR = USART_ICR_IDLECF;
+//}
 
-void Touch_UART_Handler(){
-	UART_ClearIdle(&huart4);
-//	HAL_UART_DMAStop(&huart4);
-	uint8_t len = 128 - __HAL_DMA_GET_COUNTER(huart4.hdmarx);
-	if(len >= 70 ){
-		uint8_t ret = 0;
-		for(uint8_t i = 0;i<70;i++){
-			if(uart_dma_buffer[i] == 0){
-				ret++;
-			}else{
-				break;
-			}
-		}
-		if(ret >= 69){
-			goto end;
-		}
-		if(!capsense_data_proc(uart_dma_buffer)){
-			if(!capsense_data_proc_legacy(uart_dma_buffer)){
-			}
-		}
-	}
-end:
-	return;
-}
+
+//void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+//{
+//    if (huart->Instance == UART4)
+//    {
+////    	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_15,1);
+////		HAL_UART_DMAStop(&huart4);
+//		uint8_t len = 70 - __HAL_DMA_GET_COUNTER(huart4.hdmarx);
+//		if(len ==70 ){
+//			uint8_t ret = 0;
+//			for(uint8_t i = 0;i<70;i++){
+//				if(uart_dma_buffer[i] == 0){
+//					ret++;
+//				}else{
+//					break;
+//				}
+//			}
+//			if(ret >= 69){
+//				uint8_t tes5 = 0x47;
+//						CDC_Transmit(0,&tes5,1);
+//				goto end;
+//			}
+//			if(!capsense_data_proc(uart_dma_buffer)){
+//				if(!capsense_data_proc_legacy(uart_dma_buffer)){
+//
+//				}
+//			}
+//		}else{
+//	    	uint8_t tes5[71] = {0x17};
+//	    				memcpy(tes5+1,uart_dma_buffer,70);
+//	    						CDC_Transmit(0,&tes5,71);
+//		}
+//	end:
+////		UART_ClearIdle(&huart4);
+//		HAL_UART_Receive_DMA(&huart4,uart_dma_buffer,70);
+//		return;
+//    }
+//}
+//
+//void Touch_UART_IDLE_Handler(){
+//	UART_ClearIdle(&huart4);
+//	HAL_UART_Receive_DMA(&huart4,uart_dma_buffer,70);
+//	__HAL_UART_DISABLE_IT(&huart4, UART_IT_IDLE);
+//}
 
 bool capsense_data_proc(uint8_t *uart_dma_buffer){
 	if((capsense_procotl_version != 0) && (capsense_procotl_version != 1)){
@@ -124,7 +144,7 @@ bool capsense_data_proc_legacy(uint8_t *uart_dma_buffer){
 		return false;
 	}
     if(uart_dma_buffer[0] == 0 && uart_dma_buffer[1] == 0){
-		memcpy(&Touch.data[0],uart_dma_buffer+1,68);
+		memcpy(&Touch.data[0],uart_dma_buffer+2,68);
 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 1);
 		if(capsense_procotl_version == 0){
 			capsense_procotl_version = 2;
@@ -149,11 +169,56 @@ void Boot_Buttom_IRQHandler(){
 	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,0);
 }
 
+//void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
+//{
+////	if(Size != 70){
+////		return;
+////	}
+//	//CDC_Transmit_FS((uint8_t*)uart_dma_buffer, Size);
+//    if (huart->Instance == UART4)
+//    {
+//        HAL_UART_DMAStop(&huart4);
+//		if(Size >= 70 ){
+//			uint8_t ret = 0;
+//			for(uint8_t i = 0;i<70;i++){
+//				if(uart_dma_buffer[i] == 0){
+//					ret++;
+//				}else{
+//					break;
+//				}
+//			}
+//			if(ret >= 69){
+////				uint8_t tes5 = 0x47;
+////						CDC_Transmit(0,&tes5,1);
+//				goto end;
+//			}
+//			if(!capsense_data_proc(uart_dma_buffer)){
+//				if(!capsense_data_proc_legacy(uart_dma_buffer)){
+////					uint8_t tes5 = 0x77;
+////					CDC_Transmit(0,&tes5,1);
+//					goto end;
+//				}
+//			}
+//		}else{
+////			uint8_t tes5[71] = {0x17};
+////						memcpy(tes5+1,uart_dma_buffer,70);
+////								CDC_Transmit(0,&tes5,71);
+//		}
+//		end:
+//		while(HAL_UARTEx_ReceiveToIdle_IT(&huart4, uart_dma_buffer, 128) != HAL_OK){
+//		}
+//        __HAL_DMA_DISABLE_IT(&hdma_uart4_rx, DMA_IT_HT);
+//    }
+//}
 
 void capsense_init(){
-	__HAL_UART_ENABLE_IT(&huart4, UART_IT_IDLE);
-	UART_ClearIdle(&huart4);
-	HAL_UART_Receive_DMA(&huart4, uart_dma_buffer, 128);
+//	__HAL_UART_ENABLE_IT(&huart4, UART_IT_IDLE);
+//	UART_ClearIdle(&huart4);
+//	HAL_UART_Receive_DMA(&huart4, uart_dma_buffer, 70);
+//	__HAL_DMA_DISABLE_IT(&hdma_uart4_rx, DMA_IT_HT);
+	while(HAL_UARTEx_ReceiveToIdle_IT(&huart4, uart_dma_buffer, 128) != HAL_OK){
+
+	}
 	__HAL_DMA_DISABLE_IT(&hdma_uart4_rx, DMA_IT_HT);
 	osDelay(100);
 	for(uint8_t i = 0;i<34;i++){

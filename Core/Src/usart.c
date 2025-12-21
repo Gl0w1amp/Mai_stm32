@@ -21,7 +21,9 @@
 #include "usart.h"
 
 /* USER CODE BEGIN 0 */
-
+extern uint8_t led_uart_buffer_rx[64];
+extern uint8_t led_uart_tmp[64];
+extern uint8_t uart_dma_buffer[128];
 /* USER CODE END 0 */
 
 UART_HandleTypeDef huart4;
@@ -305,5 +307,42 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* uartHandle)
 }
 
 /* USER CODE BEGIN 1 */
-
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
+{
+    if (huart->Instance == USART1)
+    {
+        HAL_UART_DMAStop(&huart1);
+        memcpy(led_uart_tmp,led_uart_buffer_rx,64);
+        LED_Task_Process();
+		while(HAL_UARTEx_ReceiveToIdle_IT(&huart1, led_uart_buffer_rx,64) != HAL_OK){
+		}
+        __HAL_DMA_DISABLE_IT(&hdma_usart1_rx, DMA_IT_HT);
+    }
+    if (huart->Instance == UART4)
+    {
+        HAL_UART_DMAStop(&huart4);
+		if(Size >= 70 ){
+			uint8_t ret = 0;
+			for(uint8_t i = 0;i<70;i++){
+				if(uart_dma_buffer[i] == 0){
+					ret++;
+				}else{
+					break;
+				}
+			}
+			if(ret >= 69){
+				goto end;
+			}
+			if(!capsense_data_proc(uart_dma_buffer)){
+				if(!capsense_data_proc_legacy(uart_dma_buffer)){
+					goto end;
+				}
+			}
+		}
+		end:
+		while(HAL_UARTEx_ReceiveToIdle_IT(&huart4, uart_dma_buffer, 128) != HAL_OK){
+		}
+        __HAL_DMA_DISABLE_IT(&hdma_uart4_rx, DMA_IT_HT);
+    }
+}
 /* USER CODE END 1 */
