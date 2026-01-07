@@ -42,7 +42,6 @@ uint8_t capsense_bit;
 uint8_t capsense_touch_status[34];
 uint8_t capsense_procotl_version = 0;
 
-#ifdef PSOC_DEBUG
 typedef union{
     float raw_data_fl[2];
     uint8_t raw_data_u8[8];
@@ -50,7 +49,7 @@ typedef union{
 
 vofa vofa1;
 uint8_t debug_channel = 0;
-#endif
+extern debug_flag;
 
 bool check_checksum(uint8_t* data){
 	uint8_t checksum = 0;
@@ -170,7 +169,7 @@ void Boot_Buttom_IRQHandler(){
 }
 
 void capsense_init(){
-	while(HAL_UARTEx_ReceiveToIdle_IT(&huart4, uart_dma_buffer, 128) != HAL_OK){
+	while(HAL_UARTEx_ReceiveToIdle_DMA(&huart4, uart_dma_buffer, 128) != HAL_OK){
 
 	}
 	__HAL_DMA_DISABLE_IT(&hdma_uart4_rx, DMA_IT_HT);
@@ -383,12 +382,12 @@ void capsense_check(){
 
 
 
-#ifdef PSOC_DEBUG
-	vofa1.raw_data_fl[0] = Touch.channel_raw[debug_channel];
-//	vofa1.raw_data_fl[1] = capsense_baseline[debug_channel];
-	vofa1.raw_data_fl[1] = capsense_baseline[debug_channel] + Flash.touch_threshold[debug_channel];
-	static uint8_t tmp[12] = {0,0,0,0,0,0,0,0,0,0,0x80,0x7f};
-	memcpy(tmp,vofa1.raw_data_u8,8);
-	CDC_Transmit(0, tmp,12);
-#endif
+	if(debug_flag){
+		vofa1.raw_data_fl[0] = Touch.channel_raw[debug_channel];
+	//	vofa1.raw_data_fl[1] = capsense_baseline[debug_channel];
+		vofa1.raw_data_fl[1] = capsense_baseline[debug_channel] + Flash.touch_threshold[debug_channel];
+		static uint8_t tmp[12] = {0,0,0,0,0,0,0,0,0,0,0x80,0x7f};
+		memcpy(tmp,vofa1.raw_data_u8,8);
+		CDC_Transmit(0, tmp,12);
+	}
 }

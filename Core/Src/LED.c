@@ -130,7 +130,7 @@ void LED_UART_Init(){
 	for(uint16_t i = 0;i < 128 + NUM_LED * 24 + 64;i++){
 		WS2812_data_DMA_buffer[i] = 0;
 	}
-	while(HAL_UARTEx_ReceiveToIdle_IT(&huart1, led_uart_buffer_rx,64) != HAL_OK);
+	while(HAL_UARTEx_ReceiveToIdle_DMA(&huart1, led_uart_buffer_rx,64) != HAL_OK);
 	__HAL_DMA_DISABLE_IT(&hdma_usart1_rx, DMA_IT_HT);
 }
 

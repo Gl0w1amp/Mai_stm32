@@ -126,7 +126,7 @@ uint8_t player = 1;
 uint8_t current_touch_status[34];
 uint8_t current_button_status[2];
 extern uint8_t capsense_data_ready;
-
+uint8_t debug_flag = 0;
 /* USER CODE END Variables */
 osThreadId TouchTaskHandle;
 osThreadId ButtonTaskHandle;
@@ -261,14 +261,14 @@ void Touch_Task(void const * argument)
 			cmd_mai2io[4] = current_button_status[0] & 0b11110000;
 			cmd_mai2io[5] = current_button_status[1];
 			capsense_data_ready -- ;
-	#ifndef PSOC_DEBUG
-			if(heart_beat != 0){
-				CDC_Transmit(0,(uint8_t*)cmd_mai2io, 14);
-			}else if(touch_scan_flag != 0){
-				memcpy(cmd_mai2touch+1,cmd_mai2io+6,7);
-				CDC_Transmit(0,(uint8_t*)cmd_mai2touch, 9);
+			if(debug_flag == 0){
+				if(heart_beat != 0){
+					CDC_Transmit(0,(uint8_t*)cmd_mai2io, 14);
+				}else if(touch_scan_flag != 0){
+					memcpy(cmd_mai2touch+1,cmd_mai2io+6,7);
+					CDC_Transmit(0,(uint8_t*)cmd_mai2touch, 9);
+				}
 			}
-	#endif
 		}
 
 	}
@@ -465,6 +465,8 @@ void Command_Task(void const * argument)
 			case SERIAL_CMD_HEART_BEAT:
 				heart_beat = 50;
 				break;
+			case SERIAL_CMD_TO_DEBUG_MODE:
+				debug_flag = 1;
 			case SERIAL_CMD_GET_BOARD_INFO:{
 				char board_name[] = "1020-050201";
 				uint8_t name_len = strlen(board_name);
