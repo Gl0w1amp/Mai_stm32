@@ -51,6 +51,7 @@
 /* USER CODE BEGIN PD */
 #define CONFIG_VERSION 1
 #define BENCHMARK_MAX_PAYLOAD 48
+#define BENCHMARK_TX_RETRY_COUNT 50
 const char VERSION[] = FIRMWARE_VERSION;
 
 // Firmware Header instance placed in specific section
@@ -139,6 +140,7 @@ osThreadId LEDTaskHandle;
 static void benchmark_counter_init(void);
 static uint32_t benchmark_cycles(void);
 static void benchmark_write_u32_le(uint8_t *dst, uint32_t value);
+static uint8_t usb_cdc_transmit_retry(uint8_t channel, uint8_t *buf, uint16_t len);
 static void serial_send_benchmark_reply(const uint8_t *payload, uint8_t payload_len, uint32_t dispatch_cycles);
 
 /* USER CODE END FunctionPrototypes */
@@ -177,6 +179,20 @@ static void benchmark_write_u32_le(uint8_t *dst, uint32_t value)
 	dst[3] = (uint8_t)((value >> 24) & 0xFF);
 }
 
+static uint8_t usb_cdc_transmit_retry(uint8_t channel, uint8_t *buf, uint16_t len)
+{
+	for (uint8_t attempt = 0; attempt < BENCHMARK_TX_RETRY_COUNT; attempt++) {
+		uint8_t result = CDC_Transmit(channel, buf, len);
+		if (result == USBD_OK) {
+			return result;
+		}
+
+		osDelay(1);
+	}
+
+	return USBD_BUSY;
+}
+
 /* Echoes the benchmark payload and attaches device-side cycle timestamps. */
 static void serial_send_benchmark_reply(const uint8_t *payload, uint8_t payload_len, uint32_t dispatch_cycles)
 {
@@ -199,7 +215,7 @@ static void serial_send_benchmark_reply(const uint8_t *payload, uint8_t payload_
 	for (uint8_t i = 0; i < idx; i++) {
 		cmd_tmp[idx] += cmd_tmp[i];
 	}
-	CDC_Transmit(0, cmd_tmp, idx + 1);
+	(void) usb_cdc_transmit_retry(0, cmd_tmp, idx + 1);
 }
 
 /**
