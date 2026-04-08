@@ -483,16 +483,16 @@ void Touch_Task(void const * argument)
 		if(!capsense_data_ready){
 			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 0);
 		}else{
-			capsense_check();
 			uint8_t cmd_mai2io[14] = {0xff,1,10,0,0,0,0,0,0,0,0,0,0,10};
 			uint8_t cmd_mai2touch[9] = {0x28,0,0,0,0,0,0,0,0x29};
+
+			capsense_check();
 			stack_flow_touch(current_touch_status);
 			stack_flow_button(current_button_status);
 			for(uint8_t j = 0;j<7;j++){
 				for(uint8_t i = 0;i<5;i++){
 					if(j == 6 && i == 4){
 						break;
-						//没有35个触摸点
 					}
 					if(current_touch_status[i+j*5]){
 						cmd_mai2io[j+6] |= (1 << i);
@@ -502,7 +502,7 @@ void Touch_Task(void const * argument)
 			cmd_mai2io[3] = current_button_status[0] & 0b00001111;
 			cmd_mai2io[4] = current_button_status[0] & 0b11110000;
 			cmd_mai2io[5] = current_button_status[1];
-			capsense_data_ready -- ;
+			capsense_data_ready = 0;
 			if(debug_flag == 0 && !benchmark_quiet_active()){
 				if(heart_beat != 0){
 					(void) usb_tx_enqueue_low(cmd_mai2io, 14);
@@ -512,6 +512,33 @@ void Touch_Task(void const * argument)
 				}
 			}
 		}
+
+#if 0
+		stack_flow_touch(current_touch_status);
+		stack_flow_button(current_button_status);
+		for(uint8_t j = 0;j<7;j++){
+			for(uint8_t i = 0;i<5;i++){
+				if(j == 6 && i == 4){
+					break;
+					//没有35个触摸点
+				}
+				if(current_touch_status[i+j*5]){
+					cmd_mai2io[j+6] |= (1 << i);
+				}
+			}
+		}
+		cmd_mai2io[3] = current_button_status[0] & 0b00001111;
+		cmd_mai2io[4] = current_button_status[0] & 0b11110000;
+		cmd_mai2io[5] = current_button_status[1];
+		if(debug_flag == 0 && !benchmark_quiet_active()){
+			if(heart_beat != 0){
+				(void) usb_tx_enqueue_low(cmd_mai2io, 14);
+			}else if(touch_scan_flag != 0){
+				memcpy(cmd_mai2touch+1,cmd_mai2io+6,7);
+				(void) usb_tx_enqueue_low(cmd_mai2touch, 9);
+			}
+		}
+#endif
 
 	}
   /* USER CODE END Touch_Task */

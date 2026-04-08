@@ -31,5 +31,6 @@ void capsense_init();
 void capsense_check();
 bool capsense_data_proc(uint8_t *uart_dma_buffer);
 bool capsense_data_proc_legacy(uint8_t *uart_dma_buffer);
+void Boot_Buttom_IRQHandler(void);
 
 #endif /* INC_CAPSENSE_H_ */
