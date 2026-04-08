@@ -74,6 +74,7 @@
 #define USBD_PRODUCT_STRING           "Curva Controller"
 #define USBD_CONFIGURATION_STRING     "CDC Config"
 #define USBD_INTERFACE_STRING         "CDC Interface"
+#define USBD_MS_OS_VENDOR_CODE        0x21U
 
 
 /* USER CODE BEGIN PRIVATE_DEFINES */
@@ -108,6 +109,7 @@
 
 static void Get_SerialNum(void);
 static void IntToUnicode(uint32_t value, uint8_t * pbuf, uint8_t len);
+static void Get_ContainerId(uint8_t *pbuf);
 
 /**
   * @}
@@ -164,7 +166,7 @@ __ALIGN_BEGIN uint8_t USBD_DeviceDesc[USB_LEN_DEV_DESC] __ALIGN_END =
   HIBYTE(USBD_VID),           /*idVendor*/
   LOBYTE(USBD_PID),        	  /*idProduct*/
   HIBYTE(USBD_PID),           /*idProduct*/
-  0x00,                       /*bcdDevice rel. 2.00*/
+  0x01,                       /*bcdDevice rel. 2.01*/
   0x02,
   USBD_IDX_MFC_STR,           /*Index of manufacturer  string*/
   USBD_IDX_PRODUCT_STR,       /*Index of product string*/
@@ -208,6 +210,30 @@ __ALIGN_BEGIN uint8_t USBD_StringSerial[USB_SIZ_STRING_SERIAL] __ALIGN_END = {
   USB_DESC_TYPE_STRING,
 };
 
+__ALIGN_BEGIN static uint8_t USBD_MicrosoftOSStringDesc[18] __ALIGN_END = {
+  0x12U,
+  USB_DESC_TYPE_STRING,
+  'M', 0x00U,
+  'S', 0x00U,
+  'F', 0x00U,
+  'T', 0x00U,
+  '1', 0x00U,
+  '0', 0x00U,
+  '0', 0x00U,
+  USBD_MS_OS_VENDOR_CODE,
+  0x00U,
+};
+
+__ALIGN_BEGIN uint8_t USBD_ContainerIDDesc[24] __ALIGN_END = {
+  0x18U, 0x00U, 0x00U, 0x00U,
+  0x00U, 0x01U,
+  0x06U, 0x00U,
+  0x00U, 0x00U, 0x00U, 0x00U,
+  0x00U, 0x00U, 0x00U, 0x00U,
+  0x00U, 0x00U, 0x00U, 0x00U,
+  0x00U, 0x00U, 0x00U, 0x00U,
+};
+
 /**
   * @}
   */
@@ -226,6 +252,7 @@ __ALIGN_BEGIN uint8_t USBD_StringSerial[USB_SIZ_STRING_SERIAL] __ALIGN_END = {
 uint8_t * USBD_DeviceDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
 {
   UNUSED(speed);
+  Get_ContainerId(&USBD_ContainerIDDesc[8]);
   *length = sizeof(USBD_DeviceDesc);
   return USBD_DeviceDesc;
 }
@@ -334,6 +361,14 @@ uint8_t * USBD_InterfaceStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
   return USBD_StrDesc;
 }
 
+uint8_t *USBD_GetMicrosoftOSStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
+{
+  UNUSED(speed);
+  Get_ContainerId(&USBD_ContainerIDDesc[8]);
+  *length = sizeof(USBD_MicrosoftOSStringDesc);
+  return USBD_MicrosoftOSStringDesc;
+}
+
 #if (USBD_LPM_ENABLED == 1)
 /**
   * @brief  Return the BOS descriptor
@@ -398,6 +433,34 @@ static void IntToUnicode(uint32_t value, uint8_t * pbuf, uint8_t len)
     pbuf[2 * idx + 1] = 0;
   }
 }
+
+static void Get_ContainerId(uint8_t *pbuf)
+{
+  uint32_t deviceserial0 = *(uint32_t *) DEVICE_ID1;
+  uint32_t deviceserial1 = *(uint32_t *) DEVICE_ID2;
+  uint32_t deviceserial2 = *(uint32_t *) DEVICE_ID3;
+
+  pbuf[0] = (uint8_t)(deviceserial0 & 0xFFU);
+  pbuf[1] = (uint8_t)((deviceserial0 >> 8) & 0xFFU);
+  pbuf[2] = (uint8_t)((deviceserial0 >> 16) & 0xFFU);
+  pbuf[3] = (uint8_t)((deviceserial0 >> 24) & 0xFFU);
+  pbuf[4] = (uint8_t)(deviceserial1 & 0xFFU);
+  pbuf[5] = (uint8_t)((deviceserial1 >> 8) & 0xFFU);
+  pbuf[6] = (uint8_t)((deviceserial1 >> 16) & 0xFFU);
+  pbuf[7] = (uint8_t)((deviceserial1 >> 24) & 0xFFU);
+  pbuf[8] = (uint8_t)(deviceserial2 & 0xFFU);
+  pbuf[9] = (uint8_t)((deviceserial2 >> 8) & 0xFFU);
+  pbuf[10] = (uint8_t)((deviceserial2 >> 16) & 0xFFU);
+  pbuf[11] = (uint8_t)((deviceserial2 >> 24) & 0xFFU);
+  pbuf[12] = LOBYTE(USBD_PID);
+  pbuf[13] = HIBYTE(USBD_PID);
+  pbuf[14] = LOBYTE(USBD_VID);
+  pbuf[15] = HIBYTE(USBD_VID);
+
+  pbuf[7] = (uint8_t)((pbuf[7] & 0x0FU) | 0x40U);
+  pbuf[8] = (uint8_t)((pbuf[8] & 0x3FU) | 0x80U);
+}
+
 /**
   * @}
   */

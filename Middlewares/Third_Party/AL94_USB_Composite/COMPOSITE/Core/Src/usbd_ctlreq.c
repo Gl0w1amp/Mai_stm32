@@ -80,6 +80,18 @@ static void USBD_SetFeature(USBD_HandleTypeDef *pdev, USBD_SetupReqTypedef *req)
 static void USBD_ClrFeature(USBD_HandleTypeDef *pdev, USBD_SetupReqTypedef *req);
 static uint8_t USBD_GetLen(uint8_t *buf);
 
+__weak uint8_t *USBD_GetMicrosoftOSStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
+{
+  UNUSED(speed);
+
+  if (length != NULL)
+  {
+    *length = 0U;
+  }
+
+  return NULL;
+}
+
 /**
   * @}
   */
@@ -491,6 +503,19 @@ static void USBD_GetDescriptor(USBD_HandleTypeDef *pdev, USBD_SetupReqTypedef *r
           break;
 
         default:
+          if ((uint8_t)(req->wValue) == 0xEEU)
+          {
+            pbuf = USBD_GetMicrosoftOSStrDescriptor(pdev->dev_speed, &len);
+
+            if (pbuf == NULL)
+            {
+              USBD_CtlError(pdev, req);
+              err++;
+            }
+
+            break;
+          }
+
 #if (USBD_SUPPORT_USER_STRING_DESC == 1U)
           if (pdev->pClass->GetUsrStrDescriptor != NULL)
           {

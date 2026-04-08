@@ -30,6 +30,9 @@ typedef enum serial_cmd {
 	SERIAL_CMD_LED_BILLBOARD = 0x15,
 	SERIAL_CMD_LED_PWM = 0x16,
 	SERIAL_CMD_JUMP_TO_DFU = 0x21,
+	SERIAL_CMD_BENCHMARK = 0x22,
+	SERIAL_CMD_BENCHMARK_EVENT = 0x23,
+	SERIAL_CMD_BENCHMARK_HID_EVENT = 0x24,
 	SERIAL_CMD_GET_BOARD_INFO = 0xF0
 } serial_cmd_t;
 
@@ -39,6 +42,7 @@ void slider_scan_stop();
 void slider_reset();
 void slider_get_board_info();
 void slider_scan();
+void slider_notify_command_ready_from_isr(void);
 
 extern uint8_t slider_scan_flag;
 

@@ -300,6 +300,17 @@ static uint8_t USBD_COMPOSITE_DeInit(USBD_HandleTypeDef *pdev, uint8_t cfgidx)
 static uint8_t USBD_COMPOSITE_Setup(USBD_HandleTypeDef *pdev,
                                     USBD_SetupReqTypedef *req)
 {
+  if (((req->bmRequest & (USB_REQ_TYPE_MASK | USB_REQ_RECIPIENT_MASK)) == (USB_REQ_TYPE_VENDOR | USB_REQ_RECIPIENT_DEVICE)) &&
+      ((req->bmRequest & 0x80U) != 0U) &&
+      (req->bRequest == 0x21U) &&
+      (req->wIndex == 0x0006U) &&
+      (req->wValue == 0x0000U))
+  {
+    extern uint8_t USBD_ContainerIDDesc[24];
+
+    return (uint8_t)USBD_CtlSendData(pdev, USBD_ContainerIDDesc, MIN((uint16_t)sizeof(USBD_ContainerIDDesc), req->wLength));
+  }
+
 #if (USBD_USE_CDC_ACM == 1)
   for (uint8_t i = 0; i < USBD_CDC_ACM_COUNT; i++)
   {

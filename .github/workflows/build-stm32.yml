@@ -27,7 +27,7 @@ jobs:
     - name: Install ARM GCC toolchain
       run: |
         sudo apt-get update
-        sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi openssl
+        sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi openssl python3
         
     - name: Verify toolchain installation
       run: |
@@ -149,7 +149,8 @@ jobs:
                    -I../Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Core/Inc \
                    -I../Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/COMPOSITE/Inc \
                    -I../Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/CDC_ACM/Inc \
-                   -I../Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/HID_KEYBOARD/Inc
+                   -I../Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/HID_KEYBOARD/Inc \
+                   -I../Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/HID_CUSTOM/Inc
         
         # Defines
         DEFINES = -DUSE_HAL_DRIVER -DSTM32G431xx -DSTM32_THREAD_SAFE_STRATEGY=4

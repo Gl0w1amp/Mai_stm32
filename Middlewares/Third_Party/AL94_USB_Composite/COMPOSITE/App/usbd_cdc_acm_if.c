@@ -428,6 +428,7 @@ static int8_t CDC_Receive(uint8_t cdc_ch, uint8_t *Buf, uint32_t *Len)
 	}
 	rxLen = *Len;
 	memcpy(rxBuffer,Buf,rxLen);
+	slider_notify_command_ready_from_isr();
 	USBD_CDC_SetRxBuffer(cdc_ch, &hUsbDevice, &Buf[0]);
 	USBD_CDC_ReceivePacket(cdc_ch, &hUsbDevice);
 	return (USBD_OK);
