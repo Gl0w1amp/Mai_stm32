@@ -64,6 +64,10 @@ typedef struct usb_tx_packet {
 #define USB_TX_HIGH_QUEUE_LENGTH 8
 #define USB_TX_LOW_QUEUE_LENGTH 8
 #define BENCHMARK_TX_RETRY_COUNT 50
+#define SELFTEST_PATTERN_PERIOD_MS 5000
+#define SELFTEST_PATTERN_ACTIVE_MS 1000
+#define SELFTEST_BUTTON3_MASK (1u << 2)
+#define SELFTEST_TOUCH_C1_INDEX 16
 const char VERSION[] = FIRMWARE_VERSION;
 
 // Firmware Header instance placed in specific section
@@ -174,6 +178,9 @@ static void serial_send_benchmark_reply(uint8_t cmd, const uint8_t *payload, uin
 static void serial_send_benchmark_event(uint32_t sequence, uint64_t event_cycles);
 static void hid_send_benchmark_event(uint32_t sequence, uint64_t event_cycles);
 static void benchmark_emit_pending_event(void);
+static uint8_t selftest_pattern_active(void);
+static void selftest_apply_button(uint8_t *button_status);
+static void selftest_apply_touch(uint8_t *touch_status);
 
 /* USER CODE END FunctionPrototypes */
 
@@ -246,6 +253,29 @@ static uint32_t benchmark_read_u32_le(const uint8_t *src)
 static uint8_t benchmark_quiet_active(void)
 {
 	return ((int32_t)(benchmark_quiet_until_ms - HAL_GetTick()) > 0) ? 1 : 0;
+}
+
+static uint8_t selftest_pattern_active(void)
+{
+	return ((HAL_GetTick() % SELFTEST_PATTERN_PERIOD_MS) < SELFTEST_PATTERN_ACTIVE_MS) ? 1 : 0;
+}
+
+static void selftest_apply_button(uint8_t *button_status)
+{
+	if (button_status == NULL || !selftest_pattern_active()) {
+		return;
+	}
+
+	button_status[0] |= SELFTEST_BUTTON3_MASK;
+}
+
+static void selftest_apply_touch(uint8_t *touch_status)
+{
+	if (touch_status == NULL || !selftest_pattern_active()) {
+		return;
+	}
+
+	touch_status[SELFTEST_TOUCH_C1_INDEX] = 1;
 }
 
 static uint8_t usb_tx_enqueue(QueueHandle_t queue, const uint8_t *buf, uint16_t len)
@@ -484,6 +514,8 @@ void Touch_Task(void const * argument)
 			uint8_t cmd_mai2touch[9] = {0x28,0,0,0,0,0,0,0,0x29};
 			stack_flow_touch(current_touch_status);
 			stack_flow_button(current_button_status);
+			selftest_apply_touch(current_touch_status);
+			selftest_apply_button(current_button_status);
 			for(uint8_t j = 0;j<7;j++){
 				for(uint8_t i = 0;i<5;i++){
 					if(j == 6 && i == 4){
@@ -539,6 +571,7 @@ void Button_Task(void const * argument)
 		osDelay(3);
 		button_scan();
 		stack_flow_button(current_button_status);
+		selftest_apply_button(current_button_status);
 		if (current_button_status[0] != last_hid_buttons0 ||
 			current_button_status[1] != last_hid_io_status) {
 			if (mai2_hid_buttons_send_report(current_button_status[0], current_button_status[1]) == USBD_OK) {
