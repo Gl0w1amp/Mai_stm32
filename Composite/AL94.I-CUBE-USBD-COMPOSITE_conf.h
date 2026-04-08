@@ -52,7 +52,7 @@
 #define _USBD_USE_HID_KEYBOARD      true
 
 /*---------- _USBD_USE_HID_CUSTOM  -----------*/
-#define _USBD_USE_HID_CUSTOM      false
+#define _USBD_USE_HID_CUSTOM      true
 
 /*---------- _USBD_USE_UAC_MIC  -----------*/
 #define _USBD_USE_UAC_MIC      false

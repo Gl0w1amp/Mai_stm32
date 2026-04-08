@@ -34,6 +34,7 @@
 #include "LED.h"
 #include "slider.h"
 #include "usbd_cdc_acm_if.h"
+#include "usbd_hid_custom_if.h"
 #include "usbd_hid_keyboard.h"
 #include "capsense.h"
 #include "flash.h"
@@ -486,14 +487,26 @@ void Button_Task(void const * argument)
 	//mai_key
 	uint8_t keyboard_buffer[14];
 	uint8_t last_keyboard_buffer[14];
+	uint8_t last_hid_buttons0 = 0xFF;
+	uint8_t last_hid_io_status = 0xFF;
 	memset(keyboard_buffer,0,12);
 	osDelay(1000);
 	button_init();
+	(void) mai2_hid_buttons_send_report(0, 0);
+	last_hid_buttons0 = 0;
+	last_hid_io_status = 0;
 	while(1){
 		osDelay(3);
 		button_scan();
+		stack_flow_button(current_button_status);
+		if (current_button_status[0] != last_hid_buttons0 ||
+			current_button_status[1] != last_hid_io_status) {
+			if (mai2_hid_buttons_send_report(current_button_status[0], current_button_status[1]) == USBD_OK) {
+				last_hid_buttons0 = current_button_status[0];
+				last_hid_io_status = current_button_status[1];
+			}
+		}
 		if(heart_beat == 0){
-			stack_flow_button(current_button_status);
 			for(uint8_t i = 0;i<8;i++){
 				keyboard_buffer[i] =  (current_button_status[0] & (1 << i)) ? keyboard_sheet[i] : 0;
 			}
