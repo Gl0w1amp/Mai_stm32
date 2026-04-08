@@ -58,7 +58,7 @@ typedef struct usb_tx_packet {
 #define CONFIG_VERSION 1
 #define BENCHMARK_MAX_PAYLOAD 48
 #define BENCHMARK_EVENT_PAYLOAD 8
-#define BENCHMARK_EVENT_REPLY_PAYLOAD 16
+#define BENCHMARK_EVENT_REPLY_PAYLOAD 24
 #define BENCHMARK_EVENT_DELAY_MS_DEFAULT 10
 #define BENCHMARK_QUIET_PERIOD_MS 30
 #define USB_TX_HIGH_QUEUE_LENGTH 8
@@ -146,6 +146,8 @@ volatile uint8_t benchmark_event_pending = 0;
 volatile uint32_t benchmark_event_due_ms = 0;
 volatile uint32_t benchmark_event_sequence = 0;
 volatile uint8_t benchmark_event_transport = 0;
+static uint32_t benchmark_last_cycles = 0;
+static uint32_t benchmark_cycles_high = 0;
 /* USER CODE END Variables */
 osThreadId TouchTaskHandle;
 osThreadId ButtonTaskHandle;
@@ -160,15 +162,17 @@ QueueSetHandle_t usb_tx_queue_set = NULL;
 /* USER CODE BEGIN FunctionPrototypes */
 static void benchmark_counter_init(void);
 static uint32_t benchmark_cycles(void);
+static uint64_t benchmark_cycles64(void);
 static void benchmark_write_u32_le(uint8_t *dst, uint32_t value);
+static void benchmark_write_u64_le(uint8_t *dst, uint64_t value);
 static uint32_t benchmark_read_u32_le(const uint8_t *src);
 static uint8_t benchmark_quiet_active(void);
 static uint8_t usb_tx_enqueue(QueueHandle_t queue, const uint8_t *buf, uint16_t len);
 static uint8_t usb_tx_enqueue_high(const uint8_t *buf, uint16_t len);
 static uint8_t usb_tx_enqueue_low(const uint8_t *buf, uint16_t len);
-static void serial_send_benchmark_reply(const uint8_t *payload, uint8_t payload_len, uint32_t dispatch_cycles);
-static void serial_send_benchmark_event(uint32_t sequence, uint32_t event_cycles);
-static void hid_send_benchmark_event(uint32_t sequence, uint32_t event_cycles);
+static void serial_send_benchmark_reply(const uint8_t *payload, uint8_t payload_len, uint64_t dispatch_cycles);
+static void serial_send_benchmark_event(uint32_t sequence, uint64_t event_cycles);
+static void hid_send_benchmark_event(uint32_t sequence, uint64_t event_cycles);
 static void benchmark_emit_pending_event(void);
 
 /* USER CODE END FunctionPrototypes */
@@ -200,12 +204,35 @@ static uint32_t benchmark_cycles(void)
 	return DWT->CYCCNT;
 }
 
+static uint64_t benchmark_cycles64(void)
+{
+	uint32_t now = benchmark_cycles();
+	uint64_t full;
+
+	taskENTER_CRITICAL();
+	if (now < benchmark_last_cycles) {
+		benchmark_cycles_high++;
+	}
+	benchmark_last_cycles = now;
+	full = (((uint64_t) benchmark_cycles_high) << 32) | now;
+	taskEXIT_CRITICAL();
+
+	return full;
+}
+
 static void benchmark_write_u32_le(uint8_t *dst, uint32_t value)
 {
 	dst[0] = (uint8_t)(value & 0xFF);
 	dst[1] = (uint8_t)((value >> 8) & 0xFF);
 	dst[2] = (uint8_t)((value >> 16) & 0xFF);
 	dst[3] = (uint8_t)((value >> 24) & 0xFF);
+}
+
+static void benchmark_write_u64_le(uint8_t *dst, uint64_t value)
+{
+	for (uint8_t i = 0; i < 8; i++) {
+		dst[i] = (uint8_t)((value >> (i * 8)) & 0xFF);
+	}
 }
 
 static uint32_t benchmark_read_u32_le(const uint8_t *src)
@@ -246,21 +273,21 @@ static uint8_t usb_tx_enqueue_low(const uint8_t *buf, uint16_t len)
 }
 
 /* Echoes the benchmark payload and attaches device-side cycle timestamps. */
-static void serial_send_benchmark_reply(const uint8_t *payload, uint8_t payload_len, uint32_t dispatch_cycles)
+static void serial_send_benchmark_reply(const uint8_t *payload, uint8_t payload_len, uint64_t dispatch_cycles)
 {
 	uint8_t cmd_tmp[64];
 	uint8_t idx = 0;
-	uint32_t tx_cycles = benchmark_cycles();
+	uint64_t tx_cycles = benchmark_cycles64();
 
 	cmd_tmp[idx++] = 0xFF;
 	cmd_tmp[idx++] = SERIAL_CMD_BENCHMARK;
-	cmd_tmp[idx++] = payload_len + 12;
+	cmd_tmp[idx++] = payload_len + 20;
 	memcpy(&cmd_tmp[idx], payload, payload_len);
 	idx += payload_len;
-	benchmark_write_u32_le(&cmd_tmp[idx], dispatch_cycles);
-	idx += 4;
-	benchmark_write_u32_le(&cmd_tmp[idx], tx_cycles);
-	idx += 4;
+	benchmark_write_u64_le(&cmd_tmp[idx], dispatch_cycles);
+	idx += 8;
+	benchmark_write_u64_le(&cmd_tmp[idx], tx_cycles);
+	idx += 8;
 	benchmark_write_u32_le(&cmd_tmp[idx], SystemCoreClock);
 	idx += 4;
 	cmd_tmp[idx] = 0;
@@ -270,21 +297,21 @@ static void serial_send_benchmark_reply(const uint8_t *payload, uint8_t payload_
 	(void) usb_tx_enqueue_high(cmd_tmp, idx + 1);
 }
 
-static void serial_send_benchmark_event(uint32_t sequence, uint32_t event_cycles)
+static void serial_send_benchmark_event(uint32_t sequence, uint64_t event_cycles)
 {
 	uint8_t cmd_tmp[64];
 	uint8_t idx = 0;
-	uint32_t tx_cycles = benchmark_cycles();
+	uint64_t tx_cycles = benchmark_cycles64();
 
 	cmd_tmp[idx++] = 0xFF;
 	cmd_tmp[idx++] = SERIAL_CMD_BENCHMARK_EVENT;
 	cmd_tmp[idx++] = BENCHMARK_EVENT_REPLY_PAYLOAD;
 	benchmark_write_u32_le(&cmd_tmp[idx], sequence);
 	idx += 4;
-	benchmark_write_u32_le(&cmd_tmp[idx], event_cycles);
-	idx += 4;
-	benchmark_write_u32_le(&cmd_tmp[idx], tx_cycles);
-	idx += 4;
+	benchmark_write_u64_le(&cmd_tmp[idx], event_cycles);
+	idx += 8;
+	benchmark_write_u64_le(&cmd_tmp[idx], tx_cycles);
+	idx += 8;
 	benchmark_write_u32_le(&cmd_tmp[idx], SystemCoreClock);
 	idx += 4;
 	cmd_tmp[idx] = 0;
@@ -294,16 +321,16 @@ static void serial_send_benchmark_event(uint32_t sequence, uint32_t event_cycles
 	(void) usb_tx_enqueue_high(cmd_tmp, idx + 1);
 }
 
-static void hid_send_benchmark_event(uint32_t sequence, uint32_t event_cycles)
+static void hid_send_benchmark_event(uint32_t sequence, uint64_t event_cycles)
 {
-	uint32_t tx_cycles = benchmark_cycles();
+	uint64_t tx_cycles = benchmark_cycles64();
 	(void) mai2_hid_benchmark_send_report((uint16_t) sequence, event_cycles, tx_cycles, SystemCoreClock);
 }
 
 static void benchmark_emit_pending_event(void)
 {
 	uint32_t sequence = 0;
-	uint32_t event_cycles = 0;
+	uint64_t event_cycles = 0;
 	uint32_t now_ms = HAL_GetTick();
 
 	if (!benchmark_event_pending || ((int32_t)(now_ms - benchmark_event_due_ms) < 0)) {
@@ -317,7 +344,7 @@ static void benchmark_emit_pending_event(void)
 	}
 	benchmark_event_pending = 0;
 	sequence = benchmark_event_sequence;
-	event_cycles = benchmark_cycles();
+	event_cycles = benchmark_cycles64();
 	uint8_t transport = benchmark_event_transport;
 	taskEXIT_CRITICAL();
 
@@ -554,11 +581,11 @@ void Command_Task(void const * argument)
   /* USER CODE BEGIN Command_Task */
   /* Infinite loop */
   benchmark_counter_init();
-  for(;;)
+	for(;;)
   {
 	ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5));
 	if ((rxLen != 0)&&(rxBuffer[0] == 0xff)){
-		uint32_t dispatch_cycles = benchmark_cycles();
+		uint64_t dispatch_cycles = benchmark_cycles64();
 		switch(rxBuffer[1]){
 			case SERIAL_CMD_LED:
 //				if(rxBuffer[2] != 27){
