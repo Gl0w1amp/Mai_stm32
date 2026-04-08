@@ -170,7 +170,7 @@ static uint8_t benchmark_quiet_active(void);
 static uint8_t usb_tx_enqueue(QueueHandle_t queue, const uint8_t *buf, uint16_t len);
 static uint8_t usb_tx_enqueue_high(const uint8_t *buf, uint16_t len);
 static uint8_t usb_tx_enqueue_low(const uint8_t *buf, uint16_t len);
-static void serial_send_benchmark_reply(const uint8_t *payload, uint8_t payload_len, uint64_t dispatch_cycles);
+static void serial_send_benchmark_reply(uint8_t cmd, const uint8_t *payload, uint8_t payload_len, uint64_t dispatch_cycles);
 static void serial_send_benchmark_event(uint32_t sequence, uint64_t event_cycles);
 static void hid_send_benchmark_event(uint32_t sequence, uint64_t event_cycles);
 static void benchmark_emit_pending_event(void);
@@ -273,14 +273,14 @@ static uint8_t usb_tx_enqueue_low(const uint8_t *buf, uint16_t len)
 }
 
 /* Echoes the benchmark payload and attaches device-side cycle timestamps. */
-static void serial_send_benchmark_reply(const uint8_t *payload, uint8_t payload_len, uint64_t dispatch_cycles)
+static void serial_send_benchmark_reply(uint8_t cmd, const uint8_t *payload, uint8_t payload_len, uint64_t dispatch_cycles)
 {
 	uint8_t cmd_tmp[64];
 	uint8_t idx = 0;
 	uint64_t tx_cycles = benchmark_cycles64();
 
 	cmd_tmp[idx++] = 0xFF;
-	cmd_tmp[idx++] = SERIAL_CMD_BENCHMARK;
+	cmd_tmp[idx++] = cmd;
 	cmd_tmp[idx++] = payload_len + 20;
 	memcpy(&cmd_tmp[idx], payload, payload_len);
 	idx += payload_len;
@@ -720,7 +720,7 @@ void Command_Task(void const * argument)
 					break;
 				}
 				benchmark_quiet_until_ms = HAL_GetTick() + BENCHMARK_QUIET_PERIOD_MS;
-				serial_send_benchmark_reply(rxBuffer + 3, rxBuffer[2], dispatch_cycles);
+				serial_send_benchmark_reply(SERIAL_CMD_BENCHMARK, rxBuffer + 3, rxBuffer[2], dispatch_cycles);
 				break;
 			}
 			case SERIAL_CMD_BENCHMARK_EVENT:{
@@ -750,6 +750,7 @@ void Command_Task(void const * argument)
 				if (delay_ms == 0) {
 					delay_ms = BENCHMARK_EVENT_DELAY_MS_DEFAULT;
 				}
+				serial_send_benchmark_reply(SERIAL_CMD_BENCHMARK_HID_EVENT, rxBuffer + 3, rxBuffer[2], dispatch_cycles);
 				taskENTER_CRITICAL();
 				benchmark_event_sequence = benchmark_read_u32_le(rxBuffer + 3);
 				benchmark_event_due_ms = HAL_GetTick() + delay_ms;
