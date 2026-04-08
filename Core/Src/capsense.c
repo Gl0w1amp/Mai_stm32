@@ -197,8 +197,10 @@ void capsense_init(){
 void capsense_check(){
 	//BLOCK A
 	for(uint8_t i = 0;i<8;i++){
-		if(capsense_baseline[Flash.touch_sheet[i]] == 0){
-			capsense_baseline[Flash.touch_sheet[i]] = Touch.channel_raw[Flash.touch_sheet[i]];
+		uint8_t channel = Flash.touch_sheet[i];
+
+		if(capsense_baseline[channel] == 0){
+			capsense_baseline[channel] = Touch.channel_raw[channel];
 		}
 //		if(capsense_duration[i] == 0){
 //			capsense_level[i] = Touch.channel_raw[Flash.touch_sheet[i]];
@@ -210,18 +212,14 @@ void capsense_check(){
 //			float level = (capsense_level[Flash.touch_sheet[i]] * 0.9) + (Touch.channel_raw[Flash.touch_sheet[i]] * 0.1);
 //			capsense_level[i] = level;
 //		}
-		if(capsense_duration[i] > CAPSENSE_DURATION_A){
-			capsense_baseline[Flash.touch_sheet[i]] = capsense_freeze[i];
-		}else{
-			capsense_freeze[i] = capsense_baseline[Flash.touch_sheet[i]];
+		if(capsense_duration[i] == 0){
+			capsense_freeze[i] = capsense_baseline[channel];
+		}else if(capsense_duration[i] > CAPSENSE_DURATION_A){
+			capsense_baseline[channel] = capsense_freeze[i];
 		}
-		int variance = Touch.channel_raw[Flash.touch_sheet[i]] - capsense_baseline[Flash.touch_sheet[i]];
-		if((variance > Flash.touch_threshold[i]) || (Touch.channel_raw[Flash.touch_sheet[i]] >= 0xFF00)){
+		int variance = Touch.channel_raw[channel] - capsense_baseline[channel];
+		if((variance > Flash.touch_threshold[i]) || (Touch.channel_raw[channel] >= 0xFF00)){
 			capsense_touch_status[i] = 1;
-			if(capsense_baseline[Flash.touch_sheet[i]] + CAPSENSE_BASELINE_VARIANCE < Touch.channel_raw[Flash.touch_sheet[i]]){
-				float baseline = (capsense_baseline[Flash.touch_sheet[i]] * 0.99) + (Touch.channel_raw[Flash.touch_sheet[i]] * 0.01);
-				capsense_baseline[Flash.touch_sheet[i]] = baseline > 60000 ? 60000 : baseline;
-			}
 			if(capsense_duration[i] < 10000){
 				capsense_duration[i] ++;
 			}
@@ -229,9 +227,9 @@ void capsense_check(){
 		else{
 			capsense_touch_status[i] = 0;
 			capsense_duration[i] = 0;
-			if(capsense_baseline[Flash.touch_sheet[i]] + CAPSENSE_BASELINE_VARIANCE_A > Touch.channel_raw[Flash.touch_sheet[i]]){
-				float baseline = (capsense_baseline[Flash.touch_sheet[i]] * 0.9) + (Touch.channel_raw[Flash.touch_sheet[i]] * 0.1);
-				capsense_baseline[Flash.touch_sheet[i]] = baseline > 60000 ? 60000 : baseline;
+			if(capsense_baseline[channel] + CAPSENSE_BASELINE_VARIANCE_A > Touch.channel_raw[channel]){
+				float baseline = (capsense_baseline[channel] * 0.9) + (Touch.channel_raw[channel] * 0.1);
+				capsense_baseline[channel] = baseline > 60000 ? 60000 : baseline;
 			}
 		}
 	}
