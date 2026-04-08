@@ -56,6 +56,9 @@ typedef struct usb_tx_packet {
 /* USER CODE BEGIN PD */
 #define CONFIG_VERSION 1
 #define BENCHMARK_MAX_PAYLOAD 48
+#define BENCHMARK_EVENT_PAYLOAD 8
+#define BENCHMARK_EVENT_REPLY_PAYLOAD 16
+#define BENCHMARK_EVENT_DELAY_MS_DEFAULT 10
 #define BENCHMARK_QUIET_PERIOD_MS 30
 #define USB_TX_HIGH_QUEUE_LENGTH 8
 #define USB_TX_LOW_QUEUE_LENGTH 8
@@ -138,6 +141,9 @@ uint8_t current_button_status[2];
 extern uint8_t capsense_data_ready;
 uint8_t debug_flag = 0;
 volatile uint32_t benchmark_quiet_until_ms = 0;
+volatile uint8_t benchmark_event_pending = 0;
+volatile uint32_t benchmark_event_due_ms = 0;
+volatile uint32_t benchmark_event_sequence = 0;
 /* USER CODE END Variables */
 osThreadId TouchTaskHandle;
 osThreadId ButtonTaskHandle;
@@ -153,11 +159,14 @@ QueueSetHandle_t usb_tx_queue_set = NULL;
 static void benchmark_counter_init(void);
 static uint32_t benchmark_cycles(void);
 static void benchmark_write_u32_le(uint8_t *dst, uint32_t value);
+static uint32_t benchmark_read_u32_le(const uint8_t *src);
 static uint8_t benchmark_quiet_active(void);
 static uint8_t usb_tx_enqueue(QueueHandle_t queue, const uint8_t *buf, uint16_t len);
 static uint8_t usb_tx_enqueue_high(const uint8_t *buf, uint16_t len);
 static uint8_t usb_tx_enqueue_low(const uint8_t *buf, uint16_t len);
 static void serial_send_benchmark_reply(const uint8_t *payload, uint8_t payload_len, uint32_t dispatch_cycles);
+static void serial_send_benchmark_event(uint32_t sequence, uint32_t event_cycles);
+static void benchmark_emit_pending_event(void);
 
 /* USER CODE END FunctionPrototypes */
 
@@ -194,6 +203,14 @@ static void benchmark_write_u32_le(uint8_t *dst, uint32_t value)
 	dst[1] = (uint8_t)((value >> 8) & 0xFF);
 	dst[2] = (uint8_t)((value >> 16) & 0xFF);
 	dst[3] = (uint8_t)((value >> 24) & 0xFF);
+}
+
+static uint32_t benchmark_read_u32_le(const uint8_t *src)
+{
+	return ((uint32_t) src[0]) |
+		(((uint32_t) src[1]) << 8) |
+		(((uint32_t) src[2]) << 16) |
+		(((uint32_t) src[3]) << 24);
 }
 
 static uint8_t benchmark_quiet_active(void)
@@ -248,6 +265,53 @@ static void serial_send_benchmark_reply(const uint8_t *payload, uint8_t payload_
 		cmd_tmp[idx] += cmd_tmp[i];
 	}
 	(void) usb_tx_enqueue_high(cmd_tmp, idx + 1);
+}
+
+static void serial_send_benchmark_event(uint32_t sequence, uint32_t event_cycles)
+{
+	uint8_t cmd_tmp[64];
+	uint8_t idx = 0;
+	uint32_t tx_cycles = benchmark_cycles();
+
+	cmd_tmp[idx++] = 0xFF;
+	cmd_tmp[idx++] = SERIAL_CMD_BENCHMARK_EVENT;
+	cmd_tmp[idx++] = BENCHMARK_EVENT_REPLY_PAYLOAD;
+	benchmark_write_u32_le(&cmd_tmp[idx], sequence);
+	idx += 4;
+	benchmark_write_u32_le(&cmd_tmp[idx], event_cycles);
+	idx += 4;
+	benchmark_write_u32_le(&cmd_tmp[idx], tx_cycles);
+	idx += 4;
+	benchmark_write_u32_le(&cmd_tmp[idx], SystemCoreClock);
+	idx += 4;
+	cmd_tmp[idx] = 0;
+	for (uint8_t i = 0; i < idx; i++) {
+		cmd_tmp[idx] += cmd_tmp[i];
+	}
+	(void) usb_tx_enqueue_high(cmd_tmp, idx + 1);
+}
+
+static void benchmark_emit_pending_event(void)
+{
+	uint32_t sequence = 0;
+	uint32_t event_cycles = 0;
+	uint32_t now_ms = HAL_GetTick();
+
+	if (!benchmark_event_pending || ((int32_t)(now_ms - benchmark_event_due_ms) < 0)) {
+		return;
+	}
+
+	taskENTER_CRITICAL();
+	if (!benchmark_event_pending || ((int32_t)(HAL_GetTick() - benchmark_event_due_ms) < 0)) {
+		taskEXIT_CRITICAL();
+		return;
+	}
+	benchmark_event_pending = 0;
+	sequence = benchmark_event_sequence;
+	event_cycles = benchmark_cycles();
+	taskEXIT_CRITICAL();
+
+	serial_send_benchmark_event(sequence, event_cycles);
 }
 
 void slider_notify_command_ready_from_isr(void)
@@ -370,6 +434,7 @@ void Touch_Task(void const * argument)
 	while(1)
 	{
 		osDelay(1);
+		benchmark_emit_pending_event();
 		if(!capsense_data_ready){
 			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 0);
 		}else{
@@ -603,6 +668,23 @@ void Command_Task(void const * argument)
 				}
 				benchmark_quiet_until_ms = HAL_GetTick() + BENCHMARK_QUIET_PERIOD_MS;
 				serial_send_benchmark_reply(rxBuffer + 3, rxBuffer[2], dispatch_cycles);
+				break;
+			}
+			case SERIAL_CMD_BENCHMARK_EVENT:{
+				uint32_t delay_ms = BENCHMARK_EVENT_DELAY_MS_DEFAULT;
+				if (rxBuffer[2] != BENCHMARK_EVENT_PAYLOAD) {
+					break;
+				}
+				delay_ms = benchmark_read_u32_le(rxBuffer + 7);
+				if (delay_ms == 0) {
+					delay_ms = BENCHMARK_EVENT_DELAY_MS_DEFAULT;
+				}
+				taskENTER_CRITICAL();
+				benchmark_event_sequence = benchmark_read_u32_le(rxBuffer + 3);
+				benchmark_event_due_ms = HAL_GetTick() + delay_ms;
+				benchmark_event_pending = 1;
+				taskEXIT_CRITICAL();
+				benchmark_quiet_until_ms = HAL_GetTick() + delay_ms + BENCHMARK_QUIET_PERIOD_MS;
 				break;
 			}
 			case SERIAL_CMD_HEART_BEAT:
