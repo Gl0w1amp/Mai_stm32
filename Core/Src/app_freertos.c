@@ -51,6 +51,7 @@
 /* USER CODE BEGIN PD */
 #define CONFIG_VERSION 1
 #define BENCHMARK_MAX_PAYLOAD 48
+#define BENCHMARK_QUIET_PERIOD_MS 30
 #define BENCHMARK_TX_RETRY_COUNT 50
 const char VERSION[] = FIRMWARE_VERSION;
 
@@ -129,6 +130,7 @@ uint8_t current_touch_status[34];
 uint8_t current_button_status[2];
 extern uint8_t capsense_data_ready;
 uint8_t debug_flag = 0;
+volatile uint32_t benchmark_quiet_until_ms = 0;
 /* USER CODE END Variables */
 osThreadId TouchTaskHandle;
 osThreadId ButtonTaskHandle;
@@ -140,6 +142,7 @@ osThreadId LEDTaskHandle;
 static void benchmark_counter_init(void);
 static uint32_t benchmark_cycles(void);
 static void benchmark_write_u32_le(uint8_t *dst, uint32_t value);
+static uint8_t benchmark_quiet_active(void);
 static uint8_t usb_cdc_transmit_retry(uint8_t channel, uint8_t *buf, uint16_t len);
 static void serial_send_benchmark_reply(const uint8_t *payload, uint8_t payload_len, uint32_t dispatch_cycles);
 
@@ -177,6 +180,11 @@ static void benchmark_write_u32_le(uint8_t *dst, uint32_t value)
 	dst[1] = (uint8_t)((value >> 8) & 0xFF);
 	dst[2] = (uint8_t)((value >> 16) & 0xFF);
 	dst[3] = (uint8_t)((value >> 24) & 0xFF);
+}
+
+static uint8_t benchmark_quiet_active(void)
+{
+	return ((int32_t)(benchmark_quiet_until_ms - HAL_GetTick()) > 0) ? 1 : 0;
 }
 
 static uint8_t usb_cdc_transmit_retry(uint8_t channel, uint8_t *buf, uint16_t len)
@@ -346,7 +354,7 @@ void Touch_Task(void const * argument)
 			cmd_mai2io[4] = current_button_status[0] & 0b11110000;
 			cmd_mai2io[5] = current_button_status[1];
 			capsense_data_ready -- ;
-			if(debug_flag == 0){
+			if(debug_flag == 0 && !benchmark_quiet_active()){
 				if(heart_beat != 0){
 					CDC_Transmit(0,(uint8_t*)cmd_mai2io, 14);
 				}else if(touch_scan_flag != 0){
@@ -554,6 +562,7 @@ void Command_Task(void const * argument)
 				if (rxBuffer[2] > BENCHMARK_MAX_PAYLOAD || rxLen < expected_len) {
 					break;
 				}
+				benchmark_quiet_until_ms = HAL_GetTick() + BENCHMARK_QUIET_PERIOD_MS;
 				serial_send_benchmark_reply(rxBuffer + 3, rxBuffer[2], dispatch_cycles);
 				break;
 			}
