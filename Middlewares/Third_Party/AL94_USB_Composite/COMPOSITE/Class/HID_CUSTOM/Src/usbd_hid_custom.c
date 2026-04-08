@@ -313,8 +313,15 @@ static uint8_t USBD_CUSTOM_HID_Setup(USBD_HandleTypeDef *pdev, USBD_SetupReqType
       (void)USBD_CtlSendData(pdev, (uint8_t *)&hhid->IdleState, 1U);
       break;
     case CUSTOM_HID_REQ_SET_REPORT:
+      if (req->wLength > USBD_CUSTOMHID_OUTREPORT_BUF_SIZE)
+      {
+        USBD_CtlError(pdev, req);
+        ret = USBD_FAIL;
+        break;
+      }
       hhid->IsReportAvailable = 1U;
-      (void)USBD_CtlPrepareRx(pdev, hhid->Report_buf, req->wLength);
+      len = req->wLength;
+      (void)USBD_CtlPrepareRx(pdev, hhid->Report_buf, len);
       break;
     default:
       USBD_CtlError(pdev, req);
