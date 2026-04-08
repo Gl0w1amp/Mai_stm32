@@ -56,7 +56,8 @@ typedef struct usb_tx_packet {
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define CONFIG_VERSION 1
-#define BENCHMARK_MAX_PAYLOAD 48
+#define BENCHMARK_REPLY_OVERHEAD 24
+#define BENCHMARK_MAX_PAYLOAD (64 - BENCHMARK_REPLY_OVERHEAD)
 #define BENCHMARK_EVENT_PAYLOAD 8
 #define BENCHMARK_EVENT_REPLY_PAYLOAD 24
 #define BENCHMARK_EVENT_DELAY_MS_DEFAULT 10
@@ -277,6 +278,10 @@ static void serial_send_benchmark_reply(uint8_t cmd, const uint8_t *payload, uin
 	uint8_t cmd_tmp[64];
 	uint8_t idx = 0;
 	uint64_t tx_cycles = benchmark_cycles64();
+
+	if (payload_len > BENCHMARK_MAX_PAYLOAD) {
+		payload_len = BENCHMARK_MAX_PAYLOAD;
+	}
 
 	cmd_tmp[idx++] = 0xFF;
 	cmd_tmp[idx++] = cmd;
