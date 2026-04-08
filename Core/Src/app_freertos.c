@@ -19,6 +19,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "FreeRTOS.h"
+#include "queue.h"
 #include "task.h"
 #include "main.h"
 #include "cmsis_os.h"
@@ -44,6 +45,10 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+typedef struct usb_tx_packet {
+	uint16_t len;
+	uint8_t data[64];
+} usb_tx_packet_t;
 
 /* USER CODE END PTD */
 
@@ -52,6 +57,8 @@
 #define CONFIG_VERSION 1
 #define BENCHMARK_MAX_PAYLOAD 48
 #define BENCHMARK_QUIET_PERIOD_MS 30
+#define USB_TX_HIGH_QUEUE_LENGTH 8
+#define USB_TX_LOW_QUEUE_LENGTH 8
 #define BENCHMARK_TX_RETRY_COUNT 50
 const char VERSION[] = FIRMWARE_VERSION;
 
@@ -136,6 +143,9 @@ osThreadId TouchTaskHandle;
 osThreadId ButtonTaskHandle;
 osThreadId CommandTaskHandle;
 osThreadId LEDTaskHandle;
+osThreadId UsbTxTaskHandle;
+QueueHandle_t usb_tx_high_queue = NULL;
+QueueHandle_t usb_tx_low_queue = NULL;
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -143,7 +153,9 @@ static void benchmark_counter_init(void);
 static uint32_t benchmark_cycles(void);
 static void benchmark_write_u32_le(uint8_t *dst, uint32_t value);
 static uint8_t benchmark_quiet_active(void);
-static uint8_t usb_cdc_transmit_retry(uint8_t channel, uint8_t *buf, uint16_t len);
+static uint8_t usb_tx_enqueue(QueueHandle_t queue, const uint8_t *buf, uint16_t len);
+static uint8_t usb_tx_enqueue_high(const uint8_t *buf, uint16_t len);
+static uint8_t usb_tx_enqueue_low(const uint8_t *buf, uint16_t len);
 static void serial_send_benchmark_reply(const uint8_t *payload, uint8_t payload_len, uint32_t dispatch_cycles);
 
 /* USER CODE END FunctionPrototypes */
@@ -152,6 +164,7 @@ void Touch_Task(void const * argument);
 void Button_Task(void const * argument);
 void Command_Task(void const * argument);
 void LED_Task(void const * argument);
+void UsbTx_Task(void const * argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -187,18 +200,28 @@ static uint8_t benchmark_quiet_active(void)
 	return ((int32_t)(benchmark_quiet_until_ms - HAL_GetTick()) > 0) ? 1 : 0;
 }
 
-static uint8_t usb_cdc_transmit_retry(uint8_t channel, uint8_t *buf, uint16_t len)
+static uint8_t usb_tx_enqueue(QueueHandle_t queue, const uint8_t *buf, uint16_t len)
 {
-	for (uint8_t attempt = 0; attempt < BENCHMARK_TX_RETRY_COUNT; attempt++) {
-		uint8_t result = CDC_Transmit(channel, buf, len);
-		if (result == USBD_OK) {
-			return result;
-		}
+	usb_tx_packet_t packet;
 
-		osDelay(1);
+	if (queue == NULL || buf == NULL || len == 0 || len > sizeof(packet.data)) {
+		return 0;
 	}
 
-	return USBD_BUSY;
+	packet.len = len;
+	memcpy(packet.data, buf, len);
+
+	return xQueueSend(queue, &packet, 0) == pdPASS ? 1 : 0;
+}
+
+static uint8_t usb_tx_enqueue_high(const uint8_t *buf, uint16_t len)
+{
+	return usb_tx_enqueue(usb_tx_high_queue, buf, len);
+}
+
+static uint8_t usb_tx_enqueue_low(const uint8_t *buf, uint16_t len)
+{
+	return usb_tx_enqueue(usb_tx_low_queue, buf, len);
 }
 
 /* Echoes the benchmark payload and attaches device-side cycle timestamps. */
@@ -223,7 +246,7 @@ static void serial_send_benchmark_reply(const uint8_t *payload, uint8_t payload_
 	for (uint8_t i = 0; i < idx; i++) {
 		cmd_tmp[idx] += cmd_tmp[i];
 	}
-	(void) usb_cdc_transmit_retry(0, cmd_tmp, idx + 1);
+	(void) usb_tx_enqueue_high(cmd_tmp, idx + 1);
 }
 
 void slider_notify_command_ready_from_isr(void)
@@ -245,6 +268,8 @@ void slider_notify_command_ready_from_isr(void)
   */
 void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
+  usb_tx_high_queue = xQueueCreate(USB_TX_HIGH_QUEUE_LENGTH, sizeof(usb_tx_packet_t));
+  usb_tx_low_queue = xQueueCreate(USB_TX_LOW_QUEUE_LENGTH, sizeof(usb_tx_packet_t));
 
   /* USER CODE END Init */
 
@@ -280,6 +305,10 @@ void MX_FREERTOS_Init(void) {
   /* definition and creation of LEDTask */
   osThreadDef(LEDTask, LED_Task, osPriorityIdle, 0, 256);
   LEDTaskHandle = osThreadCreate(osThread(LEDTask), NULL);
+
+  /* definition and creation of UsbTxTask */
+  osThreadDef(UsbTxTask, UsbTx_Task, osPriorityAboveNormal, 0, 256);
+  UsbTxTaskHandle = osThreadCreate(osThread(UsbTxTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -356,10 +385,10 @@ void Touch_Task(void const * argument)
 			capsense_data_ready -- ;
 			if(debug_flag == 0 && !benchmark_quiet_active()){
 				if(heart_beat != 0){
-					CDC_Transmit(0,(uint8_t*)cmd_mai2io, 14);
+					(void) usb_tx_enqueue_low(cmd_mai2io, 14);
 				}else if(touch_scan_flag != 0){
 					memcpy(cmd_mai2touch+1,cmd_mai2io+6,7);
-					CDC_Transmit(0,(uint8_t*)cmd_mai2touch, 9);
+					(void) usb_tx_enqueue_low(cmd_mai2touch, 9);
 				}
 			}
 		}
@@ -472,7 +501,7 @@ void Command_Task(void const * argument)
 				for(uint8_t i = 0;i<6;i++){
 					cmd_tmp[6] += cmd_tmp[i];
 				}
-				CDC_Transmit(0,(uint8_t*)cmd_tmp, 7);
+				(void) usb_tx_enqueue_high(cmd_tmp, 7);
 				break;
 			}
 
@@ -480,7 +509,7 @@ void Command_Task(void const * argument)
 				memcpy(&Flash.touch_threshold[rxBuffer[3]],&rxBuffer[4],2);
 				flash_write(Flash.raw_flash);
 				uint8_t cmd_tmp[5] = {0xff,6,1,1,7};
-				CDC_Transmit(0,(uint8_t*)cmd_tmp, 5);
+				(void) usb_tx_enqueue_high(cmd_tmp, 5);
 				break;
 			}
 			case SERIAL_CMD_READ_TOUCH_SHEET:{
@@ -492,7 +521,7 @@ void Command_Task(void const * argument)
 				for(uint8_t i = 0;i<37;i++){
 					cmd_tmp[37] += cmd_tmp[i];
 				}
-				CDC_Transmit(0,(uint8_t*)cmd_tmp, 38);
+				(void) usb_tx_enqueue_high(cmd_tmp, 38);
 				break;
 			}
 			case SERIAL_CMD_WRITE_TOUCH_SHEET:{
@@ -502,7 +531,7 @@ void Command_Task(void const * argument)
 				}
 				flash_write(Flash.raw_flash);
 				uint8_t cmd_tmp[5] = {0xff,8,1,1,9};
-				CDC_Transmit(0,(uint8_t*)cmd_tmp, 5);
+				(void) usb_tx_enqueue_high(cmd_tmp, 5);
 				break;
 			}
 			case SERIAL_CMD_READ_DELAY_SETTING:{
@@ -515,7 +544,7 @@ void Command_Task(void const * argument)
 					for(uint8_t i = 0;i<5;i++){
 						cmd_tmp[5] += cmd_tmp[i];
 					}
-					CDC_Transmit(0,(uint8_t*)cmd_tmp, 6);
+					(void) usb_tx_enqueue_high(cmd_tmp, 6);
 					break;
 				}
 			}
@@ -530,7 +559,7 @@ void Command_Task(void const * argument)
 					for(uint8_t i = 0;i<4;i++){
 						cmd_tmp[4] += cmd_tmp[i];
 					}
-					CDC_Transmit(0,(uint8_t*)cmd_tmp, 5);
+					(void) usb_tx_enqueue_high(cmd_tmp, 5);
 					break;
 				}
 				break;
@@ -538,7 +567,7 @@ void Command_Task(void const * argument)
 			case SERIAL_CMD_RESET:{
 				// Send acknowledge before reset
 				uint8_t cmd_tmp[5] = {0xff,0x10,1,1,0x11};
-				CDC_Transmit(0,(uint8_t*)cmd_tmp, 5);
+				(void) usb_tx_enqueue_high(cmd_tmp, 5);
 				// Wait for transmission to complete
 				osDelay(100);
 				// Perform software reset
@@ -549,7 +578,7 @@ void Command_Task(void const * argument)
 			case SERIAL_CMD_JUMP_TO_DFU:{
 				// Send acknowledge before jumping to DFU
 				uint8_t cmd_tmp[5] = {0xff,0x21,1,1,0x22};
-				CDC_Transmit(0,(uint8_t*)cmd_tmp, 5);
+				(void) usb_tx_enqueue_high(cmd_tmp, 5);
 				// Wait for transmission to complete
 				osDelay(200);  // Increased delay
 				
@@ -606,7 +635,7 @@ void Command_Task(void const * argument)
 				for(uint8_t i = 0; i < idx; i++){
 					cmd_tmp[idx] += cmd_tmp[i];
 				}
-				CDC_Transmit(0, cmd_tmp, idx + 1);
+				(void) usb_tx_enqueue_high(cmd_tmp, idx + 1);
 				break;
 			}
 		}
@@ -638,7 +667,7 @@ void Command_Task(void const * argument)
 					//Set Touch Panel Sensitivity
 					memcpy(cmd_tmp+1,rxBuffer+1,4);
 				}
-				CDC_Transmit(0,(uint8_t*)cmd_tmp,6);
+				(void) usb_tx_enqueue_high((uint8_t*)cmd_tmp,6);
 				break;
 
 			case 0x4c:
@@ -653,7 +682,7 @@ void Command_Task(void const * argument)
 					//Set Touch Panel Sensitivity
 					memcpy(cmd_tmp+1,rxBuffer+1,4);
 				}
-				CDC_Transmit(0,(uint8_t*)cmd_tmp,6);
+				(void) usb_tx_enqueue_high((uint8_t*)cmd_tmp,6);
 				break;
 			default:
 				break;
@@ -691,6 +720,31 @@ void LED_Task(void const * argument)
 		osDelay(1);
 	}
   /* USER CODE END LED_Task */
+}
+
+void UsbTx_Task(void const * argument)
+{
+  /* USER CODE BEGIN UsbTx_Task */
+	usb_tx_packet_t packet;
+	(void) argument;
+
+	for(;;){
+		if (usb_tx_high_queue != NULL &&
+			xQueueReceive(usb_tx_high_queue, &packet, 0) != pdPASS) {
+			if (usb_tx_low_queue == NULL ||
+				xQueueReceive(usb_tx_low_queue, &packet, portMAX_DELAY) != pdPASS) {
+				continue;
+			}
+		}
+
+		for (uint8_t attempt = 0; attempt < BENCHMARK_TX_RETRY_COUNT; attempt++) {
+			if (CDC_Transmit(0, packet.data, packet.len) == USBD_OK) {
+				break;
+			}
+			osDelay(1);
+		}
+	}
+  /* USER CODE END UsbTx_Task */
 }
 
 /* Private application code --------------------------------------------------*/
