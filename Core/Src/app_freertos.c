@@ -218,6 +218,18 @@ static void serial_send_benchmark_reply(const uint8_t *payload, uint8_t payload_
 	(void) usb_cdc_transmit_retry(0, cmd_tmp, idx + 1);
 }
 
+void slider_notify_command_ready_from_isr(void)
+{
+	BaseType_t higher_priority_task_woken = pdFALSE;
+
+	if (CommandTaskHandle == NULL) {
+		return;
+	}
+
+	vTaskNotifyGiveFromISR((TaskHandle_t) CommandTaskHandle, &higher_priority_task_woken);
+	portYIELD_FROM_ISR(higher_priority_task_woken);
+}
+
 /**
   * @brief  FreeRTOS initialization
   * @param  None
@@ -406,7 +418,7 @@ void Command_Task(void const * argument)
   benchmark_counter_init();
   for(;;)
   {
-    osDelay(5);
+	ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5));
 	if ((rxLen != 0)&&(rxBuffer[0] == 0xff)){
 		uint32_t dispatch_cycles = benchmark_cycles();
 		switch(rxBuffer[1]){

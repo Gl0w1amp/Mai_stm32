@@ -40,6 +40,7 @@ void slider_scan_stop();
 void slider_reset();
 void slider_get_board_info();
 void slider_scan();
+void slider_notify_command_ready_from_isr(void);
 
 extern uint8_t slider_scan_flag;
 
