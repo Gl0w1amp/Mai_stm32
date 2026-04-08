@@ -50,6 +50,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define CONFIG_VERSION 1
+#define BENCHMARK_MAX_PAYLOAD 48
 const char VERSION[] = FIRMWARE_VERSION;
 
 // Firmware Header instance placed in specific section
@@ -135,6 +136,10 @@ osThreadId LEDTaskHandle;
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
+static void benchmark_counter_init(void);
+static uint32_t benchmark_cycles(void);
+static void benchmark_write_u32_le(uint8_t *dst, uint32_t value);
+static void serial_send_benchmark_reply(const uint8_t *payload, uint8_t payload_len, uint32_t dispatch_cycles);
 
 /* USER CODE END FunctionPrototypes */
 
@@ -144,6 +149,58 @@ void Command_Task(void const * argument);
 void LED_Task(void const * argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
+
+static void benchmark_counter_init(void)
+{
+	static uint8_t initialized = 0;
+
+	if (initialized) {
+		return;
+	}
+
+	CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+	DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+	DWT->CYCCNT = 0;
+	initialized = 1;
+}
+
+static uint32_t benchmark_cycles(void)
+{
+	return DWT->CYCCNT;
+}
+
+static void benchmark_write_u32_le(uint8_t *dst, uint32_t value)
+{
+	dst[0] = (uint8_t)(value & 0xFF);
+	dst[1] = (uint8_t)((value >> 8) & 0xFF);
+	dst[2] = (uint8_t)((value >> 16) & 0xFF);
+	dst[3] = (uint8_t)((value >> 24) & 0xFF);
+}
+
+/* Echoes the benchmark payload and attaches device-side cycle timestamps. */
+static void serial_send_benchmark_reply(const uint8_t *payload, uint8_t payload_len, uint32_t dispatch_cycles)
+{
+	uint8_t cmd_tmp[64];
+	uint8_t idx = 0;
+	uint32_t tx_cycles = benchmark_cycles();
+
+	cmd_tmp[idx++] = 0xFF;
+	cmd_tmp[idx++] = SERIAL_CMD_BENCHMARK;
+	cmd_tmp[idx++] = payload_len + 12;
+	memcpy(&cmd_tmp[idx], payload, payload_len);
+	idx += payload_len;
+	benchmark_write_u32_le(&cmd_tmp[idx], dispatch_cycles);
+	idx += 4;
+	benchmark_write_u32_le(&cmd_tmp[idx], tx_cycles);
+	idx += 4;
+	benchmark_write_u32_le(&cmd_tmp[idx], SystemCoreClock);
+	idx += 4;
+	cmd_tmp[idx] = 0;
+	for (uint8_t i = 0; i < idx; i++) {
+		cmd_tmp[idx] += cmd_tmp[i];
+	}
+	CDC_Transmit(0, cmd_tmp, idx + 1);
+}
 
 /**
   * @brief  FreeRTOS initialization
@@ -330,10 +387,12 @@ void Command_Task(void const * argument)
 {
   /* USER CODE BEGIN Command_Task */
   /* Infinite loop */
+  benchmark_counter_init();
   for(;;)
   {
     osDelay(5);
 	if ((rxLen != 0)&&(rxBuffer[0] == 0xff)){
+		uint32_t dispatch_cycles = benchmark_cycles();
 		switch(rxBuffer[1]){
 			case SERIAL_CMD_LED:
 //				if(rxBuffer[2] != 27){
@@ -460,6 +519,14 @@ void Command_Task(void const * argument)
 				
 				// Request DFU mode and reset (more reliable method)
 				Request_DFU_Mode_And_Reset();
+				break;
+			}
+			case SERIAL_CMD_BENCHMARK:{
+				uint16_t expected_len = (uint16_t) rxBuffer[2] + 4;
+				if (rxBuffer[2] > BENCHMARK_MAX_PAYLOAD || rxLen < expected_len) {
+					break;
+				}
+				serial_send_benchmark_reply(rxBuffer + 3, rxBuffer[2], dispatch_cycles);
 				break;
 			}
 			case SERIAL_CMD_HEART_BEAT:
