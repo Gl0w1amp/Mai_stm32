@@ -301,6 +301,7 @@ static uint8_t USBD_COMPOSITE_Setup(USBD_HandleTypeDef *pdev,
                                     USBD_SetupReqTypedef *req)
 {
   if (((req->bmRequest & (USB_REQ_TYPE_MASK | USB_REQ_RECIPIENT_MASK)) == (USB_REQ_TYPE_VENDOR | USB_REQ_RECIPIENT_DEVICE)) &&
+      ((req->bmRequest & 0x80U) != 0U) &&
       (req->bRequest == 0x21U) &&
       (req->wIndex == 0x0006U) &&
       (req->wValue == 0x0000U))
