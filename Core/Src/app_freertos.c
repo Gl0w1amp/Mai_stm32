@@ -145,6 +145,7 @@ volatile uint32_t benchmark_quiet_until_ms = 0;
 volatile uint8_t benchmark_event_pending = 0;
 volatile uint32_t benchmark_event_due_ms = 0;
 volatile uint32_t benchmark_event_sequence = 0;
+volatile uint8_t benchmark_event_transport = 0;
 /* USER CODE END Variables */
 osThreadId TouchTaskHandle;
 osThreadId ButtonTaskHandle;
@@ -167,6 +168,7 @@ static uint8_t usb_tx_enqueue_high(const uint8_t *buf, uint16_t len);
 static uint8_t usb_tx_enqueue_low(const uint8_t *buf, uint16_t len);
 static void serial_send_benchmark_reply(const uint8_t *payload, uint8_t payload_len, uint32_t dispatch_cycles);
 static void serial_send_benchmark_event(uint32_t sequence, uint32_t event_cycles);
+static void hid_send_benchmark_event(uint32_t sequence, uint32_t event_cycles);
 static void benchmark_emit_pending_event(void);
 
 /* USER CODE END FunctionPrototypes */
@@ -292,6 +294,12 @@ static void serial_send_benchmark_event(uint32_t sequence, uint32_t event_cycles
 	(void) usb_tx_enqueue_high(cmd_tmp, idx + 1);
 }
 
+static void hid_send_benchmark_event(uint32_t sequence, uint32_t event_cycles)
+{
+	uint32_t tx_cycles = benchmark_cycles();
+	(void) mai2_hid_benchmark_send_report((uint16_t) sequence, event_cycles, tx_cycles, SystemCoreClock);
+}
+
 static void benchmark_emit_pending_event(void)
 {
 	uint32_t sequence = 0;
@@ -310,9 +318,14 @@ static void benchmark_emit_pending_event(void)
 	benchmark_event_pending = 0;
 	sequence = benchmark_event_sequence;
 	event_cycles = benchmark_cycles();
+	uint8_t transport = benchmark_event_transport;
 	taskEXIT_CRITICAL();
 
-	serial_send_benchmark_event(sequence, event_cycles);
+	if (transport == 2) {
+		hid_send_benchmark_event(sequence, event_cycles);
+	} else {
+		serial_send_benchmark_event(sequence, event_cycles);
+	}
 }
 
 void slider_notify_command_ready_from_isr(void)
@@ -695,6 +708,25 @@ void Command_Task(void const * argument)
 				taskENTER_CRITICAL();
 				benchmark_event_sequence = benchmark_read_u32_le(rxBuffer + 3);
 				benchmark_event_due_ms = HAL_GetTick() + delay_ms;
+				benchmark_event_transport = 1;
+				benchmark_event_pending = 1;
+				taskEXIT_CRITICAL();
+				benchmark_quiet_until_ms = HAL_GetTick() + delay_ms + BENCHMARK_QUIET_PERIOD_MS;
+				break;
+			}
+			case SERIAL_CMD_BENCHMARK_HID_EVENT:{
+				uint32_t delay_ms = BENCHMARK_EVENT_DELAY_MS_DEFAULT;
+				if (rxBuffer[2] != BENCHMARK_EVENT_PAYLOAD) {
+					break;
+				}
+				delay_ms = benchmark_read_u32_le(rxBuffer + 7);
+				if (delay_ms == 0) {
+					delay_ms = BENCHMARK_EVENT_DELAY_MS_DEFAULT;
+				}
+				taskENTER_CRITICAL();
+				benchmark_event_sequence = benchmark_read_u32_le(rxBuffer + 3);
+				benchmark_event_due_ms = HAL_GetTick() + delay_ms;
+				benchmark_event_transport = 2;
 				benchmark_event_pending = 1;
 				taskEXIT_CRITICAL();
 				benchmark_quiet_until_ms = HAL_GetTick() + delay_ms + BENCHMARK_QUIET_PERIOD_MS;
