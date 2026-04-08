@@ -146,6 +146,7 @@ osThreadId LEDTaskHandle;
 osThreadId UsbTxTaskHandle;
 QueueHandle_t usb_tx_high_queue = NULL;
 QueueHandle_t usb_tx_low_queue = NULL;
+QueueSetHandle_t usb_tx_queue_set = NULL;
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -270,6 +271,15 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
   usb_tx_high_queue = xQueueCreate(USB_TX_HIGH_QUEUE_LENGTH, sizeof(usb_tx_packet_t));
   usb_tx_low_queue = xQueueCreate(USB_TX_LOW_QUEUE_LENGTH, sizeof(usb_tx_packet_t));
+  usb_tx_queue_set = xQueueCreateSet(USB_TX_HIGH_QUEUE_LENGTH + USB_TX_LOW_QUEUE_LENGTH);
+  if (usb_tx_queue_set != NULL) {
+	  if (usb_tx_high_queue != NULL) {
+		  (void) xQueueAddToSet(usb_tx_high_queue, usb_tx_queue_set);
+	  }
+	  if (usb_tx_low_queue != NULL) {
+		  (void) xQueueAddToSet(usb_tx_low_queue, usb_tx_queue_set);
+	  }
+  }
 
   /* USER CODE END Init */
 
@@ -726,15 +736,33 @@ void UsbTx_Task(void const * argument)
 {
   /* USER CODE BEGIN UsbTx_Task */
 	usb_tx_packet_t packet;
+	QueueSetMemberHandle_t ready = NULL;
 	(void) argument;
 
 	for(;;){
+		if (usb_tx_queue_set == NULL) {
+			osDelay(1);
+			continue;
+		}
+
+		ready = xQueueSelectFromSet(usb_tx_queue_set, portMAX_DELAY);
+		if (ready == NULL) {
+			continue;
+		}
+
 		if (usb_tx_high_queue != NULL &&
-			xQueueReceive(usb_tx_high_queue, &packet, 0) != pdPASS) {
-			if (usb_tx_low_queue == NULL ||
-				xQueueReceive(usb_tx_low_queue, &packet, portMAX_DELAY) != pdPASS) {
+			xQueueReceive(usb_tx_high_queue, &packet, 0) == pdPASS) {
+			/* High-priority control traffic preempts streamed touch packets. */
+		} else if (ready == usb_tx_low_queue) {
+			if (xQueueReceive(usb_tx_low_queue, &packet, 0) != pdPASS) {
 				continue;
 			}
+		} else if (ready == usb_tx_high_queue) {
+			if (xQueueReceive(usb_tx_high_queue, &packet, 0) != pdPASS) {
+				continue;
+			}
+		} else {
+			continue;
 		}
 
 		for (uint8_t attempt = 0; attempt < BENCHMARK_TX_RETRY_COUNT; attempt++) {
