@@ -311,7 +311,6 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
     if (huart->Instance == USART1)
     {
-        HAL_UART_DMAStop(&huart1);
         memcpy(led_uart_tmp,led_uart_buffer_rx,64);
         LED_Task_Process();
 		while(HAL_UARTEx_ReceiveToIdle_DMA(&huart1, led_uart_buffer_rx,64) != HAL_OK);
@@ -319,7 +318,6 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
     }
     if (huart->Instance == UART4)
     {
-        HAL_UART_DMAStop(&huart4);
 		if(Size >= 70 ){
 			uint8_t ret = 0;
 			for(uint8_t i = 0;i<70;i++){
@@ -346,8 +344,9 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
-	__HAL_UART_CLEAR_FEFLAG(huart);
-	 __HAL_UART_CLEAR_OREFLAG(huart);
+    HAL_UART_DMAStop(huart);
+    __HAL_UART_CLEAR_IT(huart, UART_CLEAR_OREF | UART_CLEAR_NEF | UART_CLEAR_FEF | UART_CLEAR_PEF);
+
     if (huart->Instance == USART1)
     {
         HAL_UARTEx_ReceiveToIdle_DMA(&huart1, led_uart_buffer_rx,64);

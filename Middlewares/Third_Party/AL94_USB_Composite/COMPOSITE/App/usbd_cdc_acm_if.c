@@ -33,9 +33,8 @@
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
-#ifdef PSOC_DEBUG
-		extern uint8_t debug_channel;
-#endif
+extern uint8_t debug_channel;
+extern uint8_t debug_flag;
 /* USER CODE END PV */
 
 /** @addtogroup STM32_USB_OTG_DEVICE_LIBRARY
@@ -424,11 +423,9 @@ static int8_t CDC_Receive(uint8_t cdc_ch, uint8_t *Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 6 */
   //HAL_UART_Transmit_DMA(CDC_CH_To_UART_Handle(cdc_ch), Buf, *Len);
-#ifdef PSOC_DEBUG
-		if(*Len == 1){
-			debug_channel = Buf[0] <= 33 ? Buf[0] : 33;
-		}
-#endif
+	if((*Len == 1) && (debug_flag)){
+		debug_channel = Buf[0] <= 33 ? Buf[0] : 33;
+	}
 	rxLen = *Len;
 	memcpy(rxBuffer,Buf,rxLen);
 	USBD_CDC_SetRxBuffer(cdc_ch, &hUsbDevice, &Buf[0]);

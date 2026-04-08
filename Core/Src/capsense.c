@@ -142,7 +142,7 @@ bool capsense_data_proc_legacy(uint8_t *uart_dma_buffer){
 	if((capsense_procotl_version != 0) && (capsense_procotl_version != 2)){
 		return false;
 	}
-    if(uart_dma_buffer[0] == 0 && uart_dma_buffer[1] == 0){
+    if((uart_dma_buffer[0] == 0 ) && (uart_dma_buffer[1] == 0)){
 		memcpy(&Touch.data[0],uart_dma_buffer+2,68);
 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 1);
 		if(capsense_procotl_version == 0){
@@ -197,8 +197,8 @@ void capsense_init(){
 void capsense_check(){
 	//BLOCK A
 	for(uint8_t i = 0;i<8;i++){
-		if(capsense_baseline[i] == 0){
-			capsense_baseline[i] = Touch.channel_raw[i];
+		if(capsense_baseline[Flash.touch_sheet[i]] == 0){
+			capsense_baseline[Flash.touch_sheet[i]] = Touch.channel_raw[Flash.touch_sheet[i]];
 		}
 //		if(capsense_duration[i] == 0){
 //			capsense_level[i] = Touch.channel_raw[Flash.touch_sheet[i]];
@@ -211,9 +211,9 @@ void capsense_check(){
 //			capsense_level[i] = level;
 //		}
 		if(capsense_duration[i] > CAPSENSE_DURATION_A){
-			capsense_baseline[i] = capsense_freeze[i];
+			capsense_baseline[Flash.touch_sheet[i]] = capsense_freeze[i];
 		}else{
-			capsense_freeze[i] = capsense_baseline[i];
+			capsense_freeze[i] = capsense_baseline[Flash.touch_sheet[i]];
 		}
 		int variance = Touch.channel_raw[Flash.touch_sheet[i]] - capsense_baseline[Flash.touch_sheet[i]];
 		if((variance > Flash.touch_threshold[i]) || (Touch.channel_raw[Flash.touch_sheet[i]] >= 0xFF00)){
@@ -237,8 +237,8 @@ void capsense_check(){
 	}
 	//BLOCK B
 	for(uint8_t i = 8;i<16;i++){
-		if(capsense_baseline[i] == 0){
-			capsense_baseline[i] = Touch.channel_raw[i];
+		if(capsense_baseline[Flash.touch_sheet[i]] == 0){
+			capsense_baseline[Flash.touch_sheet[i]] = Touch.channel_raw[Flash.touch_sheet[i]];
 		}
 		if(capsense_baseline[Flash.touch_sheet[i]] + CAPSENSE_BASELINE_VARIANCE_B > Touch.channel_raw[Flash.touch_sheet[i]]){
 			float baseline = (capsense_baseline[Flash.touch_sheet[i]] * 0.8) + (Touch.channel_raw[Flash.touch_sheet[i]] * 0.2);
@@ -254,8 +254,8 @@ void capsense_check(){
 	}
 	//BLOCK C
 	for(uint8_t i = 16;i<18;i++){
-		if(capsense_baseline[i] == 0){
-			capsense_baseline[i] = Touch.channel_raw[i];
+		if(capsense_baseline[Flash.touch_sheet[i]] == 0){
+			capsense_baseline[Flash.touch_sheet[i]] = Touch.channel_raw[Flash.touch_sheet[i]];
 		}
 		if(capsense_baseline[Flash.touch_sheet[i]] + CAPSENSE_BASELINE_VARIANCE_C > Touch.channel_raw[Flash.touch_sheet[i]]){
 			float baseline = (capsense_baseline[Flash.touch_sheet[i]] * 0.8) + (Touch.channel_raw[Flash.touch_sheet[i]] * 0.2);
@@ -271,8 +271,8 @@ void capsense_check(){
 	}
 	//BLOCK D
 	for(uint8_t i = 18;i<26;i++){
-		if(capsense_baseline[i] == 0){
-			capsense_baseline[i] = Touch.channel_raw[i];
+		if(capsense_baseline[Flash.touch_sheet[i]] == 0){
+			capsense_baseline[Flash.touch_sheet[i]] = Touch.channel_raw[Flash.touch_sheet[i]];
 		}
 		if(capsense_baseline[Flash.touch_sheet[i]] + CAPSENSE_BASELINE_VARIANCE_D > Touch.channel_raw[Flash.touch_sheet[i]]){
 			float baseline = (capsense_baseline[Flash.touch_sheet[i]] * 0.8) + (Touch.channel_raw[Flash.touch_sheet[i]] * 0.2);
@@ -288,8 +288,8 @@ void capsense_check(){
 	}
 	//BLOCK E
 	for(uint8_t i = 26;i<34;i++){
-		if(capsense_baseline[i] == 0){
-			capsense_baseline[i] = Touch.channel_raw[i];
+		if(capsense_baseline[Flash.touch_sheet[i]] == 0){
+			capsense_baseline[Flash.touch_sheet[i]] = Touch.channel_raw[Flash.touch_sheet[i]];
 		}
 		if(capsense_baseline[Flash.touch_sheet[i]] + CAPSENSE_BASELINE_VARIANCE_E > Touch.channel_raw[Flash.touch_sheet[i]]){
 			float baseline = (capsense_baseline[Flash.touch_sheet[i]] * 0.8) + (Touch.channel_raw[Flash.touch_sheet[i]] * 0.2);
