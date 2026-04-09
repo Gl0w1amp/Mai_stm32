@@ -650,6 +650,45 @@ void Command_Task(void const * argument)
 				}
 				FET_LED_Update(rxBuffer[3],rxBuffer[4],rxBuffer[5]);
 				break;
+			case SERIAL_CMD_AUTO_CALIBRATE_THRESHOLD:{
+				uint16_t calibrated_thresholds[34];
+				uint16_t threshold_min = 0;
+				uint16_t threshold_max = 0;
+				uint8_t summary_cmd[10] = {0xff, SERIAL_CMD_AUTO_CALIBRATE_THRESHOLD, 6, 0, 34, 0, 0, 0, 0, 0};
+				uint8_t success;
+
+				if(rxBuffer[2] != 0){
+					break;
+				}
+
+				success = capsense_auto_calibrate_thresholds(calibrated_thresholds, &threshold_min, &threshold_max);
+				summary_cmd[3] = success;
+				memcpy(&summary_cmd[5], &threshold_min, 2);
+				memcpy(&summary_cmd[7], &threshold_max, 2);
+				for(uint8_t i = 0; i < 9; i++){
+					summary_cmd[9] += summary_cmd[i];
+				}
+				(void) usb_tx_enqueue_high(summary_cmd, 10);
+
+				if(success){
+					for(uint8_t start = 0; start < 34; start += 15){
+						uint8_t count = (uint8_t) ((34 - start) > 15 ? 15 : (34 - start));
+						uint8_t cmd_tmp[40] = {0};
+
+						cmd_tmp[0] = 0xff;
+						cmd_tmp[1] = SERIAL_CMD_AUTO_CALIBRATE_THRESHOLD;
+						cmd_tmp[2] = (uint8_t) (2 + (count * 2));
+						cmd_tmp[3] = start;
+						cmd_tmp[4] = count;
+						memcpy(&cmd_tmp[5], &calibrated_thresholds[start], count * sizeof(uint16_t));
+						for(uint8_t i = 0; i < (uint8_t) (5 + (count * 2)); i++){
+							cmd_tmp[5 + (count * 2)] += cmd_tmp[i];
+						}
+						(void) usb_tx_enqueue_high(cmd_tmp, (uint16_t) (6 + (count * 2)));
+					}
+				}
+				break;
+			}
 			case SERIAL_CMD_SCAN_START:
 				break;
 			case SERIAL_CMD_SCAN_STOP:

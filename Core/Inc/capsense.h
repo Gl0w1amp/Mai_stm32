@@ -32,5 +32,6 @@ void capsense_check();
 bool capsense_data_proc(uint8_t *uart_dma_buffer);
 bool capsense_data_proc_legacy(uint8_t *uart_dma_buffer);
 void Boot_Buttom_IRQHandler(void);
+uint8_t capsense_auto_calibrate_thresholds(uint16_t *thresholds_out, uint16_t *min_threshold_out, uint16_t *max_threshold_out);
 
 #endif /* INC_CAPSENSE_H_ */

@@ -21,9 +21,9 @@
 #define CAPSENSE_BASELINE_VARIANCE_E 600
 
 #define CAPSENSE_TOUCH_SETTLE_DURATION 12
-#define CAPSENSE_HOLD_RELEASE_SWITCH_DURATION 24
+#define CAPSENSE_HOLD_RELEASE_SWITCH_DURATION 36
 #define CAPSENSE_HOLD_LOCK_DURATION 100
-#define CAPSENSE_HOLD_RELEASE_CONFIRM_START_DURATION 24
+#define CAPSENSE_HOLD_RELEASE_CONFIRM_START_DURATION 36
 #define CAPSENSE_DURATION_B 1000
 #define CAPSENSE_SHORT_RELEASE_NUMERATOR 9
 #define CAPSENSE_SHORT_RELEASE_DENOMINATOR 10
@@ -34,6 +34,14 @@
 #define CAPSENSE_TOUCH_BASELINE_MAX_RISE_NUMERATOR 1
 #define CAPSENSE_TOUCH_BASELINE_MAX_RISE_DENOMINATOR 8
 #define CAPSENSE_HOLD_RELEASE_CONFIRM_SAMPLES 2
+#define CAPSENSE_HOLD_STABLE_SAMPLES 12
+#define CAPSENSE_HOLD_STABLE_DELTA 256
+#define CAPSENSE_AUTO_THRESHOLD_SAMPLE_COUNT 128
+#define CAPSENSE_AUTO_THRESHOLD_FRAME_TIMEOUT_MS 20
+#define CAPSENSE_AUTO_THRESHOLD_MIN 180
+#define CAPSENSE_AUTO_THRESHOLD_MAX 4000
+#define CAPSENSE_AUTO_THRESHOLD_P2P_MULTIPLIER 6
+#define CAPSENSE_AUTO_THRESHOLD_POS_MULTIPLIER 4
 
 uint8_t uart_dma_buffer[128];
 
@@ -49,12 +57,16 @@ uint16_t capsense_level[8] = {0};
 uint16_t capsense_freeze[34];
 uint16_t capsense_baseline[34];
 uint16_t capsense_threshold[34];
+uint16_t capsense_hold_prev_raw[16] = {0};
 uint8_t capsense_data_ready = 0;
 uint8_t capsense_bit;
 uint8_t capsense_touch_status[34];
 uint8_t capsense_hold_release_confirm[16] = {0};
+uint8_t capsense_hold_stable_count[16] = {0};
+uint8_t capsense_hold_protected[16] = {0};
 uint8_t capsense_procotl_version = 0;
 uint8_t capsense_checksum_last = 0;
+volatile uint32_t capsense_frame_counter = 0;
 
 typedef union{
     float raw_data_fl[4];
@@ -70,13 +82,13 @@ static uint8_t capsense_channel_for_logical(uint8_t logical_index)
 	return Flash.touch_sheet[logical_index];
 }
 
-static uint16_t capsense_release_threshold(uint16_t enter_threshold, uint16_t hold_duration)
+static uint16_t capsense_release_threshold(uint16_t enter_threshold, uint8_t hold_protected)
 {
 	uint32_t numerator = CAPSENSE_SHORT_RELEASE_NUMERATOR;
 	uint32_t denominator = CAPSENSE_SHORT_RELEASE_DENOMINATOR;
 	uint32_t threshold;
 
-	if (hold_duration >= CAPSENSE_HOLD_RELEASE_SWITCH_DURATION) {
+	if (hold_protected) {
 		numerator = CAPSENSE_HOLD_RELEASE_NUMERATOR;
 		denominator = CAPSENSE_HOLD_RELEASE_DENOMINATOR;
 	}
@@ -90,14 +102,19 @@ static uint16_t capsense_release_threshold(uint16_t enter_threshold, uint16_t ho
 	return (uint16_t) threshold;
 }
 
+static uint16_t capsense_abs_diff_u16(uint16_t a, uint16_t b)
+{
+	return (a > b) ? (a - b) : (b - a);
+}
+
 static uint16_t capsense_debug_release_line(uint8_t logical_index)
 {
 	uint8_t channel = capsense_channel_for_logical(logical_index);
 	uint16_t enter_threshold = Flash.touch_threshold[logical_index];
-	uint16_t release_threshold = capsense_release_threshold(
-			enter_threshold,
-			(logical_index < 8) ? capsense_hold_duration[logical_index] :
-			((logical_index >= 18) && (logical_index < 26)) ? capsense_hold_duration[logical_index - 10] : 0);
+	uint8_t hold_protected =
+			(logical_index < 8) ? capsense_hold_protected[logical_index] :
+			((logical_index >= 18) && (logical_index < 26)) ? capsense_hold_protected[logical_index - 10] : 0;
+	uint16_t release_threshold = capsense_release_threshold(enter_threshold, hold_protected);
 
 	if ((logical_index < 8) || ((logical_index >= 18) && (logical_index < 26))) {
 		return capsense_baseline[channel] + release_threshold;
@@ -155,7 +172,8 @@ static void capsense_process_hold_block(uint8_t logical_start, uint8_t hold_offs
 		}
 		if(capsense_hold_duration[hold_index] == 0){
 			capsense_freeze[channel] = capsense_baseline[channel];
-		}else if(capsense_hold_duration[hold_index] >= CAPSENSE_HOLD_LOCK_DURATION){
+		}else if(capsense_hold_protected[hold_index] &&
+				(capsense_hold_duration[hold_index] >= CAPSENSE_HOLD_LOCK_DURATION)){
 			capsense_baseline[channel] = capsense_freeze[channel];
 		}
 
@@ -169,14 +187,36 @@ static void capsense_process_hold_block(uint8_t logical_start, uint8_t hold_offs
 				variance = raw - capsense_baseline[channel];
 			}
 
-			release_threshold = capsense_release_threshold(enter_threshold, capsense_hold_duration[hold_index]);
+			if(!capsense_hold_protected[hold_index] && (raw < 0xFF00)){
+				uint16_t raw_delta = capsense_abs_diff_u16(raw, capsense_hold_prev_raw[hold_index]);
+
+				if((capsense_hold_duration[hold_index] >= CAPSENSE_TOUCH_SETTLE_DURATION) &&
+						(variance >= (int) enter_threshold) &&
+						(raw_delta <= CAPSENSE_HOLD_STABLE_DELTA)){
+					if(capsense_hold_stable_count[hold_index] < 0xFF){
+						capsense_hold_stable_count[hold_index]++;
+					}
+				}else{
+					capsense_hold_stable_count[hold_index] = 0;
+				}
+
+				if((capsense_hold_duration[hold_index] >= CAPSENSE_HOLD_RELEASE_SWITCH_DURATION) &&
+						(capsense_hold_stable_count[hold_index] >= CAPSENSE_HOLD_STABLE_SAMPLES)){
+					capsense_hold_protected[hold_index] = 1;
+					capsense_freeze[channel] = capsense_baseline[channel];
+				}
+			}
+
+			capsense_hold_prev_raw[hold_index] = raw;
+			release_threshold = capsense_release_threshold(enter_threshold, capsense_hold_protected[hold_index]);
 			if((variance >= release_threshold) || (raw >= 0xFF00)){
 				capsense_hold_release_confirm[hold_index] = 0;
 				if(capsense_hold_duration[hold_index] < 10000){
 					capsense_hold_duration[hold_index] ++;
 				}
 			} else {
-				if (capsense_hold_duration[hold_index] >= CAPSENSE_HOLD_RELEASE_CONFIRM_START_DURATION) {
+				if (capsense_hold_protected[hold_index] &&
+						(capsense_hold_duration[hold_index] >= CAPSENSE_HOLD_RELEASE_CONFIRM_START_DURATION)) {
 					if (capsense_hold_release_confirm[hold_index] < 0xFF) {
 						capsense_hold_release_confirm[hold_index]++;
 					}
@@ -187,11 +227,17 @@ static void capsense_process_hold_block(uint8_t logical_start, uint8_t hold_offs
 				capsense_touch_status[logical] = 0;
 				capsense_hold_duration[hold_index] = 0;
 				capsense_hold_release_confirm[hold_index] = 0;
+				capsense_hold_stable_count[hold_index] = 0;
+				capsense_hold_protected[hold_index] = 0;
+				capsense_hold_prev_raw[hold_index] = raw;
 				capsense_update_idle_baseline(channel, raw, CAPSENSE_BASELINE_VARIANCE_A);
 			}
 		} else if((variance > enter_threshold) || (raw >= 0xFF00)){
 			capsense_touch_status[logical] = 1;
 			capsense_hold_release_confirm[hold_index] = 0;
+			capsense_hold_stable_count[hold_index] = 0;
+			capsense_hold_protected[hold_index] = 0;
+			capsense_hold_prev_raw[hold_index] = raw;
 			if(capsense_hold_duration[hold_index] < 10000){
 				capsense_hold_duration[hold_index] ++;
 			}
@@ -199,6 +245,9 @@ static void capsense_process_hold_block(uint8_t logical_start, uint8_t hold_offs
 			capsense_touch_status[logical] = 0;
 			capsense_hold_duration[hold_index] = 0;
 			capsense_hold_release_confirm[hold_index] = 0;
+			capsense_hold_stable_count[hold_index] = 0;
+			capsense_hold_protected[hold_index] = 0;
+			capsense_hold_prev_raw[hold_index] = raw;
 			capsense_update_idle_baseline(channel, raw, CAPSENSE_BASELINE_VARIANCE_A);
 		}
 	}
@@ -248,6 +297,7 @@ static uint8_t capsense_accept_packet(const uint8_t *data)
 	if(capsense_procotl_version == 0){
 		capsense_procotl_version = 1;
 	}
+	capsense_frame_counter++;
 	capsense_data_ready = 1;
 	return 1;
 }
@@ -342,6 +392,7 @@ bool capsense_data_proc_legacy(uint8_t *uart_dma_buffer){
 		if(capsense_procotl_version == 0){
 			capsense_procotl_version = 2;
 		}
+		capsense_frame_counter++;
 		capsense_data_ready = 1;
 		return true;
     }
@@ -359,6 +410,9 @@ void Boot_Buttom_IRQHandler(){
 	for(uint8_t i = 0;i<16;i++){
 		capsense_hold_duration[i] = 0;
 		capsense_hold_release_confirm[i] = 0;
+		capsense_hold_stable_count[i] = 0;
+		capsense_hold_protected[i] = 0;
+		capsense_hold_prev_raw[i] = 0;
 	}
 	capsense_checksum_last = 0;
 	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,0);
@@ -492,4 +546,103 @@ void capsense_check(){
 		memcpy(tmp,vofa1.raw_data_u8,16);
 		CDC_Transmit(0, tmp,20);
 	}
+}
+
+uint8_t capsense_auto_calibrate_thresholds(uint16_t *thresholds_out, uint16_t *min_threshold_out, uint16_t *max_threshold_out)
+{
+	uint16_t min_raw[34];
+	uint16_t max_raw[34];
+	uint16_t max_positive_delta[34];
+	uint16_t threshold_min = 0xFFFF;
+	uint16_t threshold_max = 0;
+	uint32_t last_frame_counter;
+
+	if (thresholds_out == NULL) {
+		return 0;
+	}
+
+	for (uint8_t logical = 0; logical < 34; logical++) {
+		uint8_t channel = capsense_channel_for_logical(logical);
+		uint16_t raw = Touch.channel_raw[channel];
+		int32_t delta = (int32_t) raw - (int32_t) capsense_baseline[channel];
+
+		if (capsense_touch_status[logical]) {
+			return 0;
+		}
+
+		min_raw[logical] = raw;
+		max_raw[logical] = raw;
+		max_positive_delta[logical] = delta > 0 ? (uint16_t) delta : 0;
+	}
+	last_frame_counter = capsense_frame_counter;
+
+	for (uint16_t sample = 0; sample < CAPSENSE_AUTO_THRESHOLD_SAMPLE_COUNT; sample++) {
+		uint32_t timeout_ms = CAPSENSE_AUTO_THRESHOLD_FRAME_TIMEOUT_MS;
+
+		while (capsense_frame_counter == last_frame_counter) {
+			if (timeout_ms == 0) {
+				return 0;
+			}
+			osDelay(1);
+			timeout_ms--;
+		}
+		last_frame_counter = capsense_frame_counter;
+
+		for (uint8_t logical = 0; logical < 34; logical++) {
+			uint8_t channel = capsense_channel_for_logical(logical);
+			uint16_t raw = Touch.channel_raw[channel];
+			int32_t delta = (int32_t) raw - (int32_t) capsense_baseline[channel];
+
+			if (capsense_touch_status[logical] || (raw >= 0xFF00)) {
+				return 0;
+			}
+
+			if (raw < min_raw[logical]) {
+				min_raw[logical] = raw;
+			}
+			if (raw > max_raw[logical]) {
+				max_raw[logical] = raw;
+			}
+			if ((delta > 0) && ((uint16_t) delta > max_positive_delta[logical])) {
+				max_positive_delta[logical] = (uint16_t) delta;
+			}
+		}
+	}
+
+	for (uint8_t logical = 0; logical < 34; logical++) {
+		uint32_t peak_to_peak = (uint32_t) max_raw[logical] - (uint32_t) min_raw[logical];
+		uint32_t threshold = peak_to_peak * CAPSENSE_AUTO_THRESHOLD_P2P_MULTIPLIER;
+		uint32_t positive_candidate = (uint32_t) max_positive_delta[logical] * CAPSENSE_AUTO_THRESHOLD_POS_MULTIPLIER;
+
+		if (positive_candidate > threshold) {
+			threshold = positive_candidate;
+		}
+		if (threshold < CAPSENSE_AUTO_THRESHOLD_MIN) {
+			threshold = CAPSENSE_AUTO_THRESHOLD_MIN;
+		}
+		if (threshold > CAPSENSE_AUTO_THRESHOLD_MAX) {
+			threshold = CAPSENSE_AUTO_THRESHOLD_MAX;
+		}
+
+		Flash.touch_threshold[logical] = (uint16_t) threshold;
+		thresholds_out[logical] = (uint16_t) threshold;
+
+		if ((uint16_t) threshold < threshold_min) {
+			threshold_min = (uint16_t) threshold;
+		}
+		if ((uint16_t) threshold > threshold_max) {
+			threshold_max = (uint16_t) threshold;
+		}
+	}
+
+	flash_write(Flash.raw_flash);
+
+	if (min_threshold_out != NULL) {
+		*min_threshold_out = threshold_min;
+	}
+	if (max_threshold_out != NULL) {
+		*max_threshold_out = threshold_max;
+	}
+
+	return 1;
 }

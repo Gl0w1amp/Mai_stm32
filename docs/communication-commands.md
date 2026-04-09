@@ -63,6 +63,7 @@ Configure touch sensor parameters and read raw data.
 | `0x0A` | `SET_DEBUG_CHANNEL` | 1 byte (`channel`) | `FF 0A 02 [channel] [ok] [CS]` | Select the logical touch channel (0-33) used by VOFA/debug streaming. `ok=1` when accepted. |
 | `0x12` | `READ_DELAY_SETTING` | 1 byte (`idx`) | `FF 12 02 [idx] [val] [CS]` | Read delay setting `idx` (0-1). |
 | `0x13` | `WRITE_DELAY_SETTING` | 2 bytes (`idx`, `val`) | `FF 13 01 [idx] [CS]` | Write delay setting `idx`. |
+| `0x17` | `AUTO_CALIBRATE_THRESHOLD` | None | `FF 17 06 [ok] [34] [min_L] [min_H] [max_L] [max_H] [CS]` then `FF 17 [2+2N] [start] [count] [thresholds...] [CS]` | Capture idle-noise samples, compute all 34 thresholds, save them to Flash, and report the results in chunks. Run this only when no fingers are touching the panel. |
 
 ### System Commands
 
