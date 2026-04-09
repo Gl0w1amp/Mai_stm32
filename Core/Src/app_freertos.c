@@ -137,6 +137,7 @@ uint8_t touch_scan_flag = 0;
 uint8_t heart_beat = 50;
 extern FlashData Flash;
 extern uint8_t keyboard_sheet[14];
+extern uint8_t debug_channel;
 uint8_t player = 1;
 uint8_t current_touch_status[34];
 uint8_t current_button_status[2];
@@ -796,6 +797,38 @@ void Command_Task(void const * argument)
 				break;
 			case SERIAL_CMD_TO_DEBUG_MODE:
 				debug_flag = 1;
+				{
+					uint8_t ack_cmd[5] = {0xff, SERIAL_CMD_TO_DEBUG_MODE, 1, 1, 0};
+					uint8_t status_cmd[6] = {0xff, SERIAL_CMD_TO_DEBUG_MODE, 2, 2, capsense_data_ready, 0};
+
+					for(uint8_t i = 0; i < 4; i++){
+						ack_cmd[4] += ack_cmd[i];
+					}
+					for(uint8_t i = 0; i < 5; i++){
+						status_cmd[5] += status_cmd[i];
+					}
+					(void) usb_tx_enqueue_high(ack_cmd, 5);
+					(void) usb_tx_enqueue_high(status_cmd, 6);
+				}
+				break;
+			case SERIAL_CMD_SET_DEBUG_CHANNEL:{
+				uint8_t cmd_tmp[6] = {0xff, SERIAL_CMD_SET_DEBUG_CHANNEL, 2, 0, 0, 0};
+				if(rxBuffer[2] != 1){
+					cmd_tmp[4] = 0;
+				}else if(rxBuffer[3] < 34){
+					debug_channel = rxBuffer[3];
+					cmd_tmp[3] = debug_channel;
+					cmd_tmp[4] = 1;
+				}else{
+					cmd_tmp[3] = rxBuffer[3];
+					cmd_tmp[4] = 0;
+				}
+				for(uint8_t i = 0;i<5;i++){
+					cmd_tmp[5] += cmd_tmp[i];
+				}
+				(void) usb_tx_enqueue_high(cmd_tmp, 6);
+				break;
+			}
 			case SERIAL_CMD_GET_BOARD_INFO:{
 				char board_name[] = "1020-050201";
 				uint8_t name_len = strlen(board_name);

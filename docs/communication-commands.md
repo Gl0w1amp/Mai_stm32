@@ -59,6 +59,8 @@ Configure touch sensor parameters and read raw data.
 | `0x06` | `WRITE_MONO_THRESHOLD` | 3 bytes (`idx`, `val_L`, `val_H`) | `FF 06 01 01 [CS]` | Write threshold for sensor `idx`. |
 | `0x07` | `READ_TOUCH_SHEET` | None | `FF 07 22 [34 bytes] [CS]` | Read all 34 sensor raw values. |
 | `0x08` | `WRITE_TOUCH_SHEET` | 34 bytes | `FF 08 01 01 [CS]` | Write all 34 sensor raw values. |
+| `0x09` | `TO_DEBUG_MODE` | None | `FF 09 01 01 [CS]` then `FF 09 02 02 [capsense_data_ready] [CS]` | Enable VOFA/debug streaming and immediately return an ACK plus the current `capsense_data_ready` snapshot. |
+| `0x0A` | `SET_DEBUG_CHANNEL` | 1 byte (`channel`) | `FF 0A 02 [channel] [ok] [CS]` | Select the logical touch channel (0-33) used by VOFA/debug streaming. `ok=1` when accepted. |
 | `0x12` | `READ_DELAY_SETTING` | 1 byte (`idx`) | `FF 12 02 [idx] [val] [CS]` | Read delay setting `idx` (0-1). |
 | `0x13` | `WRITE_DELAY_SETTING` | 2 bytes (`idx`, `val`) | `FF 13 01 [idx] [CS]` | Write delay setting `idx`. |
 
