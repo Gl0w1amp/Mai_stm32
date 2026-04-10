@@ -19,17 +19,23 @@
 #define CAPSENSE_BASELINE_VARIANCE_C 500
 #define CAPSENSE_BASELINE_VARIANCE_D 800
 #define CAPSENSE_BASELINE_VARIANCE_E 600
+#define CAPSENSE_BASELINE_COOLDOWN_FRAMES 16
+#define CAPSENSE_BASELINE_RISE_MARGIN 128
+#define CAPSENSE_BASELINE_RISE_NUMERATOR 1
+#define CAPSENSE_BASELINE_RISE_DENOMINATOR 50
+#define CAPSENSE_BASELINE_FALL_NUMERATOR 1
+#define CAPSENSE_BASELINE_FALL_DENOMINATOR 5
 
 #define CAPSENSE_TOUCH_ENTER_CONFIRM_SAMPLES 2
 #define CAPSENSE_TOUCH_RELEASE_CONFIRM_SAMPLES 2
-#define CAPSENSE_TOUCH_REARM_CONFIRM_SAMPLES 2
-#define CAPSENSE_SHORT_RELEASE_NUMERATOR 19
-#define CAPSENSE_SHORT_RELEASE_DENOMINATOR 20
-#define CAPSENSE_DYNAMIC_RELEASE_NUMERATOR 3
-#define CAPSENSE_DYNAMIC_RELEASE_DENOMINATOR 20
-#define CAPSENSE_DYNAMIC_REARM_NUMERATOR 11
-#define CAPSENSE_DYNAMIC_REARM_DENOMINATOR 20
-#define CAPSENSE_DYNAMIC_PEAK_DECAY 128
+#define CAPSENSE_SHORT_RELEASE_NUMERATOR 1
+#define CAPSENSE_SHORT_RELEASE_DENOMINATOR 2
+#define CAPSENSE_DYNAMIC_FOLLOW_RISE_NUMERATOR 1
+#define CAPSENSE_DYNAMIC_FOLLOW_RISE_DENOMINATOR 2
+#define CAPSENSE_DYNAMIC_FOLLOW_FALL_NUMERATOR 1
+#define CAPSENSE_DYNAMIC_FOLLOW_FALL_DENOMINATOR 8
+#define CAPSENSE_DYNAMIC_FOLLOW_CAP_NUMERATOR 7
+#define CAPSENSE_DYNAMIC_FOLLOW_CAP_DENOMINATOR 8
 #define CAPSENSE_AUTO_THRESHOLD_SAMPLE_COUNT 128
 #define CAPSENSE_AUTO_THRESHOLD_FRAME_TIMEOUT_MS 20
 #define CAPSENSE_AUTO_THRESHOLD_TOTAL_TIMEOUT_MS 5000
@@ -46,8 +52,7 @@
 typedef enum {
 	CAPSENSE_HOLD_STATE_IDLE = 0,
 	CAPSENSE_HOLD_STATE_ACTIVE = 1,
-	CAPSENSE_HOLD_STATE_RELEASE_CONFIRM = 2,
-	CAPSENSE_HOLD_STATE_REARM_WAIT = 3
+	CAPSENSE_HOLD_STATE_RELEASE_CONFIRM = 2
 } capsense_hold_state_t;
 
 uint8_t uart_dma_buffer[128];
@@ -67,6 +72,7 @@ uint16_t capsense_threshold[34];
 uint16_t capsense_hold_prev_raw[16] = {0};
 uint16_t capsense_hold_peak_envelope[16] = {0};
 uint16_t capsense_hold_release_level[16] = {0};
+uint8_t capsense_hold_baseline_cooldown[16] = {0};
 uint8_t capsense_data_ready = 0;
 uint8_t capsense_bit;
 uint8_t capsense_touch_status[34];
@@ -109,15 +115,12 @@ static uint16_t capsense_release_threshold(uint16_t enter_threshold)
 	return (uint16_t) threshold;
 }
 
-static uint16_t capsense_dynamic_release_threshold(uint16_t enter_threshold, uint16_t peak_envelope)
+static uint16_t capsense_dynamic_release_threshold(uint16_t enter_threshold, uint16_t follow_level)
 {
 	uint32_t threshold = capsense_release_threshold(enter_threshold);
-	uint32_t dynamic_threshold =
-			((uint32_t) peak_envelope * CAPSENSE_DYNAMIC_RELEASE_NUMERATOR) /
-			CAPSENSE_DYNAMIC_RELEASE_DENOMINATOR;
 
-	if (dynamic_threshold > threshold) {
-		threshold = dynamic_threshold;
+	if (follow_level > threshold) {
+		threshold = follow_level;
 	}
 	if (threshold == 0) {
 		threshold = 1;
@@ -126,34 +129,45 @@ static uint16_t capsense_dynamic_release_threshold(uint16_t enter_threshold, uin
 	return (uint16_t) threshold;
 }
 
-static uint16_t capsense_rearm_threshold(uint16_t enter_threshold)
+static uint16_t capsense_follow_target(uint16_t enter_threshold, uint16_t delta)
 {
-	uint32_t threshold =
-			((uint32_t) enter_threshold * CAPSENSE_DYNAMIC_REARM_NUMERATOR) /
-			CAPSENSE_DYNAMIC_REARM_DENOMINATOR;
+	uint32_t target = capsense_release_threshold(enter_threshold);
+	uint32_t capped_delta =
+			((uint32_t) delta * CAPSENSE_DYNAMIC_FOLLOW_CAP_NUMERATOR) /
+			CAPSENSE_DYNAMIC_FOLLOW_CAP_DENOMINATOR;
 
-	if (threshold == 0) {
-		threshold = 1;
+	if (capped_delta > target) {
+		target = capped_delta;
 	}
 
-	return (uint16_t) threshold;
+	return (uint16_t) target;
 }
 
-static uint16_t capsense_update_peak_envelope(uint16_t peak_envelope, uint16_t delta)
+static uint16_t capsense_update_follow_level(uint16_t follow_level, uint16_t target_level)
 {
-	uint32_t decayed = peak_envelope;
+	uint32_t updated = follow_level;
 
-	if (decayed > CAPSENSE_DYNAMIC_PEAK_DECAY) {
-		decayed -= CAPSENSE_DYNAMIC_PEAK_DECAY;
+	if (target_level > follow_level) {
+		uint32_t step = ((uint32_t) (target_level - follow_level) *
+				CAPSENSE_DYNAMIC_FOLLOW_RISE_NUMERATOR +
+				CAPSENSE_DYNAMIC_FOLLOW_RISE_DENOMINATOR - 1) /
+				CAPSENSE_DYNAMIC_FOLLOW_RISE_DENOMINATOR;
+		updated += step;
+	} else if (target_level < follow_level) {
+		uint32_t step = ((uint32_t) (follow_level - target_level) *
+				CAPSENSE_DYNAMIC_FOLLOW_FALL_NUMERATOR +
+				CAPSENSE_DYNAMIC_FOLLOW_FALL_DENOMINATOR - 1) /
+				CAPSENSE_DYNAMIC_FOLLOW_FALL_DENOMINATOR;
+		if (step > updated) {
+			updated = 0;
+		} else {
+			updated -= step;
+		}
 	} else {
-		decayed = 0;
+		updated = target_level;
 	}
 
-	if (delta > decayed) {
-		decayed = delta;
-	}
-
-	return (uint16_t) decayed;
+	return (uint16_t) updated;
 }
 
 static uint8_t capsense_hold_index_for_logical(uint8_t logical_index)
@@ -167,7 +181,7 @@ static uint8_t capsense_hold_index_for_logical(uint8_t logical_index)
 	return 0xFF;
 }
 
-static void capsense_update_idle_baseline(uint8_t channel, uint16_t raw, uint16_t variance_limit);
+static void capsense_update_idle_baseline(uint8_t hold_index, uint8_t channel, uint16_t raw, uint16_t variance_limit);
 
 static uint16_t capsense_debug_enter_line(uint8_t logical_index)
 {
@@ -201,6 +215,7 @@ static uint16_t capsense_debug_release_line(uint8_t logical_index)
 static void capsense_reset_hold_contact(uint8_t logical, uint8_t hold_index, uint8_t channel, uint16_t raw,
 		uint16_t variance_limit)
 {
+	(void) variance_limit;
 	capsense_touch_status[logical] = 0;
 	capsense_hold_duration[hold_index] = 0;
 	capsense_hold_enter_confirm[hold_index] = 0;
@@ -209,8 +224,8 @@ static void capsense_reset_hold_contact(uint8_t logical, uint8_t hold_index, uin
 	capsense_hold_prev_raw[hold_index] = raw;
 	capsense_hold_peak_envelope[hold_index] = 0;
 	capsense_hold_release_level[hold_index] = 0;
+	capsense_hold_baseline_cooldown[hold_index] = CAPSENSE_BASELINE_COOLDOWN_FRAMES;
 	capsense_hold_state[hold_index] = CAPSENSE_HOLD_STATE_IDLE;
-	capsense_update_idle_baseline(channel, raw, variance_limit);
 	capsense_freeze[channel] = capsense_baseline[channel];
 }
 
@@ -218,6 +233,7 @@ static void capsense_start_hold_contact(uint8_t logical, uint8_t hold_index, uin
 		uint16_t enter_threshold)
 {
 	uint16_t delta = raw > capsense_baseline[channel] ? (uint16_t) (raw - capsense_baseline[channel]) : 0;
+	uint16_t follow_target = capsense_follow_target(enter_threshold, delta);
 
 	capsense_touch_status[logical] = 1;
 	capsense_hold_duration[hold_index] = 1;
@@ -227,27 +243,37 @@ static void capsense_start_hold_contact(uint8_t logical, uint8_t hold_index, uin
 	capsense_hold_prev_raw[hold_index] = raw;
 	capsense_hold_state[hold_index] = CAPSENSE_HOLD_STATE_ACTIVE;
 	capsense_freeze[channel] = capsense_baseline[channel];
-	capsense_hold_peak_envelope[hold_index] = delta;
-	capsense_hold_release_level[hold_index] = capsense_dynamic_release_threshold(enter_threshold, delta);
+	capsense_hold_peak_envelope[hold_index] = follow_target;
+	capsense_hold_release_level[hold_index] = capsense_dynamic_release_threshold(enter_threshold, follow_target);
+	capsense_hold_baseline_cooldown[hold_index] = CAPSENSE_BASELINE_COOLDOWN_FRAMES;
 }
 
-static void capsense_enter_rearm_wait(uint8_t logical, uint8_t hold_index, uint16_t raw)
+static void capsense_update_idle_baseline(uint8_t hold_index, uint8_t channel, uint16_t raw, uint16_t variance_limit)
 {
-	capsense_touch_status[logical] = 0;
-	capsense_hold_duration[hold_index] = 0;
-	capsense_hold_enter_confirm[hold_index] = 0;
-	capsense_hold_release_confirm[hold_index] = 0;
-	capsense_hold_rearm_confirm[hold_index] = 0;
-	capsense_hold_prev_raw[hold_index] = raw;
-	capsense_hold_state[hold_index] = CAPSENSE_HOLD_STATE_REARM_WAIT;
-}
+	uint16_t baseline = capsense_baseline[channel];
+	uint32_t updated = baseline;
 
-static void capsense_update_idle_baseline(uint8_t channel, uint16_t raw, uint16_t variance_limit)
-{
-	if (capsense_baseline[channel] + variance_limit > raw) {
-		float baseline = (capsense_baseline[channel] * 0.9f) + (raw * 0.1f);
-		capsense_baseline[channel] = baseline > 60000 ? 60000 : baseline;
+	if (raw <= baseline) {
+		updated = ((uint32_t) baseline * (CAPSENSE_BASELINE_FALL_DENOMINATOR - CAPSENSE_BASELINE_FALL_NUMERATOR)) +
+				((uint32_t) raw * CAPSENSE_BASELINE_FALL_NUMERATOR);
+		updated /= CAPSENSE_BASELINE_FALL_DENOMINATOR;
+	} else {
+		if (hold_index < 16) {
+			if (capsense_hold_baseline_cooldown[hold_index] > 0) {
+				capsense_hold_baseline_cooldown[hold_index]--;
+				return;
+			}
+		}
+		if ((((uint32_t) baseline + variance_limit) <= raw) ||
+				(((uint32_t) baseline + CAPSENSE_BASELINE_RISE_MARGIN) < raw)) {
+			return;
+		}
+		updated = ((uint32_t) baseline * (CAPSENSE_BASELINE_RISE_DENOMINATOR - CAPSENSE_BASELINE_RISE_NUMERATOR)) +
+				((uint32_t) raw * CAPSENSE_BASELINE_RISE_NUMERATOR);
+		updated /= CAPSENSE_BASELINE_RISE_DENOMINATOR;
 	}
+
+	capsense_baseline[channel] = updated > 60000 ? 60000 : (uint16_t) updated;
 }
 
 static void capsense_process_hold_block(uint8_t logical_start, uint8_t hold_offset)
@@ -258,7 +284,6 @@ static void capsense_process_hold_block(uint8_t logical_start, uint8_t hold_offs
 		uint16_t raw = Touch.channel_raw[channel];
 		uint16_t enter_threshold = Flash.touch_threshold[logical];
 		uint16_t static_release_threshold = capsense_release_threshold(enter_threshold);
-		uint16_t rearm_threshold = capsense_rearm_threshold(enter_threshold);
 		capsense_hold_state_t state = (capsense_hold_state_t) capsense_hold_state[hold_index];
 		uint16_t reference;
 		uint16_t delta_freeze;
@@ -294,7 +319,7 @@ static void capsense_process_hold_block(uint8_t logical_start, uint8_t hold_offs
 				capsense_hold_release_confirm[hold_index] = 0;
 				capsense_hold_rearm_confirm[hold_index] = 0;
 				capsense_hold_prev_raw[hold_index] = raw;
-				capsense_update_idle_baseline(channel, raw, CAPSENSE_BASELINE_VARIANCE_A);
+				capsense_update_idle_baseline(hold_index, channel, raw, CAPSENSE_BASELINE_VARIANCE_A);
 				capsense_freeze[channel] = capsense_baseline[channel];
 			}
 			continue;
@@ -302,26 +327,11 @@ static void capsense_process_hold_block(uint8_t logical_start, uint8_t hold_offs
 
 		reference = capsense_freeze[channel];
 		delta_freeze = raw > reference ? (uint16_t) (raw - reference) : 0;
-
-		if(state == CAPSENSE_HOLD_STATE_REARM_WAIT){
-			capsense_touch_status[logical] = 0;
-			capsense_hold_duration[hold_index] = 0;
-			if(delta_freeze < rearm_threshold){
-				if(capsense_hold_rearm_confirm[hold_index] < 0xFF){
-					capsense_hold_rearm_confirm[hold_index]++;
-				}
-				if(capsense_hold_rearm_confirm[hold_index] >= CAPSENSE_TOUCH_REARM_CONFIRM_SAMPLES){
-					capsense_reset_hold_contact(logical, hold_index, channel, raw, CAPSENSE_BASELINE_VARIANCE_A);
-				}
-			}else{
-				capsense_hold_rearm_confirm[hold_index] = 0;
-			}
-			capsense_hold_prev_raw[hold_index] = raw;
-			continue;
-		}
-
+		{
+			uint16_t follow_target = capsense_follow_target(enter_threshold, delta_freeze);
 		capsense_hold_peak_envelope[hold_index] =
-				capsense_update_peak_envelope(capsense_hold_peak_envelope[hold_index], delta_freeze);
+				capsense_update_follow_level(capsense_hold_peak_envelope[hold_index], follow_target);
+		}
 		release_threshold =
 				capsense_dynamic_release_threshold(enter_threshold, capsense_hold_peak_envelope[hold_index]);
 		capsense_hold_release_level[hold_index] = release_threshold;
@@ -333,7 +343,7 @@ static void capsense_process_hold_block(uint8_t logical_start, uint8_t hold_offs
 			capsense_hold_state[hold_index] = CAPSENSE_HOLD_STATE_RELEASE_CONFIRM;
 			capsense_hold_prev_raw[hold_index] = raw;
 			if(capsense_hold_release_confirm[hold_index] >= CAPSENSE_TOUCH_RELEASE_CONFIRM_SAMPLES){
-				capsense_enter_rearm_wait(logical, hold_index, raw);
+				capsense_reset_hold_contact(logical, hold_index, channel, raw, CAPSENSE_BASELINE_VARIANCE_A);
 			}else{
 				capsense_touch_status[logical] = 1;
 				if(capsense_hold_duration[hold_index] < 10000){
@@ -514,6 +524,7 @@ void Boot_Buttom_IRQHandler(){
 		capsense_hold_enter_confirm[i] = 0;
 		capsense_hold_release_confirm[i] = 0;
 		capsense_hold_rearm_confirm[i] = 0;
+		capsense_hold_baseline_cooldown[i] = 0;
 		capsense_hold_state[i] = CAPSENSE_HOLD_STATE_IDLE;
 		capsense_hold_prev_raw[i] = 0;
 		capsense_hold_peak_envelope[i] = 0;
@@ -533,6 +544,9 @@ void capsense_init(){
 	for(uint8_t i = 0;i<34;i++){
 		capsense_baseline[i] = Touch.channel_raw[i];
 		capsense_freeze[i] = Touch.channel_raw[i];
+	}
+	for(uint8_t i = 0;i<16;i++){
+		capsense_hold_baseline_cooldown[i] = 0;
 	}
 }
 
