@@ -67,3 +67,5 @@ site/
 
 # Application version header
 Core/Inc/app_version.h
+
+scripts/
