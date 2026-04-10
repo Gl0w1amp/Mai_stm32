@@ -28,6 +28,7 @@
 
 #define CAPSENSE_TOUCH_ENTER_CONFIRM_SAMPLES 2
 #define CAPSENSE_TOUCH_RELEASE_CONFIRM_SAMPLES 2
+#define CAPSENSE_POST_RELEASE_INHIBIT_FRAMES 2
 #define CAPSENSE_SHORT_RELEASE_NUMERATOR 1
 #define CAPSENSE_SHORT_RELEASE_DENOMINATOR 2
 #define CAPSENSE_DYNAMIC_FOLLOW_RISE_NUMERATOR 1
@@ -220,10 +221,8 @@ static void capsense_reset_hold_contact(uint8_t logical, uint8_t hold_index, uin
 	capsense_hold_duration[hold_index] = 0;
 	capsense_hold_enter_confirm[hold_index] = 0;
 	capsense_hold_release_confirm[hold_index] = 0;
-	capsense_hold_rearm_confirm[hold_index] = 0;
+	capsense_hold_rearm_confirm[hold_index] = CAPSENSE_POST_RELEASE_INHIBIT_FRAMES;
 	capsense_hold_prev_raw[hold_index] = raw;
-	capsense_hold_peak_envelope[hold_index] = 0;
-	capsense_hold_release_level[hold_index] = 0;
 	capsense_hold_baseline_cooldown[hold_index] = CAPSENSE_BASELINE_COOLDOWN_FRAMES;
 	capsense_hold_state[hold_index] = CAPSENSE_HOLD_STATE_IDLE;
 	capsense_freeze[channel] = capsense_baseline[channel];
@@ -298,7 +297,24 @@ static void capsense_process_hold_block(uint8_t logical_start, uint8_t hold_offs
 
 		if(state == CAPSENSE_HOLD_STATE_IDLE){
 			capsense_freeze[channel] = capsense_baseline[channel];
-			capsense_hold_peak_envelope[hold_index] = 0;
+			if(capsense_hold_peak_envelope[hold_index] > 0){
+				uint16_t follow_target = capsense_follow_target(enter_threshold, 0);
+				capsense_hold_peak_envelope[hold_index] =
+						capsense_update_follow_level(capsense_hold_peak_envelope[hold_index], follow_target);
+			}
+			if(capsense_hold_rearm_confirm[hold_index] > 0){
+				capsense_hold_rearm_confirm[hold_index]--;
+				capsense_hold_enter_confirm[hold_index] = 0;
+				capsense_touch_status[logical] = 0;
+				capsense_hold_duration[hold_index] = 0;
+				capsense_hold_release_confirm[hold_index] = 0;
+				capsense_hold_prev_raw[hold_index] = raw;
+				capsense_hold_release_level[hold_index] =
+						capsense_dynamic_release_threshold(enter_threshold, capsense_hold_peak_envelope[hold_index]);
+				capsense_update_idle_baseline(hold_index, channel, raw, CAPSENSE_BASELINE_VARIANCE_A);
+				capsense_freeze[channel] = capsense_baseline[channel];
+				continue;
+			}
 			if((variance_idle > (int) enter_threshold) || (raw >= 0xFF00)){
 				if(capsense_hold_enter_confirm[hold_index] < 0xFF){
 					capsense_hold_enter_confirm[hold_index]++;
@@ -319,6 +335,8 @@ static void capsense_process_hold_block(uint8_t logical_start, uint8_t hold_offs
 				capsense_hold_release_confirm[hold_index] = 0;
 				capsense_hold_rearm_confirm[hold_index] = 0;
 				capsense_hold_prev_raw[hold_index] = raw;
+				capsense_hold_release_level[hold_index] =
+						capsense_dynamic_release_threshold(enter_threshold, capsense_hold_peak_envelope[hold_index]);
 				capsense_update_idle_baseline(hold_index, channel, raw, CAPSENSE_BASELINE_VARIANCE_A);
 				capsense_freeze[channel] = capsense_baseline[channel];
 			}
