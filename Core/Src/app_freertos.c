@@ -48,8 +48,24 @@
 /* USER CODE BEGIN PTD */
 typedef struct usb_tx_packet {
 	uint16_t len;
+	uint32_t enqueue_tick;
 	uint8_t data[64];
 } usb_tx_packet_t;
+
+typedef struct usb_cdc_tx_stats {
+	uint32_t high_enqueued_count;
+	uint32_t low_enqueued_count;
+	uint32_t high_drop_count;
+	uint32_t low_drop_count;
+	uint32_t tx_ok_count;
+	uint32_t tx_busy_retry_count;
+	uint32_t tx_fail_retry_count;
+	uint32_t tx_giveup_count;
+	uint32_t last_tx_latency_ms;
+	uint32_t max_tx_latency_ms;
+	uint32_t last_retry_count;
+	uint32_t max_retry_count;
+} usb_cdc_tx_stats_t;
 
 /* USER CODE END PTD */
 
@@ -62,6 +78,7 @@ typedef struct usb_tx_packet {
 #define BENCHMARK_EVENT_REPLY_PAYLOAD 24
 #define BENCHMARK_EVENT_DELAY_MS_DEFAULT 10
 #define BENCHMARK_QUIET_PERIOD_MS 30
+#define TOUCH_REPORT_PERIOD_MS 1u
 #define USB_TX_HIGH_QUEUE_LENGTH 8
 #define USB_TX_LOW_QUEUE_LENGTH 8
 #define BENCHMARK_TX_RETRY_COUNT 50
@@ -154,6 +171,7 @@ volatile uint32_t benchmark_event_sequence = 0;
 volatile uint8_t benchmark_event_transport = 0;
 static uint32_t benchmark_last_cycles = 0;
 static uint32_t benchmark_cycles_high = 0;
+static usb_cdc_tx_stats_t usb_cdc_tx_stats = {0};
 /* USER CODE END Variables */
 osThreadId TouchTaskHandle;
 osThreadId ButtonTaskHandle;
@@ -177,6 +195,8 @@ static void capsense_update_link_led(void);
 static uint8_t usb_tx_enqueue(QueueHandle_t queue, const uint8_t *buf, uint16_t len);
 static uint8_t usb_tx_enqueue_high(const uint8_t *buf, uint16_t len);
 static uint8_t usb_tx_enqueue_low(const uint8_t *buf, uint16_t len);
+static void usb_cdc_tx_stats_reset(void);
+static void usb_cdc_tx_stats_snapshot(usb_cdc_tx_stats_t *stats_out, uint32_t *high_depth_out, uint32_t *low_depth_out);
 static void serial_send_benchmark_reply(uint8_t cmd, const uint8_t *payload, uint8_t payload_len, uint64_t dispatch_cycles);
 static void serial_send_benchmark_event(uint32_t sequence, uint64_t event_cycles);
 static void hid_send_benchmark_event(uint32_t sequence, uint64_t event_cycles);
@@ -254,6 +274,24 @@ static uint8_t benchmark_quiet_active(void)
 	return ((int32_t)(benchmark_quiet_until_ms - HAL_GetTick()) > 0) ? 1 : 0;
 }
 
+static void usb_cdc_tx_stats_reset(void)
+{
+	memset(&usb_cdc_tx_stats, 0, sizeof(usb_cdc_tx_stats));
+}
+
+static void usb_cdc_tx_stats_snapshot(usb_cdc_tx_stats_t *stats_out, uint32_t *high_depth_out, uint32_t *low_depth_out)
+{
+	if (stats_out != NULL) {
+		*stats_out = usb_cdc_tx_stats;
+	}
+	if (high_depth_out != NULL) {
+		*high_depth_out = (usb_tx_high_queue != NULL) ? (uint32_t) uxQueueMessagesWaiting(usb_tx_high_queue) : 0u;
+	}
+	if (low_depth_out != NULL) {
+		*low_depth_out = (usb_tx_low_queue != NULL) ? (uint32_t) uxQueueMessagesWaiting(usb_tx_low_queue) : 0u;
+	}
+}
+
 static void capsense_update_link_led(void)
 {
 	uint32_t now = HAL_GetTick();
@@ -284,15 +322,32 @@ static void capsense_update_link_led(void)
 static uint8_t usb_tx_enqueue(QueueHandle_t queue, const uint8_t *buf, uint16_t len)
 {
 	usb_tx_packet_t packet;
+	BaseType_t result;
 
 	if (queue == NULL || buf == NULL || len == 0 || len > sizeof(packet.data)) {
 		return 0;
 	}
 
 	packet.len = len;
+	packet.enqueue_tick = HAL_GetTick();
 	memcpy(packet.data, buf, len);
 
-	return xQueueSend(queue, &packet, 0) == pdPASS ? 1 : 0;
+	result = xQueueSend(queue, &packet, 0);
+	if (queue == usb_tx_high_queue) {
+		if (result == pdPASS) {
+			usb_cdc_tx_stats.high_enqueued_count++;
+		} else {
+			usb_cdc_tx_stats.high_drop_count++;
+		}
+	} else if (queue == usb_tx_low_queue) {
+		if (result == pdPASS) {
+			usb_cdc_tx_stats.low_enqueued_count++;
+		} else {
+			usb_cdc_tx_stats.low_drop_count++;
+		}
+	}
+
+	return result == pdPASS ? 1 : 0;
 }
 
 static uint8_t usb_tx_enqueue_high(const uint8_t *buf, uint16_t len)
@@ -512,15 +567,14 @@ void Touch_Task(void const * argument)
 	capsense_init();
 	while(1)
 	{
-		osDelay(1);
+		osDelay(TOUCH_REPORT_PERIOD_MS);
 		benchmark_emit_pending_event();
 		if(!capsense_data_ready){
 			HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, 1);
 		}
-		if(capsense_data_ready){
+		if(capsense_take_latest_snapshot()){
 			capsense_check();
 			stack_flow_touch(current_touch_status);
-			capsense_data_ready = 0;
 		}
 		capsense_update_link_led();
 
@@ -764,6 +818,62 @@ void Command_Task(void const * argument)
 				cmd_tmp[idx++] = stats.protocol_version;
 				cmd_tmp[idx++] = stats.legacy_payload_offset;
 				cmd_tmp[idx++] = stats.rx_failure_streak;
+
+				cmd_tmp[idx] = 0;
+				for(uint8_t i = 0; i < idx; i++){
+					cmd_tmp[idx] += cmd_tmp[i];
+				}
+				(void) usb_tx_enqueue_high(cmd_tmp, (uint16_t) (idx + 1));
+				break;
+			}
+			case SERIAL_CMD_GET_USB_CDC_STATS:{
+				usb_cdc_tx_stats_t stats;
+				uint32_t high_depth = 0;
+				uint32_t low_depth = 0;
+				uint8_t cmd_tmp[64] = {0};
+				uint8_t idx = 3;
+
+				if ((rxBuffer[2] > 1) || ((rxBuffer[2] == 1) && (rxBuffer[3] != 1))) {
+					break;
+				}
+				if ((rxBuffer[2] == 1) && (rxBuffer[3] == 1)) {
+					usb_cdc_tx_stats_reset();
+				}
+
+				usb_cdc_tx_stats_snapshot(&stats, &high_depth, &low_depth);
+
+				cmd_tmp[0] = 0xff;
+				cmd_tmp[1] = SERIAL_CMD_GET_USB_CDC_STATS;
+				cmd_tmp[2] = 56;
+
+				memcpy(&cmd_tmp[idx], &stats.high_enqueued_count, sizeof(stats.high_enqueued_count));
+				idx += sizeof(stats.high_enqueued_count);
+				memcpy(&cmd_tmp[idx], &stats.low_enqueued_count, sizeof(stats.low_enqueued_count));
+				idx += sizeof(stats.low_enqueued_count);
+				memcpy(&cmd_tmp[idx], &stats.high_drop_count, sizeof(stats.high_drop_count));
+				idx += sizeof(stats.high_drop_count);
+				memcpy(&cmd_tmp[idx], &stats.low_drop_count, sizeof(stats.low_drop_count));
+				idx += sizeof(stats.low_drop_count);
+				memcpy(&cmd_tmp[idx], &stats.tx_ok_count, sizeof(stats.tx_ok_count));
+				idx += sizeof(stats.tx_ok_count);
+				memcpy(&cmd_tmp[idx], &stats.tx_busy_retry_count, sizeof(stats.tx_busy_retry_count));
+				idx += sizeof(stats.tx_busy_retry_count);
+				memcpy(&cmd_tmp[idx], &stats.tx_fail_retry_count, sizeof(stats.tx_fail_retry_count));
+				idx += sizeof(stats.tx_fail_retry_count);
+				memcpy(&cmd_tmp[idx], &stats.tx_giveup_count, sizeof(stats.tx_giveup_count));
+				idx += sizeof(stats.tx_giveup_count);
+				memcpy(&cmd_tmp[idx], &stats.last_tx_latency_ms, sizeof(stats.last_tx_latency_ms));
+				idx += sizeof(stats.last_tx_latency_ms);
+				memcpy(&cmd_tmp[idx], &stats.max_tx_latency_ms, sizeof(stats.max_tx_latency_ms));
+				idx += sizeof(stats.max_tx_latency_ms);
+				memcpy(&cmd_tmp[idx], &stats.last_retry_count, sizeof(stats.last_retry_count));
+				idx += sizeof(stats.last_retry_count);
+				memcpy(&cmd_tmp[idx], &stats.max_retry_count, sizeof(stats.max_retry_count));
+				idx += sizeof(stats.max_retry_count);
+				memcpy(&cmd_tmp[idx], &high_depth, sizeof(high_depth));
+				idx += sizeof(high_depth);
+				memcpy(&cmd_tmp[idx], &low_depth, sizeof(low_depth));
+				idx += sizeof(low_depth);
 
 				cmd_tmp[idx] = 0;
 				for(uint8_t i = 0; i < idx; i++){
@@ -1106,11 +1216,51 @@ void UsbTx_Task(void const * argument)
 			continue;
 		}
 
-		for (uint8_t attempt = 0; attempt < BENCHMARK_TX_RETRY_COUNT; attempt++) {
-			if (CDC_Transmit(0, packet.data, packet.len) == USBD_OK) {
-				break;
+		{
+			uint32_t retry_count = 0;
+			uint8_t tx_ok = 0;
+
+			for (uint8_t attempt = 0; attempt < BENCHMARK_TX_RETRY_COUNT; attempt++) {
+				uint8_t tx_result = CDC_Transmit(0, packet.data, packet.len);
+
+				if (tx_result == USBD_OK) {
+					uint32_t tx_latency_ms = HAL_GetTick() - packet.enqueue_tick;
+
+					usb_cdc_tx_stats.tx_ok_count++;
+					usb_cdc_tx_stats.last_tx_latency_ms = tx_latency_ms;
+					usb_cdc_tx_stats.last_retry_count = retry_count;
+					if (tx_latency_ms > usb_cdc_tx_stats.max_tx_latency_ms) {
+						usb_cdc_tx_stats.max_tx_latency_ms = tx_latency_ms;
+					}
+					if (retry_count > usb_cdc_tx_stats.max_retry_count) {
+						usb_cdc_tx_stats.max_retry_count = retry_count;
+					}
+					tx_ok = 1;
+					break;
+				}
+
+				retry_count++;
+				if (tx_result == USBD_BUSY) {
+					usb_cdc_tx_stats.tx_busy_retry_count++;
+				} else {
+					usb_cdc_tx_stats.tx_fail_retry_count++;
+				}
+				osDelay(1);
 			}
-			osDelay(1);
+
+			if (!tx_ok) {
+				uint32_t tx_latency_ms = HAL_GetTick() - packet.enqueue_tick;
+
+				usb_cdc_tx_stats.tx_giveup_count++;
+				usb_cdc_tx_stats.last_tx_latency_ms = tx_latency_ms;
+				usb_cdc_tx_stats.last_retry_count = retry_count;
+				if (tx_latency_ms > usb_cdc_tx_stats.max_tx_latency_ms) {
+					usb_cdc_tx_stats.max_tx_latency_ms = tx_latency_ms;
+				}
+				if (retry_count > usb_cdc_tx_stats.max_retry_count) {
+					usb_cdc_tx_stats.max_retry_count = retry_count;
+				}
+			}
 		}
 	}
   /* USER CODE END UsbTx_Task */

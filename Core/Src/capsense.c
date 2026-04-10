@@ -19,14 +19,14 @@
 #define CAPSENSE_BASELINE_VARIANCE_C 500
 #define CAPSENSE_BASELINE_VARIANCE_D 800
 #define CAPSENSE_BASELINE_VARIANCE_E 600
-#define CAPSENSE_BASELINE_COOLDOWN_FRAMES 16
+#define CAPSENSE_BASELINE_COOLDOWN_FRAMES 8
 #define CAPSENSE_BASELINE_RISE_MARGIN 128
 #define CAPSENSE_BASELINE_RISE_NUMERATOR 1
 #define CAPSENSE_BASELINE_RISE_DENOMINATOR 50
 #define CAPSENSE_BASELINE_FALL_NUMERATOR 1
 #define CAPSENSE_BASELINE_FALL_DENOMINATOR 5
 
-#define CAPSENSE_TOUCH_ENTER_CONFIRM_SAMPLES 2
+#define CAPSENSE_TOUCH_ENTER_CONFIRM_SAMPLES 1
 #define CAPSENSE_TOUCH_RELEASE_CONFIRM_SAMPLES 2
 #define CAPSENSE_LONG_HOLD_RELEASE_CONFIRM_SAMPLES 7
 #define CAPSENSE_LONG_HOLD_PROTECT_DURATION 40
@@ -65,6 +65,7 @@ extern DMA_HandleTypeDef hdma_uart4_rx;
 extern FlashData Flash;
 
 packet_capsense_t Touch;
+static packet_capsense_t capsense_rx_touch;
 uint16_t capsense_raw_windows[10][34];
 uint8_t capsense_raw_bet = 0;
 uint16_t capsense_hold_duration[16] = {0};
@@ -434,7 +435,7 @@ uint8_t checksum = 0;
 
 static uint8_t capsense_accept_packet(const uint8_t *data, uint8_t lock_protocol, uint8_t rolling_checksum)
 {
-	memcpy(&Touch.data[0], data + 1, 68);
+	memcpy(&capsense_rx_touch.data[0], data + 1, 68);
 	if(lock_protocol){
 		capsense_procotl_version = 1;
 	}
@@ -451,7 +452,7 @@ static uint8_t capsense_accept_packet(const uint8_t *data, uint8_t lock_protocol
 
 static uint8_t capsense_accept_legacy_packet(const uint8_t *data, uint8_t payload_offset)
 {
-	memcpy(&Touch.data[0], data + payload_offset, 68);
+	memcpy(&capsense_rx_touch.data[0], data + payload_offset, 68);
 	if(capsense_procotl_version == 0){
 		capsense_procotl_version = 2;
 	}
@@ -638,6 +639,25 @@ bool capsense_data_proc_legacy(uint8_t *uart_dma_buffer){
     }
     return false;
 }
+
+uint8_t capsense_take_latest_snapshot(void)
+{
+	uint8_t snapshot_ready = 0;
+	uint32_t primask = __get_PRIMASK();
+
+	__disable_irq();
+	if (capsense_data_ready) {
+		memcpy(&Touch, &capsense_rx_touch, sizeof(Touch));
+		capsense_data_ready = 0;
+		snapshot_ready = 1;
+	}
+	if (primask == 0u) {
+		__enable_irq();
+	}
+
+	return snapshot_ready;
+}
+
 void Boot_Buttom_IRQHandler(){
 	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,0);
 	for(uint8_t i = 0;i<34;i++){
@@ -645,6 +665,7 @@ void Boot_Buttom_IRQHandler(){
 		capsense_freeze[i] = 0;
 
 		Touch.channel_raw[i] = 0;
+		capsense_rx_touch.channel_raw[i] = 0;
 		capsense_touch_status[i] = 0;
 	}
 	for(uint8_t i = 0;i<16;i++){

@@ -45,6 +45,7 @@ void capsense_init();
 void capsense_check();
 bool capsense_data_proc(uint8_t *uart_dma_buffer);
 bool capsense_data_proc_legacy(uint8_t *uart_dma_buffer);
+uint8_t capsense_take_latest_snapshot(void);
 void Boot_Buttom_IRQHandler(void);
 uint8_t capsense_auto_calibrate_thresholds(uint16_t *thresholds_out, uint16_t *min_threshold_out, uint16_t *max_threshold_out);
 void capsense_uart_stats_get(capsense_uart_stats_t *stats_out);
