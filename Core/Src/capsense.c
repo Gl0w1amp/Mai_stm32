@@ -85,7 +85,10 @@ uint8_t capsense_hold_rearm_confirm[16] = {0};
 uint8_t capsense_hold_state[16] = {0};
 uint8_t capsense_procotl_version = 0;
 uint8_t capsense_checksum_last = 0;
+uint8_t capsense_legacy_payload_offset = 0;
+uint8_t capsense_protocol1_confirm_count = 0;
 volatile uint32_t capsense_frame_counter = 0;
+static capsense_uart_stats_t capsense_uart_stats = {0};
 
 typedef union{
     float raw_data_fl[6];
@@ -427,16 +430,81 @@ bool check_checksum(uint8_t* data){
 }
 uint8_t checksum = 0;
 
-static uint8_t capsense_accept_packet(const uint8_t *data)
+static uint8_t capsense_accept_packet(const uint8_t *data, uint8_t lock_protocol, uint8_t rolling_checksum)
 {
 	memcpy(&Touch.data[0], data + 1, 68);
 	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 1);
-	if(capsense_procotl_version == 0){
+	if(lock_protocol){
 		capsense_procotl_version = 1;
+	}
+	if (rolling_checksum) {
+		capsense_uart_stats.rolling_checksum_accept_count++;
+	} else {
+		capsense_uart_stats.checksum_accept_count++;
 	}
 	capsense_frame_counter++;
 	capsense_data_ready = 1;
 	return 1;
+}
+
+static uint8_t capsense_accept_legacy_packet(const uint8_t *data, uint8_t payload_offset)
+{
+	memcpy(&Touch.data[0], data + payload_offset, 68);
+	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 1);
+	if(capsense_procotl_version == 0){
+		capsense_procotl_version = 2;
+	}
+	capsense_uart_stats.legacy_accept_count++;
+	capsense_legacy_payload_offset = payload_offset;
+	capsense_protocol1_confirm_count = 0;
+	capsense_frame_counter++;
+	capsense_data_ready = 1;
+	return 1;
+}
+
+static uint8_t capsense_score_legacy_payload(const uint8_t *data, uint8_t payload_offset)
+{
+	uint8_t low_nibble_zero_count = 0;
+	uint8_t non_zero_count = 0;
+
+	for (uint8_t i = 0; i < 34; i++) {
+		uint16_t raw = (uint16_t) data[payload_offset + (i * 2)] |
+				((uint16_t) data[payload_offset + (i * 2) + 1] << 8);
+
+		if ((raw & 0x000Fu) == 0u) {
+			low_nibble_zero_count++;
+		}
+		if (raw != 0u) {
+			non_zero_count++;
+		}
+	}
+
+	if (non_zero_count < 24u) {
+		return 0;
+	}
+
+	return low_nibble_zero_count;
+}
+
+static uint8_t capsense_detect_legacy_payload_offset(const uint8_t *data)
+{
+	uint8_t score_offset_2 = capsense_score_legacy_payload(data, 2);
+	uint8_t score_offset_1 = capsense_score_legacy_payload(data, 1);
+
+	if (score_offset_2 >= score_offset_1) {
+		if (score_offset_2 >= 24u) {
+			return 2;
+		}
+	} else {
+		if (score_offset_1 >= 24u) {
+			return 1;
+		}
+	}
+
+	/* Current committed PSoC firmware still lands on the legacy 2-byte header
+	 * layout because the packet struct is naturally aligned.
+	 */
+	return 2;
 }
 
 //static inline void UART_ClearIdle(UART_HandleTypeDef *huart)
@@ -498,13 +566,33 @@ bool capsense_data_proc(uint8_t *uart_dma_buffer){
 		return false;
 	}
     if(uart_dma_buffer[0] == 0){
+		if (capsense_procotl_version == 0) {
+			uint8_t legacy_score_offset_2 = capsense_score_legacy_payload(uart_dma_buffer, 2);
+			uint8_t legacy_score_offset_1 = capsense_score_legacy_payload(uart_dma_buffer, 1);
+
+			if ((uart_dma_buffer[1] == 0u) &&
+					(legacy_score_offset_2 >= 24u) &&
+					(legacy_score_offset_2 >= (uint8_t) (legacy_score_offset_1 + 4u))) {
+				capsense_protocol1_confirm_count = 0;
+				return false;
+			}
+		}
+
 		strict_checksum = 0;
 		for(uint8_t i = 0;i<69;i++){
 			strict_checksum += uart_dma_buffer[i];
 		}
 		if(strict_checksum == uart_dma_buffer[69]){
 			capsense_checksum_last = uart_dma_buffer[69];
-			return capsense_accept_packet(uart_dma_buffer);
+			if (capsense_procotl_version == 1) {
+				capsense_protocol1_confirm_count = 0;
+				return capsense_accept_packet(uart_dma_buffer, 1, 0);
+			}
+			if (capsense_protocol1_confirm_count < 0xFFu) {
+				capsense_protocol1_confirm_count++;
+			}
+			return capsense_accept_packet(uart_dma_buffer,
+					capsense_protocol1_confirm_count >= 2u ? 1u : 0u, 0);
 		}
 
 		/* Compatibility path for older PSoC firmware that accumulates checksum
@@ -513,25 +601,38 @@ bool capsense_data_proc(uint8_t *uart_dma_buffer){
 		rolling_checksum = capsense_checksum_last + strict_checksum;
 		if(rolling_checksum == uart_dma_buffer[69]){
 			capsense_checksum_last = uart_dma_buffer[69];
-			return capsense_accept_packet(uart_dma_buffer);
+			if (capsense_procotl_version == 1) {
+				capsense_protocol1_confirm_count = 0;
+				return capsense_accept_packet(uart_dma_buffer, 1, 1);
+			}
+			if (capsense_protocol1_confirm_count < 0xFFu) {
+				capsense_protocol1_confirm_count++;
+			}
+			return capsense_accept_packet(uart_dma_buffer,
+					capsense_protocol1_confirm_count >= 2u ? 1u : 0u, 1);
 		}
     }
+	capsense_protocol1_confirm_count = 0;
     return false;
 }
 
 bool capsense_data_proc_legacy(uint8_t *uart_dma_buffer){
+	uint8_t payload_offset;
+
 	if((capsense_procotl_version != 0) && (capsense_procotl_version != 2)){
 		return false;
 	}
     if((uart_dma_buffer[0] == 0 ) && (uart_dma_buffer[1] == 0)){
-		memcpy(&Touch.data[0],uart_dma_buffer+2,68);
-		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 1);
-		if(capsense_procotl_version == 0){
-			capsense_procotl_version = 2;
+		payload_offset = capsense_legacy_payload_offset;
+		if ((payload_offset != 1u) && (payload_offset != 2u)) {
+			payload_offset = capsense_detect_legacy_payload_offset(uart_dma_buffer);
+		} else {
+			uint8_t locked_score = capsense_score_legacy_payload(uart_dma_buffer, payload_offset);
+			if (locked_score < 16u) {
+				payload_offset = capsense_detect_legacy_payload_offset(uart_dma_buffer);
+			}
 		}
-		capsense_frame_counter++;
-		capsense_data_ready = 1;
-		return true;
+		return capsense_accept_legacy_packet(uart_dma_buffer, payload_offset);
     }
     return false;
 }
@@ -555,7 +656,14 @@ void Boot_Buttom_IRQHandler(){
 		capsense_hold_peak_envelope[i] = 0;
 		capsense_hold_release_level[i] = 0;
 	}
+	capsense_procotl_version = 0;
 	capsense_checksum_last = 0;
+	capsense_legacy_payload_offset = 0;
+	capsense_protocol1_confirm_count = 0;
+	capsense_data_ready = 0;
+	capsense_uart_stats.protocol_version = 0;
+	capsense_uart_stats.legacy_payload_offset = 0;
+	capsense_uart_stats.rx_failure_streak = 0;
 	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,0);
 }
 
@@ -564,7 +672,13 @@ void capsense_init(){
 
 	}
 	__HAL_DMA_DISABLE_IT(&hdma_uart4_rx, DMA_IT_HT);
+	capsense_procotl_version = 0;
 	capsense_checksum_last = 0;
+	capsense_legacy_payload_offset = 0;
+	capsense_protocol1_confirm_count = 0;
+	capsense_uart_stats.protocol_version = 0;
+	capsense_uart_stats.legacy_payload_offset = 0;
+	capsense_uart_stats.rx_failure_streak = 0;
 	osDelay(100);
 	for(uint8_t i = 0;i<34;i++){
 		capsense_baseline[i] = Touch.channel_raw[i];
@@ -864,4 +978,54 @@ uint8_t capsense_auto_calibrate_thresholds(uint16_t *thresholds_out, uint16_t *m
 	}
 
 	return 1;
+}
+
+void capsense_uart_stats_get(capsense_uart_stats_t *stats_out)
+{
+	if (stats_out == NULL) {
+		return;
+	}
+
+	*stats_out = capsense_uart_stats;
+	stats_out->protocol_version = capsense_procotl_version;
+	stats_out->legacy_payload_offset = capsense_legacy_payload_offset;
+}
+
+void capsense_uart_stats_reset(void)
+{
+	memset(&capsense_uart_stats, 0, sizeof(capsense_uart_stats));
+	capsense_uart_stats.protocol_version = capsense_procotl_version;
+	capsense_uart_stats.legacy_payload_offset = capsense_legacy_payload_offset;
+}
+
+void capsense_uart_stats_note_short_packet(void)
+{
+	capsense_uart_stats.short_packet_count++;
+}
+
+void capsense_uart_stats_note_empty_packet(void)
+{
+	capsense_uart_stats.empty_packet_count++;
+}
+
+void capsense_uart_stats_note_parse_fail(void)
+{
+	capsense_uart_stats.parse_fail_count++;
+}
+
+void capsense_uart_stats_note_uart_error(void)
+{
+	capsense_uart_stats.uart_error_count++;
+}
+
+void capsense_uart_stats_note_auto_reset(void)
+{
+	capsense_uart_stats.auto_reset_count++;
+}
+
+void capsense_uart_stats_set_failure_streak(uint8_t streak)
+{
+	capsense_uart_stats.rx_failure_streak = streak;
+	capsense_uart_stats.protocol_version = capsense_procotl_version;
+	capsense_uart_stats.legacy_payload_offset = capsense_legacy_payload_offset;
 }

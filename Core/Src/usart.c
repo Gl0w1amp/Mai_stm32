@@ -37,6 +37,7 @@ static uint32_t capsense_last_reset_tick = 0;
 static void capsense_note_rx_success(void)
 {
     capsense_rx_failure_count = 0;
+    capsense_uart_stats_set_failure_streak(capsense_rx_failure_count);
 }
 
 static void capsense_note_rx_failure(void)
@@ -46,6 +47,7 @@ static void capsense_note_rx_failure(void)
     if (capsense_rx_failure_count < 0xFFu) {
         capsense_rx_failure_count++;
     }
+    capsense_uart_stats_set_failure_streak(capsense_rx_failure_count);
 
     if (capsense_rx_failure_count < CAPSENSE_CONSECUTIVE_FAILURE_RESET_THRESHOLD) {
         return;
@@ -57,6 +59,8 @@ static void capsense_note_rx_failure(void)
 
     capsense_last_reset_tick = now;
     capsense_rx_failure_count = 0;
+    capsense_uart_stats_note_auto_reset();
+    capsense_uart_stats_set_failure_streak(capsense_rx_failure_count);
     Boot_Buttom_IRQHandler();
 }
 /* USER CODE END 0 */
@@ -354,6 +358,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
     if (huart->Instance == UART4)
     {
 		uint8_t packet_ok = 0;
+		uint8_t count_failure = 0;
 		if(Size >= 70 ){
 			uint8_t ret = 0;
 			for(uint8_t i = 0;i<70;i++){
@@ -364,18 +369,32 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 				}
 			}
 			if(ret >= 69){
+				capsense_uart_stats_note_empty_packet();
 				goto end;
 			}
-			if(capsense_data_proc(uart_dma_buffer) || capsense_data_proc_legacy(uart_dma_buffer)){
-				packet_ok = 1;
-			}else{
-				goto end;
+			count_failure = 1;
+			if ((uart_dma_buffer[0] == 0u) && (uart_dma_buffer[1] == 0u)) {
+				if (capsense_data_proc_legacy(uart_dma_buffer) || capsense_data_proc(uart_dma_buffer)) {
+					packet_ok = 1;
+				} else {
+					capsense_uart_stats_note_parse_fail();
+					goto end;
+				}
+			} else {
+				if (capsense_data_proc(uart_dma_buffer) || capsense_data_proc_legacy(uart_dma_buffer)) {
+					packet_ok = 1;
+				} else {
+					capsense_uart_stats_note_parse_fail();
+					goto end;
+				}
 			}
+		} else {
+			capsense_uart_stats_note_short_packet();
 		}
 		end:
 		if(packet_ok){
 			capsense_note_rx_success();
-		}else{
+		}else if(count_failure){
 			capsense_note_rx_failure();
 		}
 		while(HAL_UARTEx_ReceiveToIdle_DMA(&huart4, uart_dma_buffer, 128) != HAL_OK);
@@ -394,6 +413,7 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
          __HAL_DMA_DISABLE_IT(&hdma_usart1_rx, DMA_IT_HT);
     }
     if (huart->Instance == UART4){
+    	capsense_uart_stats_note_uart_error();
     	capsense_note_rx_failure();
     	HAL_UARTEx_ReceiveToIdle_DMA(&huart4, uart_dma_buffer, 128);
     	__HAL_DMA_DISABLE_IT(&hdma_uart4_rx, DMA_IT_HT);

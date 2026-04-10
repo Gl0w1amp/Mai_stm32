@@ -692,6 +692,51 @@ void Command_Task(void const * argument)
 				}
 				break;
 			}
+			case SERIAL_CMD_GET_CAPSENSE_UART_STATS:{
+				capsense_uart_stats_t stats;
+				uint8_t cmd_tmp[40] = {0};
+				uint8_t idx = 3;
+
+				if ((rxBuffer[2] > 1) || ((rxBuffer[2] == 1) && (rxBuffer[3] != 1))) {
+					break;
+				}
+				if ((rxBuffer[2] == 1) && (rxBuffer[3] == 1)) {
+					capsense_uart_stats_reset();
+				}
+
+				capsense_uart_stats_get(&stats);
+
+				cmd_tmp[0] = 0xff;
+				cmd_tmp[1] = SERIAL_CMD_GET_CAPSENSE_UART_STATS;
+				cmd_tmp[2] = 35;
+
+				memcpy(&cmd_tmp[idx], &stats.checksum_accept_count, sizeof(stats.checksum_accept_count));
+				idx += sizeof(stats.checksum_accept_count);
+				memcpy(&cmd_tmp[idx], &stats.rolling_checksum_accept_count, sizeof(stats.rolling_checksum_accept_count));
+				idx += sizeof(stats.rolling_checksum_accept_count);
+				memcpy(&cmd_tmp[idx], &stats.legacy_accept_count, sizeof(stats.legacy_accept_count));
+				idx += sizeof(stats.legacy_accept_count);
+				memcpy(&cmd_tmp[idx], &stats.short_packet_count, sizeof(stats.short_packet_count));
+				idx += sizeof(stats.short_packet_count);
+				memcpy(&cmd_tmp[idx], &stats.empty_packet_count, sizeof(stats.empty_packet_count));
+				idx += sizeof(stats.empty_packet_count);
+				memcpy(&cmd_tmp[idx], &stats.parse_fail_count, sizeof(stats.parse_fail_count));
+				idx += sizeof(stats.parse_fail_count);
+				memcpy(&cmd_tmp[idx], &stats.uart_error_count, sizeof(stats.uart_error_count));
+				idx += sizeof(stats.uart_error_count);
+				memcpy(&cmd_tmp[idx], &stats.auto_reset_count, sizeof(stats.auto_reset_count));
+				idx += sizeof(stats.auto_reset_count);
+				cmd_tmp[idx++] = stats.protocol_version;
+				cmd_tmp[idx++] = stats.legacy_payload_offset;
+				cmd_tmp[idx++] = stats.rx_failure_streak;
+
+				cmd_tmp[idx] = 0;
+				for(uint8_t i = 0; i < idx; i++){
+					cmd_tmp[idx] += cmd_tmp[i];
+				}
+				(void) usb_tx_enqueue_high(cmd_tmp, (uint16_t) (idx + 1));
+				break;
+			}
 			case SERIAL_CMD_SCAN_START:
 				break;
 			case SERIAL_CMD_SCAN_STOP:
