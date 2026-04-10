@@ -28,13 +28,15 @@
 
 #define CAPSENSE_TOUCH_ENTER_CONFIRM_SAMPLES 2
 #define CAPSENSE_TOUCH_RELEASE_CONFIRM_SAMPLES 2
+#define CAPSENSE_LONG_HOLD_RELEASE_CONFIRM_SAMPLES 7
+#define CAPSENSE_LONG_HOLD_PROTECT_DURATION 40
 #define CAPSENSE_POST_RELEASE_INHIBIT_FRAMES 2
 #define CAPSENSE_SHORT_RELEASE_NUMERATOR 1
 #define CAPSENSE_SHORT_RELEASE_DENOMINATOR 2
 #define CAPSENSE_DYNAMIC_FOLLOW_RISE_NUMERATOR 1
 #define CAPSENSE_DYNAMIC_FOLLOW_RISE_DENOMINATOR 2
 #define CAPSENSE_DYNAMIC_FOLLOW_FALL_NUMERATOR 1
-#define CAPSENSE_DYNAMIC_FOLLOW_FALL_DENOMINATOR 8
+#define CAPSENSE_DYNAMIC_FOLLOW_FALL_DENOMINATOR 4
 #define CAPSENSE_DYNAMIC_FOLLOW_CAP_NUMERATOR 7
 #define CAPSENSE_DYNAMIC_FOLLOW_CAP_DENOMINATOR 8
 #define CAPSENSE_AUTO_THRESHOLD_SAMPLE_COUNT 128
@@ -287,6 +289,7 @@ static void capsense_process_hold_block(uint8_t logical_start, uint8_t hold_offs
 		uint16_t reference;
 		uint16_t delta_freeze;
 		uint16_t release_threshold;
+		uint8_t release_confirm_required;
 		int variance_idle;
 
 		if(capsense_baseline[channel] == 0){
@@ -353,6 +356,10 @@ static void capsense_process_hold_block(uint8_t logical_start, uint8_t hold_offs
 		release_threshold =
 				capsense_dynamic_release_threshold(enter_threshold, capsense_hold_peak_envelope[hold_index]);
 		capsense_hold_release_level[hold_index] = release_threshold;
+		release_confirm_required = CAPSENSE_TOUCH_RELEASE_CONFIRM_SAMPLES;
+		if (capsense_hold_duration[hold_index] >= CAPSENSE_LONG_HOLD_PROTECT_DURATION) {
+			release_confirm_required = CAPSENSE_LONG_HOLD_RELEASE_CONFIRM_SAMPLES;
+		}
 
 		if((delta_freeze < release_threshold) && (raw < 0xFF00)){
 			if(capsense_hold_release_confirm[hold_index] < 0xFF){
@@ -360,7 +367,7 @@ static void capsense_process_hold_block(uint8_t logical_start, uint8_t hold_offs
 			}
 			capsense_hold_state[hold_index] = CAPSENSE_HOLD_STATE_RELEASE_CONFIRM;
 			capsense_hold_prev_raw[hold_index] = raw;
-			if(capsense_hold_release_confirm[hold_index] >= CAPSENSE_TOUCH_RELEASE_CONFIRM_SAMPLES){
+			if(capsense_hold_release_confirm[hold_index] >= release_confirm_required){
 				capsense_reset_hold_contact(logical, hold_index, channel, raw, CAPSENSE_BASELINE_VARIANCE_A);
 			}else{
 				capsense_touch_status[logical] = 1;
