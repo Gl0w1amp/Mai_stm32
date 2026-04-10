@@ -55,5 +55,6 @@ void capsense_uart_stats_note_parse_fail(void);
 void capsense_uart_stats_note_uart_error(void);
 void capsense_uart_stats_note_auto_reset(void);
 void capsense_uart_stats_set_failure_streak(uint8_t streak);
+void capsense_link_state_get(uint32_t *last_good_tick_out, uint32_t *last_error_tick_out, uint8_t *protocol_version_out);
 
 #endif /* INC_CAPSENSE_H_ */

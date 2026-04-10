@@ -89,6 +89,8 @@ uint8_t capsense_legacy_payload_offset = 0;
 uint8_t capsense_protocol1_confirm_count = 0;
 volatile uint32_t capsense_frame_counter = 0;
 static capsense_uart_stats_t capsense_uart_stats = {0};
+static volatile uint32_t capsense_last_good_frame_tick = 0;
+static volatile uint32_t capsense_last_error_tick = 0;
 
 typedef union{
     float raw_data_fl[6];
@@ -433,7 +435,6 @@ uint8_t checksum = 0;
 static uint8_t capsense_accept_packet(const uint8_t *data, uint8_t lock_protocol, uint8_t rolling_checksum)
 {
 	memcpy(&Touch.data[0], data + 1, 68);
-	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 1);
 	if(lock_protocol){
 		capsense_procotl_version = 1;
 	}
@@ -442,6 +443,7 @@ static uint8_t capsense_accept_packet(const uint8_t *data, uint8_t lock_protocol
 	} else {
 		capsense_uart_stats.checksum_accept_count++;
 	}
+	capsense_last_good_frame_tick = HAL_GetTick();
 	capsense_frame_counter++;
 	capsense_data_ready = 1;
 	return 1;
@@ -450,13 +452,13 @@ static uint8_t capsense_accept_packet(const uint8_t *data, uint8_t lock_protocol
 static uint8_t capsense_accept_legacy_packet(const uint8_t *data, uint8_t payload_offset)
 {
 	memcpy(&Touch.data[0], data + payload_offset, 68);
-	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 1);
 	if(capsense_procotl_version == 0){
 		capsense_procotl_version = 2;
 	}
 	capsense_uart_stats.legacy_accept_count++;
 	capsense_legacy_payload_offset = payload_offset;
 	capsense_protocol1_confirm_count = 0;
+	capsense_last_good_frame_tick = HAL_GetTick();
 	capsense_frame_counter++;
 	capsense_data_ready = 1;
 	return 1;
@@ -637,7 +639,7 @@ bool capsense_data_proc_legacy(uint8_t *uart_dma_buffer){
     return false;
 }
 void Boot_Buttom_IRQHandler(){
-	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,1);
+	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,0);
 	for(uint8_t i = 0;i<34;i++){
 		capsense_baseline[i] = 0;
 		capsense_freeze[i] = 0;
@@ -664,7 +666,9 @@ void Boot_Buttom_IRQHandler(){
 	capsense_uart_stats.protocol_version = 0;
 	capsense_uart_stats.legacy_payload_offset = 0;
 	capsense_uart_stats.rx_failure_streak = 0;
-	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,0);
+	capsense_last_good_frame_tick = 0;
+	capsense_last_error_tick = 0;
+	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,1);
 }
 
 void capsense_init(){
@@ -679,6 +683,8 @@ void capsense_init(){
 	capsense_uart_stats.protocol_version = 0;
 	capsense_uart_stats.legacy_payload_offset = 0;
 	capsense_uart_stats.rx_failure_streak = 0;
+	capsense_last_good_frame_tick = 0;
+	capsense_last_error_tick = 0;
 	osDelay(100);
 	for(uint8_t i = 0;i<34;i++){
 		capsense_baseline[i] = Touch.channel_raw[i];
@@ -1011,16 +1017,19 @@ void capsense_uart_stats_note_empty_packet(void)
 void capsense_uart_stats_note_parse_fail(void)
 {
 	capsense_uart_stats.parse_fail_count++;
+	capsense_last_error_tick = HAL_GetTick();
 }
 
 void capsense_uart_stats_note_uart_error(void)
 {
 	capsense_uart_stats.uart_error_count++;
+	capsense_last_error_tick = HAL_GetTick();
 }
 
 void capsense_uart_stats_note_auto_reset(void)
 {
 	capsense_uart_stats.auto_reset_count++;
+	capsense_last_error_tick = HAL_GetTick();
 }
 
 void capsense_uart_stats_set_failure_streak(uint8_t streak)
@@ -1028,4 +1037,17 @@ void capsense_uart_stats_set_failure_streak(uint8_t streak)
 	capsense_uart_stats.rx_failure_streak = streak;
 	capsense_uart_stats.protocol_version = capsense_procotl_version;
 	capsense_uart_stats.legacy_payload_offset = capsense_legacy_payload_offset;
+}
+
+void capsense_link_state_get(uint32_t *last_good_tick_out, uint32_t *last_error_tick_out, uint8_t *protocol_version_out)
+{
+	if (last_good_tick_out != NULL) {
+		*last_good_tick_out = capsense_last_good_frame_tick;
+	}
+	if (last_error_tick_out != NULL) {
+		*last_error_tick_out = capsense_last_error_tick;
+	}
+	if (protocol_version_out != NULL) {
+		*protocol_version_out = capsense_procotl_version;
+	}
 }

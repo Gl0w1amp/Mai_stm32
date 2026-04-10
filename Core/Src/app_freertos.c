@@ -65,6 +65,10 @@ typedef struct usb_tx_packet {
 #define USB_TX_HIGH_QUEUE_LENGTH 8
 #define USB_TX_LOW_QUEUE_LENGTH 8
 #define BENCHMARK_TX_RETRY_COUNT 50
+#define CAPSENSE_LED_ONLINE_HOLD_MS 300u
+#define CAPSENSE_LED_ERROR_HOLD_MS 500u
+#define CAPSENSE_LED_WAIT_BLINK_HALF_PERIOD_MS 500u
+#define CAPSENSE_LED_ERROR_BLINK_HALF_PERIOD_MS 125u
 const char VERSION[] = FIRMWARE_VERSION;
 
 // Firmware Header instance placed in specific section
@@ -169,6 +173,7 @@ static void benchmark_write_u32_le(uint8_t *dst, uint32_t value);
 static void benchmark_write_u64_le(uint8_t *dst, uint64_t value);
 static uint32_t benchmark_read_u32_le(const uint8_t *src);
 static uint8_t benchmark_quiet_active(void);
+static void capsense_update_link_led(void);
 static uint8_t usb_tx_enqueue(QueueHandle_t queue, const uint8_t *buf, uint16_t len);
 static uint8_t usb_tx_enqueue_high(const uint8_t *buf, uint16_t len);
 static uint8_t usb_tx_enqueue_low(const uint8_t *buf, uint16_t len);
@@ -247,6 +252,33 @@ static uint32_t benchmark_read_u32_le(const uint8_t *src)
 static uint8_t benchmark_quiet_active(void)
 {
 	return ((int32_t)(benchmark_quiet_until_ms - HAL_GetTick()) > 0) ? 1 : 0;
+}
+
+static void capsense_update_link_led(void)
+{
+	uint32_t now = HAL_GetTick();
+	uint32_t last_good_tick = 0;
+	uint32_t last_error_tick = 0;
+	uint8_t protocol_version = 0;
+	GPIO_PinState led_state = GPIO_PIN_RESET;
+
+	capsense_link_state_get(&last_good_tick, &last_error_tick, &protocol_version);
+
+	if ((last_error_tick != 0u) &&
+			((uint32_t)(now - last_error_tick) <= CAPSENSE_LED_ERROR_HOLD_MS)) {
+		if (((now / CAPSENSE_LED_ERROR_BLINK_HALF_PERIOD_MS) & 0x01u) != 0u) {
+			led_state = GPIO_PIN_SET;
+		}
+	} else if (protocol_version == 0u) {
+		if (((now / CAPSENSE_LED_WAIT_BLINK_HALF_PERIOD_MS) & 0x01u) != 0u) {
+			led_state = GPIO_PIN_SET;
+		}
+	} else if ((last_good_tick != 0u) &&
+			((uint32_t)(now - last_good_tick) <= CAPSENSE_LED_ONLINE_HOLD_MS)) {
+		led_state = GPIO_PIN_SET;
+	}
+
+	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, led_state);
 }
 
 static uint8_t usb_tx_enqueue(QueueHandle_t queue, const uint8_t *buf, uint16_t len)
@@ -449,6 +481,7 @@ void Touch_Task(void const * argument)
 	/* Infinite loop */
 	//mai_touch
 	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 0);
+	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, 1);
 	flash_read(Flash.raw_flash);
 	if(Flash.system_config != CONFIG_VERSION){
 		for(uint8_t i = 0;i<34;i++){
@@ -482,12 +515,14 @@ void Touch_Task(void const * argument)
 		osDelay(1);
 		benchmark_emit_pending_event();
 		if(!capsense_data_ready){
-			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 0);
-		}else{
+			HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, 1);
+		}
+		if(capsense_data_ready){
 			capsense_check();
 			stack_flow_touch(current_touch_status);
 			capsense_data_ready = 0;
 		}
+		capsense_update_link_led();
 
 		stack_flow_button(current_button_status);
 		{
