@@ -664,6 +664,9 @@ void Touch_Task(void const * argument)
 		cmd_mai2io[3] = current_button_status[0] & 0b00001111;
 		cmd_mai2io[4] = current_button_status[0] & 0b11110000;
 		cmd_mai2io[5] = current_button_status[1];
+		for (uint8_t i = 0; i < (uint8_t) (sizeof(cmd_mai2io) - 1u); i++) {
+			cmd_mai2io[13] += cmd_mai2io[i];
+		}
 		if(debug_flag == 0 && !benchmark_quiet_active()){
 			if(heart_beat_active()){
 				(void) usb_tx_enqueue_low(cmd_mai2io, 14);
