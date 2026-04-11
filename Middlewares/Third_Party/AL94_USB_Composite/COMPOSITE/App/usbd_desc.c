@@ -34,6 +34,7 @@
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
+static uint8_t usbd_controller_role = 1U;
 
 /* USER CODE END PV */
 
@@ -67,11 +68,14 @@
 #define USBD_LANGID_STRING            1033
 #define USBD_MANUFACTURER_STRING      "AffineLab"
 #if (USBD_USE_DFU == 1)
-#define USBD_PID                      57105 // for DFU PID must be 57105, ST proprietary modification
+#define USBD_PID_DFU                  57105 // for DFU PID must be 57105, ST proprietary modification
 #else
-#define USBD_PID                      0x52a5
+#define USBD_PID_CONTROLLER_1P        0x52A5
+#define USBD_PID_CONTROLLER_2P        0x52A6
 #endif
 #define USBD_PRODUCT_STRING           "Curva Controller"
+#define USBD_PRODUCT_STRING_1P        "Curva Controller 1P"
+#define USBD_PRODUCT_STRING_2P        "Curva Controller 2P"
 #define USBD_CONFIGURATION_STRING     "CDC Config"
 #define USBD_INTERFACE_STRING         "CDC Interface"
 #define USBD_MS_OS_VENDOR_CODE        0x21U
@@ -110,6 +114,8 @@
 static void Get_SerialNum(void);
 static void IntToUnicode(uint32_t value, uint8_t * pbuf, uint8_t len);
 static void Get_ContainerId(uint8_t *pbuf);
+static uint16_t Get_CurrentPid(void);
+static const uint8_t *Get_CurrentProductString(void);
 
 /**
   * @}
@@ -164,8 +170,8 @@ __ALIGN_BEGIN uint8_t USBD_DeviceDesc[USB_LEN_DEV_DESC] __ALIGN_END =
   USB_MAX_EP0_SIZE,           /*bMaxPacketSize*/
   LOBYTE(USBD_VID),           /*idVendor*/
   HIBYTE(USBD_VID),           /*idVendor*/
-  LOBYTE(USBD_PID),        	  /*idProduct*/
-  HIBYTE(USBD_PID),           /*idProduct*/
+  0x00,                       /*idProduct*/
+  0x00,                       /*idProduct*/
   0x01,                       /*bcdDevice rel. 2.01*/
   0x02,
   USBD_IDX_MFC_STR,           /*Index of manufacturer  string*/
@@ -252,6 +258,8 @@ __ALIGN_BEGIN uint8_t USBD_ContainerIDDesc[24] __ALIGN_END = {
 uint8_t * USBD_DeviceDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
 {
   UNUSED(speed);
+  USBD_DeviceDesc[10] = LOBYTE(Get_CurrentPid());
+  USBD_DeviceDesc[11] = HIBYTE(Get_CurrentPid());
   Get_ContainerId(&USBD_ContainerIDDesc[8]);
   *length = sizeof(USBD_DeviceDesc);
   return USBD_DeviceDesc;
@@ -280,11 +288,11 @@ uint8_t * USBD_ProductStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
 {
   if(speed == 0)
   {
-    USBD_GetString((uint8_t *)USBD_PRODUCT_STRING, USBD_StrDesc, length);
+    USBD_GetString((uint8_t *)Get_CurrentProductString(), USBD_StrDesc, length);
   }
   else
   {
-    USBD_GetString((uint8_t *)USBD_PRODUCT_STRING, USBD_StrDesc, length);
+    USBD_GetString((uint8_t *)Get_CurrentProductString(), USBD_StrDesc, length);
   }
   return USBD_StrDesc;
 }
@@ -452,13 +460,45 @@ static void Get_ContainerId(uint8_t *pbuf)
   pbuf[9] = (uint8_t)((deviceserial2 >> 8) & 0xFFU);
   pbuf[10] = (uint8_t)((deviceserial2 >> 16) & 0xFFU);
   pbuf[11] = (uint8_t)((deviceserial2 >> 24) & 0xFFU);
-  pbuf[12] = LOBYTE(USBD_PID);
-  pbuf[13] = HIBYTE(USBD_PID);
+  pbuf[12] = LOBYTE(Get_CurrentPid());
+  pbuf[13] = HIBYTE(Get_CurrentPid());
   pbuf[14] = LOBYTE(USBD_VID);
   pbuf[15] = HIBYTE(USBD_VID);
 
   pbuf[7] = (uint8_t)((pbuf[7] & 0x0FU) | 0x40U);
   pbuf[8] = (uint8_t)((pbuf[8] & 0x3FU) | 0x80U);
+}
+
+static uint16_t Get_CurrentPid(void)
+{
+#if (USBD_USE_DFU == 1)
+  return USBD_PID_DFU;
+#else
+  return (usbd_controller_role == 2U) ? USBD_PID_CONTROLLER_2P : USBD_PID_CONTROLLER_1P;
+#endif
+}
+
+static const uint8_t *Get_CurrentProductString(void)
+{
+  return (usbd_controller_role == 2U) ? (const uint8_t *)USBD_PRODUCT_STRING_2P :
+      (const uint8_t *)USBD_PRODUCT_STRING_1P;
+}
+
+void USBD_SetControllerRole(uint8_t role)
+{
+  usbd_controller_role = (role == 2U) ? 2U : 1U;
+  USBD_DeviceDesc[10] = LOBYTE(Get_CurrentPid());
+  USBD_DeviceDesc[11] = HIBYTE(Get_CurrentPid());
+}
+
+uint8_t USBD_GetControllerRole(void)
+{
+  return usbd_controller_role;
+}
+
+uint16_t USBD_GetControllerPid(void)
+{
+  return Get_CurrentPid();
 }
 
 /**

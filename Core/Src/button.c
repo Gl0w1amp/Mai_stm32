@@ -6,6 +6,7 @@
  */
 #include "button.h"
 #include "gpio.h"
+#include "cmsis_os.h"
 #include <stdbool.h>
 
 static float button_init_state[8];

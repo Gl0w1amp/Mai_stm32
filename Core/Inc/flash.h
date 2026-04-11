@@ -24,10 +24,13 @@ typedef union{
 			struct{
 				uint8_t system_config;
 				uint8_t delay_setting[2];
+				uint8_t controller_role;
 			};
 		};
 	};
 }FlashData;
+
+extern FlashData Flash;
 
 void flash_write(uint64_t* data);
 void flash_read(uint64_t* data);

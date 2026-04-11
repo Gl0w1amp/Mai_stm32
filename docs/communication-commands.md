@@ -72,7 +72,9 @@ System management and information.
 | Cmd  | Name | Payload | Response | Description |
 |:-----|:-----|:--------|:---------|:------------|
 | `0x10` | `RESET` | None | `FF 10 01 01 [CS]` | Software reset (MCU reboot). |
-| `0x11` | `HEART_BEAT` | None | None | Reset the "Heartbeat" timer. Keeps the connection alive. |
+| `0x11` | `HEART_BEAT` | None | None | Compatibility keepalive. Refreshes the host-active window used by the keyboard-emulation path; it does not enable CDC gameplay streaming. |
+| `0x1A` | `GET_CONTROLLER_ROLE` | None | `FF 1A 03 [role] [pid_L] [pid_H] [CS]` | Read the persisted controller role. `role=1` means 1P, `role=2` means 2P. The returned PID matches the active USB identity. |
+| `0x1B` | `SET_CONTROLLER_ROLE` | 1 byte (`role`) | `FF 1B 02 [role] [ok] [CS]` | Set controller role to 1P (`1`) or 2P (`2`). On success the role is saved to Flash and the MCU reboots so USB re-enumerates with the matching PID. |
 | `0x21` | `JUMP_TO_DFU` | None | `FF 21 01 01 [CS]` | Jump to System Bootloader (DFU mode). |
 | `0xF0` | `GET_BOARD_INFO` | None | `FF F0 [Len] [VerLen] [Ver...] [NameLen] [Name...] [UIDLen] [UID...] [CS]` | Get firmware version, board name, and MCU UID. |
 
@@ -85,14 +87,14 @@ System management and information.
 
 ## Device Reports (Device -> Host)
 
-The device sends data to the host automatically based on state.
+The device sends touch/status data to the host automatically over CDC based on state.
 
 ### Auto Scan Report (0x01)
 Sent periodically when `Heartbeat > 0`.
 
 **Frame Size**: 14 bytes
 **Format**:
-`FF 01 0A [Btn0_L] [Btn0_H] [Btn1] [Touch0] ... [Touch6] 0A`
+`FF 01 0A [Btn0_L] [Btn0_H] [Btn1] [Touch0] ... [Touch6] [CS]`
 
 - **Btn0_L**: `button_status[0] & 0x0F`
 - **Btn0_H**: `button_status[0] & 0xF0`
@@ -110,6 +112,13 @@ Sent when `Heartbeat == 0` and `Touch Scan Flag` is enabled (via `{STAT}`).
 - **Touch Data**: 7 bytes (same packing as Auto Scan)
 - **End**: `0x29` (`)`)
 
+### Custom HID Notes
+
+The Custom HID interface remains available for button and benchmark reports. Controller role is distinguished by USB PID:
+
+- `0x52A5`: Controller 1P
+- `0x52A6`: Controller 2P
+
 ---
 
 ## Legacy ASCII Protocol (0x7B)
@@ -119,7 +128,7 @@ These commands start with `{` (`0x7B`) and are 6 bytes long. They are primarily 
 | Command | Description | Response |
 |:--------|:------------|:---------|
 | `{STAT}` | Enable Touch Scan reporting (sets `touch_scan_flag = 1`). | None |
-| `{HALT}` | Disable Touch Scan reporting (sets `touch_scan_flag = 0`). | None |
+| `{HALT}` | Legacy compatibility command. Sets `touch_scan_flag = 0`. | None |
 | `{RSET}` | No-op (Reset placeholder). | `(RSET)` |
 | `{R...}` | Player 2 commands (e.g., `{Rrat}`, `{Rsen}`).<br>Currently placeholders, echoes command. | `(R...)` |
 | `{L...}` | Player 1 commands (e.g., `{Lrat}`, `{Lsen}`).<br>Currently placeholders, echoes command. | `(L...)` |

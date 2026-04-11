@@ -41,6 +41,9 @@ void flash_write(uint64_t* data){
 }
 
 void flash_read(uint64_t* data){
-	memcpy(data, G431_FLASH_BASE + G431_FLASH_PAGE_SIZE * G431_TARGET_PAGE , 128);
+	const void *flash_addr = (const void *)(uintptr_t)
+			(G431_FLASH_BASE + (G431_FLASH_PAGE_SIZE * G431_TARGET_PAGE));
+
+	memcpy(data, flash_addr, 128);
 }
 

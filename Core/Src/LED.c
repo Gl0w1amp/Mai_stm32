@@ -8,6 +8,7 @@
 #define PRE_BUTTON_LED 2
 #define WS2812_HIGH 143
 #define WS2812_LOW 67
+#define LED_RX_QUEUE_LENGTH 4u
 
 extern UART_HandleTypeDef huart1;
 extern DMA_HandleTypeDef hdma_usart1_rx;
@@ -52,7 +53,11 @@ uint8_t WS2812_data[NUM_LED * 3]; //16LED
 uint16_t WS2812_data_DMA_buffer[64 + NUM_LED * 24 + 64];
 uint8_t led_uart_buffer_rx[64];
 uint8_t led_uart_buffer_tx[64];
-uint8_t led_uart_tmp[64];
+
+typedef struct {
+    uint8_t len;
+    uint8_t data[64];
+} LedRxFrame;
 
 typedef struct {
     uint8_t start[3];
@@ -65,6 +70,10 @@ typedef struct {
 FadeContext fade_ctx[NUM_LED];
 static uint16_t fade_pending_duration[NUM_LED];
 static uint8_t fade_pending_active[NUM_LED];
+static LedRxFrame led_rx_queue[LED_RX_QUEUE_LENGTH];
+static volatile uint8_t led_rx_head = 0;
+static volatile uint8_t led_rx_tail = 0;
+static volatile uint8_t led_rx_count = 0;
 
 volatile uint32_t timer7_count = 0;
 volatile uint32_t timer7_target = 0;
@@ -72,6 +81,43 @@ volatile uint8_t timer7_active = 0;
 
 void set_led_immediate(uint8_t index, uint8_t r, uint8_t g, uint8_t b);
 void set_led_fade(uint8_t index, uint8_t r, uint8_t g, uint8_t b, uint8_t speed);
+
+static uint32_t led_lock_irq(void)
+{
+    uint32_t primask = __get_PRIMASK();
+
+    __disable_irq();
+    return primask;
+}
+
+static void led_unlock_irq(uint32_t primask)
+{
+    if (primask == 0u) {
+        __enable_irq();
+    }
+}
+
+static uint8_t led_rx_frame_pop(LedRxFrame *frame)
+{
+    uint32_t primask;
+
+    if (frame == NULL) {
+        return 0;
+    }
+
+    primask = led_lock_irq();
+    if (led_rx_count == 0u) {
+        led_unlock_irq(primask);
+        return 0;
+    }
+
+    *frame = led_rx_queue[led_rx_tail];
+    led_rx_tail = (uint8_t) ((led_rx_tail + 1u) % LED_RX_QUEUE_LENGTH);
+    led_rx_count--;
+    led_unlock_irq(primask);
+
+    return 1;
+}
 
 void LED_set(uint8_t led_no,uint8_t r,uint8_t g,uint8_t b){
 	if(led_no > 8){
@@ -130,6 +176,9 @@ void LED_UART_Init(){
 	for(uint16_t i = 0;i < 128 + NUM_LED * 24 + 64;i++){
 		WS2812_data_DMA_buffer[i] = 0;
 	}
+	led_rx_head = 0;
+	led_rx_tail = 0;
+	led_rx_count = 0;
 	while(HAL_UARTEx_ReceiveToIdle_DMA(&huart1, led_uart_buffer_rx,64) != HAL_OK);
 	__HAL_DMA_DISABLE_IT(&hdma_usart1_rx, DMA_IT_HT);
 }
@@ -336,11 +385,36 @@ void res_init(uint8_t length, uint8_t status, uint8_t report) {
   res.report = report;
 }
 
-void LED_Task_Process(){
+uint8_t LED_RxFramePush(const uint8_t *data, uint16_t len)
+{
+    uint32_t primask;
+    LedRxFrame *frame;
+
+    if ((data == NULL) || (len == 0u) || (len > sizeof(led_uart_buffer_rx))) {
+        return 0;
+    }
+
+    primask = led_lock_irq();
+    if (led_rx_count >= LED_RX_QUEUE_LENGTH) {
+        led_unlock_irq(primask);
+        return 0;
+    }
+
+    frame = &led_rx_queue[led_rx_head];
+    frame->len = (uint8_t) len;
+    memcpy(frame->data, data, len);
+    led_rx_head = (uint8_t) ((led_rx_head + 1u) % LED_RX_QUEUE_LENGTH);
+    led_rx_count++;
+    led_unlock_irq(primask);
+
+    return 1;
+}
+
+void LED_Task_Process(const uint8_t *data, uint16_t len){
 	uint8_t offset = 0;
-	while(offset < 64){
+	while(offset < len){
 		uint8_t consumed = 0;
-		uint8_t cmd = led_packet_check(led_uart_tmp + offset, 64 - offset, &consumed);
+		uint8_t cmd = led_packet_check((uint8_t *) data + offset, len - offset, &consumed);
 		offset += consumed;
 		if(consumed == 0){
 			break;
@@ -391,7 +465,8 @@ void LED_Task_Process(){
 			//HAL_UART_Transmit_DMA(&huart1, mai_led_eeprom_response, 9);
 			break;
 		case GetBoardInfo:
-			  memcpy(res.boardNo, "15070-04\xFF\x90\x00\x30", 12);
+			  memcpy(res.boardNo, "15070-04", 8);
+			  res.boardNo[8] = 0xFF;
 			  res.firmRevision = 144;
 			  res_init(10,AckStatus_Ok,AckReport_Ok);
 //			  res.dstNodeID = 0x01;
@@ -420,5 +495,13 @@ void LED_Task_Process(){
 		}
 		led_packet_write();
 	}
-	memset(led_uart_tmp,0,64);
+}
+
+void LED_Task_ProcessPending(void)
+{
+    LedRxFrame frame;
+
+    while (led_rx_frame_pop(&frame)) {
+        LED_Task_Process(frame.data, frame.len);
+    }
 }

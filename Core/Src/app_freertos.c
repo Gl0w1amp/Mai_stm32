@@ -42,6 +42,7 @@
 #include "dfu_jump.h"
 #include "app_version.h"
 #include "firmware_header.h"
+#include "usbd_desc.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -86,6 +87,7 @@ typedef struct usb_cdc_tx_stats {
 #define CAPSENSE_LED_ERROR_HOLD_MS 500u
 #define CAPSENSE_LED_WAIT_BLINK_HALF_PERIOD_MS 500u
 #define CAPSENSE_LED_ERROR_BLINK_HALF_PERIOD_MS 125u
+#define HEART_BEAT_HOLD_MS 300u
 const char VERSION[] = FIRMWARE_VERSION;
 
 // Firmware Header instance placed in specific section
@@ -154,16 +156,15 @@ void Jump_To_DFU_Bootloader(void)
 /* USER CODE BEGIN Variables */
 extern USBD_HandleTypeDef hUsbDevice;
 uint8_t touch_cmd_flag = 0;
-uint8_t touch_scan_flag = 0;
-uint8_t heart_beat = 50;
-extern FlashData Flash;
+volatile uint8_t touch_scan_flag = 0;
+static volatile uint32_t heart_beat_deadline_ms = 0;
 extern uint8_t keyboard_sheet[14];
 extern uint8_t debug_channel;
 uint8_t player = 1;
 uint8_t current_touch_status[34];
 uint8_t current_button_status[2];
-extern uint8_t capsense_data_ready;
-uint8_t debug_flag = 0;
+extern volatile uint8_t capsense_data_ready;
+volatile uint8_t debug_flag = 0;
 volatile uint32_t benchmark_quiet_until_ms = 0;
 volatile uint8_t benchmark_event_pending = 0;
 volatile uint32_t benchmark_event_due_ms = 0;
@@ -201,6 +202,10 @@ static void serial_send_benchmark_reply(uint8_t cmd, const uint8_t *payload, uin
 static void serial_send_benchmark_event(uint32_t sequence, uint64_t event_cycles);
 static void hid_send_benchmark_event(uint32_t sequence, uint64_t event_cycles);
 static void benchmark_emit_pending_event(void);
+static uint8_t serial_binary_frame_valid(const uint8_t *frame, uint8_t len);
+static void heart_beat_refresh(void);
+static uint8_t heart_beat_active(void);
+static uint8_t controller_role_normalize(uint8_t role);
 /* USER CODE END FunctionPrototypes */
 
 void Touch_Task(void const * argument);
@@ -272,6 +277,21 @@ static uint32_t benchmark_read_u32_le(const uint8_t *src)
 static uint8_t benchmark_quiet_active(void)
 {
 	return ((int32_t)(benchmark_quiet_until_ms - HAL_GetTick()) > 0) ? 1 : 0;
+}
+
+static void heart_beat_refresh(void)
+{
+	heart_beat_deadline_ms = HAL_GetTick() + HEART_BEAT_HOLD_MS;
+}
+
+static uint8_t heart_beat_active(void)
+{
+	return ((int32_t)(heart_beat_deadline_ms - HAL_GetTick()) > 0) ? 1u : 0u;
+}
+
+static uint8_t controller_role_normalize(uint8_t role)
+{
+	return (role == 2u) ? 2u : 1u;
 }
 
 static void usb_cdc_tx_stats_reset(void)
@@ -360,10 +380,20 @@ static uint8_t usb_tx_enqueue_low(const uint8_t *buf, uint16_t len)
 	return usb_tx_enqueue(usb_tx_low_queue, buf, len);
 }
 
+uint8_t serial_cdc_tx_enqueue_high(const uint8_t *buf, uint16_t len)
+{
+	return usb_tx_enqueue_high(buf, len);
+}
+
+uint8_t serial_cdc_tx_enqueue_low(const uint8_t *buf, uint16_t len)
+{
+	return usb_tx_enqueue_low(buf, len);
+}
+
 /* Echoes the benchmark payload and attaches device-side cycle timestamps. */
 static void serial_send_benchmark_reply(uint8_t cmd, const uint8_t *payload, uint8_t payload_len, uint64_t dispatch_cycles)
 {
-	uint8_t cmd_tmp[64];
+	uint8_t cmd_tmp[1 + 1 + 1 + BENCHMARK_MAX_PAYLOAD + 8 + 8 + 4 + 1];
 	uint8_t idx = 0;
 	uint64_t tx_cycles = benchmark_cycles64();
 
@@ -391,7 +421,7 @@ static void serial_send_benchmark_reply(uint8_t cmd, const uint8_t *payload, uin
 
 static void serial_send_benchmark_event(uint32_t sequence, uint64_t event_cycles)
 {
-	uint8_t cmd_tmp[64];
+	uint8_t cmd_tmp[1 + 1 + 1 + BENCHMARK_EVENT_REPLY_PAYLOAD + 1];
 	uint8_t idx = 0;
 	uint64_t tx_cycles = benchmark_cycles64();
 
@@ -447,6 +477,27 @@ static void benchmark_emit_pending_event(void)
 	}
 }
 
+static uint8_t serial_binary_frame_valid(const uint8_t *frame, uint8_t len)
+{
+	uint8_t checksum = 0;
+	uint8_t expected_len;
+
+	if ((frame == NULL) || (len < 4u) || (frame[0] != 0xFFu)) {
+		return 0;
+	}
+
+	expected_len = (uint8_t) (frame[2] + 4u);
+	if (expected_len != len) {
+		return 0;
+	}
+
+	for (uint8_t i = 0; i < (uint8_t) (len - 1u); i++) {
+		checksum += frame[i];
+	}
+
+	return checksum == frame[len - 1u];
+}
+
 void slider_notify_command_ready_from_isr(void)
 {
 	BaseType_t higher_priority_task_woken = pdFALSE;
@@ -466,6 +517,7 @@ void slider_notify_command_ready_from_isr(void)
   */
 void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
+  serial_command_init();
   usb_tx_high_queue = xQueueCreate(USB_TX_HIGH_QUEUE_LENGTH, sizeof(usb_tx_packet_t));
   usb_tx_low_queue = xQueueCreate(USB_TX_LOW_QUEUE_LENGTH, sizeof(usb_tx_packet_t));
   usb_tx_queue_set = xQueueCreateSet(USB_TX_HIGH_QUEUE_LENGTH + USB_TX_LOW_QUEUE_LENGTH);
@@ -506,7 +558,8 @@ void MX_FREERTOS_Init(void) {
   ButtonTaskHandle = osThreadCreate(osThread(ButtonTask), NULL);
 
   /* definition and creation of CommandTask */
-  osThreadDef(CommandTask, Command_Task, osPriorityIdle, 0, 128);
+  /* Command_Task has a large switch and several reply builders; 128 words was effectively stack-starved. */
+  osThreadDef(CommandTask, Command_Task, osPriorityBelowNormal, 0, 384);
   CommandTaskHandle = osThreadCreate(osThread(CommandTask), NULL);
 
   /* definition and creation of LEDTask */
@@ -534,7 +587,9 @@ void Touch_Task(void const * argument)
 {
   /* USER CODE BEGIN Touch_Task */
 	/* Infinite loop */
-	//mai_touch
+	uint8_t cmd_mai2io[14];
+	uint8_t cmd_mai2touch[9];
+
 	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 0);
 	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, 1);
 	flash_read(Flash.raw_flash);
@@ -552,6 +607,7 @@ void Touch_Task(void const * argument)
 		memcpy(Flash.touch_sheet,touch_sheet_default,34);
 		Flash.delay_setting[0] = 0;
 		Flash.delay_setting[1] = 0;
+		Flash.controller_role = 1;
 		Flash.system_config = CONFIG_VERSION;
 		flash_write(Flash.raw_flash);
 	}
@@ -563,11 +619,19 @@ void Touch_Task(void const * argument)
 		Flash.delay_setting[1] = 9;
 		flash_write(Flash.raw_flash);
 	}
+	if ((Flash.controller_role != 1u) && (Flash.controller_role != 2u)) {
+		Flash.controller_role = 1u;
+		flash_write(Flash.raw_flash);
+	}
+	player = Flash.controller_role;
 	osDelay(1000);
 	capsense_init();
+	benchmark_counter_init();
+	heart_beat_refresh();
 	while(1)
 	{
 		osDelay(TOUCH_REPORT_PERIOD_MS);
+		capsense_service_pending_reset();
 		benchmark_emit_pending_event();
 		if(!capsense_data_ready){
 			HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, 1);
@@ -577,37 +641,14 @@ void Touch_Task(void const * argument)
 			stack_flow_touch(current_touch_status);
 		}
 		capsense_update_link_led();
+		memset(cmd_mai2io, 0, sizeof(cmd_mai2io));
+		memset(cmd_mai2touch, 0, sizeof(cmd_mai2touch));
+		cmd_mai2io[0] = 0xff;
+		cmd_mai2io[1] = 0x01;
+		cmd_mai2io[2] = 0x0A;
+		cmd_mai2touch[0] = 0x28;
+		cmd_mai2touch[8] = 0x29;
 
-		stack_flow_button(current_button_status);
-		{
-			uint8_t cmd_mai2io[14] = {0xff,1,10,0,0,0,0,0,0,0,0,0,0,10};
-			uint8_t cmd_mai2touch[9] = {0x28,0,0,0,0,0,0,0,0x29};
-
-			for(uint8_t j = 0;j<7;j++){
-				for(uint8_t i = 0;i<5;i++){
-					if(j == 6 && i == 4){
-						break;
-					}
-					if(current_touch_status[i+j*5]){
-						cmd_mai2io[j+6] |= (1 << i);
-					}
-				}
-			}
-			cmd_mai2io[3] = current_button_status[0] & 0b00001111;
-			cmd_mai2io[4] = current_button_status[0] & 0b11110000;
-			cmd_mai2io[5] = current_button_status[1];
-			if(debug_flag == 0 && !benchmark_quiet_active()){
-				if(heart_beat != 0){
-					(void) usb_tx_enqueue_low(cmd_mai2io, 14);
-				}else if(touch_scan_flag != 0){
-					memcpy(cmd_mai2touch+1,cmd_mai2io+6,7);
-					(void) usb_tx_enqueue_low(cmd_mai2touch, 9);
-				}
-			}
-		}
-
-#if 0
-		stack_flow_touch(current_touch_status);
 		stack_flow_button(current_button_status);
 		for(uint8_t j = 0;j<7;j++){
 			for(uint8_t i = 0;i<5;i++){
@@ -624,14 +665,13 @@ void Touch_Task(void const * argument)
 		cmd_mai2io[4] = current_button_status[0] & 0b11110000;
 		cmd_mai2io[5] = current_button_status[1];
 		if(debug_flag == 0 && !benchmark_quiet_active()){
-			if(heart_beat != 0){
+			if(heart_beat_active()){
 				(void) usb_tx_enqueue_low(cmd_mai2io, 14);
 			}else if(touch_scan_flag != 0){
 				memcpy(cmd_mai2touch+1,cmd_mai2io+6,7);
 				(void) usb_tx_enqueue_low(cmd_mai2touch, 9);
 			}
 		}
-#endif
 
 	}
   /* USER CODE END Touch_Task */
@@ -653,7 +693,8 @@ void Button_Task(void const * argument)
 	uint8_t last_keyboard_buffer[14];
 	uint8_t last_hid_buttons0 = 0xFF;
 	uint8_t last_hid_io_status = 0xFF;
-	memset(keyboard_buffer,0,12);
+	memset(keyboard_buffer,0,sizeof(keyboard_buffer));
+	memset(last_keyboard_buffer,0,sizeof(last_keyboard_buffer));
 	osDelay(1000);
 	button_init();
 	(void) mai2_hid_buttons_send_report(0, 0);
@@ -670,7 +711,7 @@ void Button_Task(void const * argument)
 				last_hid_io_status = current_button_status[1];
 			}
 		}
-		if(heart_beat == 0){
+		if(!heart_beat_active()){
 			for(uint8_t i = 0;i<8;i++){
 				keyboard_buffer[i] =  (current_button_status[0] & (1 << i)) ? keyboard_sheet[i] : 0;
 			}
@@ -704,13 +745,24 @@ void Command_Task(void const * argument)
 {
   /* USER CODE BEGIN Command_Task */
   /* Infinite loop */
+  serial_frame_t rx_frame;
   benchmark_counter_init();
 	for(;;)
   {
-	ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5));
-	if ((rxLen != 0)&&(rxBuffer[0] == 0xff)){
-		uint64_t dispatch_cycles = benchmark_cycles64();
-		switch(rxBuffer[1]){
+	(void) ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5));
+	while (serial_command_pop(&rx_frame)) {
+		const uint8_t *rxBuffer = rx_frame.data;
+		uint8_t rxLen = rx_frame.len;
+
+		if ((rxLen != 0u) && (rxBuffer[0] == 0xFFu)) {
+			uint64_t dispatch_cycles;
+
+			if (!serial_binary_frame_valid(rxBuffer, rxLen)) {
+				continue;
+			}
+
+			dispatch_cycles = benchmark_cycles64();
+			switch(rxBuffer[1]){
 			case SERIAL_CMD_LED:
 //				if(rxBuffer[2] != 27){
 //					break;
@@ -882,11 +934,75 @@ void Command_Task(void const * argument)
 				(void) usb_tx_enqueue_high(cmd_tmp, (uint16_t) (idx + 1));
 				break;
 			}
+			case SERIAL_CMD_GET_CONTROLLER_ROLE:{
+				uint16_t pid = USBD_GetControllerPid();
+				uint8_t cmd_tmp[7] = {
+					0xff,
+					SERIAL_CMD_GET_CONTROLLER_ROLE,
+					3,
+					controller_role_normalize(Flash.controller_role),
+					(uint8_t) (pid & 0xFFu),
+					(uint8_t) ((pid >> 8) & 0xFFu),
+					0
+				};
+
+				for(uint8_t i = 0; i < 6; i++){
+					cmd_tmp[6] += cmd_tmp[i];
+				}
+				(void) usb_tx_enqueue_high(cmd_tmp, sizeof(cmd_tmp));
+				break;
+			}
+			case SERIAL_CMD_SET_CONTROLLER_ROLE:{
+				uint8_t requested_role;
+				uint8_t applied_role;
+				uint8_t ok = 0;
+				uint8_t cmd_tmp[6] = {0xff, SERIAL_CMD_SET_CONTROLLER_ROLE, 2, 0, 0, 0};
+
+				if(rxBuffer[2] != 1){
+					break;
+				}
+
+				requested_role = rxBuffer[3];
+				if ((requested_role == 1u) || (requested_role == 2u)) {
+					applied_role = controller_role_normalize(requested_role);
+					Flash.controller_role = applied_role;
+					player = applied_role;
+					USBD_SetControllerRole(applied_role);
+					flash_write(Flash.raw_flash);
+					ok = 1u;
+					cmd_tmp[3] = applied_role;
+					cmd_tmp[4] = ok;
+				} else {
+					cmd_tmp[3] = requested_role;
+					cmd_tmp[4] = ok;
+				}
+
+				for(uint8_t i = 0; i < 5; i++){
+					cmd_tmp[5] += cmd_tmp[i];
+				}
+				(void) usb_tx_enqueue_high(cmd_tmp, sizeof(cmd_tmp));
+
+				if (ok != 0u) {
+					osDelay(100);
+					__disable_irq();
+					NVIC_SystemReset();
+				}
+				break;
+			}
 			case SERIAL_CMD_SCAN_START:
+				if(rxBuffer[2] != 0){
+					break;
+				}
 				break;
 			case SERIAL_CMD_SCAN_STOP:
+				if(rxBuffer[2] != 0){
+					break;
+				}
 				break;
 			case SERIAL_CMD_READ_MONO_THRESHOLD:{
+				if(rxBuffer[2] != 1){
+					break;
+				}
 				uint8_t cmd_tmp[7] = {0xff,5,3,0,0,0,0};
 				cmd_tmp[3] = rxBuffer[3];
 				memcpy(cmd_tmp + 4,&Flash.touch_threshold[cmd_tmp[3]],2);
@@ -898,6 +1014,9 @@ void Command_Task(void const * argument)
 			}
 
 			case SERIAL_CMD_WRITE_MONO_THRESHOLD:{
+				if(rxBuffer[2] != 3){
+					break;
+				}
 				memcpy(&Flash.touch_threshold[rxBuffer[3]],&rxBuffer[4],2);
 				flash_write(Flash.raw_flash);
 				uint8_t cmd_tmp[5] = {0xff,6,1,1,7};
@@ -905,6 +1024,9 @@ void Command_Task(void const * argument)
 				break;
 			}
 			case SERIAL_CMD_READ_TOUCH_SHEET:{
+				if(rxBuffer[2] != 0){
+					break;
+				}
 				uint8_t cmd_tmp[38] = {0xff,7,34};
 				for(uint8_t i = 0;i<34;i++){
 					cmd_tmp[i + 3] = Flash.touch_sheet[i];
@@ -917,6 +1039,9 @@ void Command_Task(void const * argument)
 				break;
 			}
 			case SERIAL_CMD_WRITE_TOUCH_SHEET:{
+				if(rxBuffer[2] != 34){
+					break;
+				}
 				//memcpy(Flash.touch_sheet,&rxBuffer[3],34);
 				for(uint8_t i = 0;i<34;i++){
 					Flash.touch_sheet[i] = rxBuffer[i+3];
@@ -957,6 +1082,9 @@ void Command_Task(void const * argument)
 				break;
 			}
 			case SERIAL_CMD_RESET:{
+				if(rxBuffer[2] != 0){
+					break;
+				}
 				// Send acknowledge before reset
 				uint8_t cmd_tmp[5] = {0xff,0x10,1,1,0x11};
 				(void) usb_tx_enqueue_high(cmd_tmp, 5);
@@ -968,6 +1096,9 @@ void Command_Task(void const * argument)
 				break;
 			}
 			case SERIAL_CMD_JUMP_TO_DFU:{
+				if(rxBuffer[2] != 0){
+					break;
+				}
 				// Send acknowledge before jumping to DFU
 				uint8_t cmd_tmp[5] = {0xff,0x21,1,1,0x22};
 				(void) usb_tx_enqueue_high(cmd_tmp, 5);
@@ -1025,9 +1156,15 @@ void Command_Task(void const * argument)
 				break;
 			}
 			case SERIAL_CMD_HEART_BEAT:
-				heart_beat = 50;
+				if(rxBuffer[2] != 0){
+					break;
+				}
+				heart_beat_refresh();
 				break;
 			case SERIAL_CMD_TO_DEBUG_MODE:
+				if(rxBuffer[2] != 0){
+					break;
+				}
 				debug_flag = 1;
 				{
 					uint8_t ack_cmd[5] = {0xff, SERIAL_CMD_TO_DEBUG_MODE, 1, 1, 0};
@@ -1062,6 +1199,9 @@ void Command_Task(void const * argument)
 				break;
 			}
 			case SERIAL_CMD_GET_BOARD_INFO:{
+				if(rxBuffer[2] != 0){
+					break;
+				}
 				char board_name[] = "1020-050201";
 				uint8_t name_len = strlen(board_name);
 				uint8_t version_len = strlen(VERSION);
@@ -1100,7 +1240,7 @@ void Command_Task(void const * argument)
 				break;
 			}
 		}
-	}else if((rxLen != 0)&&(rxBuffer[0] == 0x7B)){
+		}else if((rxLen == 6u) && (rxBuffer[0] == 0x7B)){
 		char cmd_tmp[6] = "(RSET)";
 		switch (rxBuffer[1]){
 			case 0x53:{
@@ -1149,9 +1289,6 @@ void Command_Task(void const * argument)
 				break;
 		}
 	}
-	rxLen = 0;
-	if(heart_beat != 0){
-		heart_beat --;
 	}
   }
   /* USER CODE END Command_Task */
@@ -1176,7 +1313,7 @@ void LED_Task(void const * argument)
 	}
 	LED_refresh();
 	while(1){
-//		LED_Task_Process();
+		LED_Task_ProcessPending();
 		LED_Fade_IRQHandler();
 		osDelay(1);
 	}

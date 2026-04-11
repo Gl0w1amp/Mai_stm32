@@ -12,6 +12,7 @@
 #include "cmsis_os.h"
 #include "flash.h"
 #include "stdbool.h"
+#include "slider.h"
 
 #define CAPSENSE_BASELINE_VARIANCE 3000
 #define CAPSENSE_BASELINE_VARIANCE_A 1000
@@ -77,7 +78,7 @@ uint16_t capsense_hold_prev_raw[16] = {0};
 uint16_t capsense_hold_peak_envelope[16] = {0};
 uint16_t capsense_hold_release_level[16] = {0};
 uint8_t capsense_hold_baseline_cooldown[16] = {0};
-uint8_t capsense_data_ready = 0;
+volatile uint8_t capsense_data_ready = 0;
 uint8_t capsense_bit;
 uint8_t capsense_touch_status[34];
 uint8_t capsense_hold_enter_confirm[16] = {0};
@@ -92,6 +93,7 @@ volatile uint32_t capsense_frame_counter = 0;
 static capsense_uart_stats_t capsense_uart_stats = {0};
 static volatile uint32_t capsense_last_good_frame_tick = 0;
 static volatile uint32_t capsense_last_error_tick = 0;
+static volatile uint8_t capsense_reset_pending = 0;
 
 typedef union{
     float raw_data_fl[6];
@@ -689,6 +691,7 @@ void Boot_Buttom_IRQHandler(){
 	capsense_uart_stats.rx_failure_streak = 0;
 	capsense_last_good_frame_tick = 0;
 	capsense_last_error_tick = 0;
+	capsense_reset_pending = 0;
 	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,1);
 }
 
@@ -706,6 +709,7 @@ void capsense_init(){
 	capsense_uart_stats.rx_failure_streak = 0;
 	capsense_last_good_frame_tick = 0;
 	capsense_last_error_tick = 0;
+	capsense_reset_pending = 0;
 	osDelay(100);
 	for(uint8_t i = 0;i<34;i++){
 		capsense_baseline[i] = Touch.channel_raw[i];
@@ -842,7 +846,7 @@ void capsense_check(){
 		vofa1.raw_data_fl[4] = capsense_touch_status[logical] ? 1.0f : 0.0f;
 		vofa1.raw_data_fl[5] = hold_duration;
 		memcpy(tmp,vofa1.raw_data_u8,24);
-		CDC_Transmit(0, tmp,28);
+		(void) serial_cdc_tx_enqueue_low(tmp, 28);
 	}
 }
 
@@ -1070,5 +1074,29 @@ void capsense_link_state_get(uint32_t *last_good_tick_out, uint32_t *last_error_
 	}
 	if (protocol_version_out != NULL) {
 		*protocol_version_out = capsense_procotl_version;
+	}
+}
+
+void capsense_request_link_reset(void)
+{
+	capsense_reset_pending = 1;
+}
+
+void capsense_service_pending_reset(void)
+{
+	uint32_t primask;
+
+	if (capsense_reset_pending == 0u) {
+		return;
+	}
+
+	primask = __get_PRIMASK();
+	__disable_irq();
+	if (capsense_reset_pending != 0u) {
+		capsense_reset_pending = 0;
+		Boot_Buttom_IRQHandler();
+	}
+	if (primask == 0u) {
+		__enable_irq();
 	}
 }

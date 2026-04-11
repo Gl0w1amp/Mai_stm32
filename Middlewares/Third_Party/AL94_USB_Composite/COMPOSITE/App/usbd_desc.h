@@ -121,6 +121,9 @@ extern USBD_DescriptorsTypeDef USBD_Desc;
   */
 
 /* USER CODE BEGIN EXPORTED_FUNCTIONS */
+void USBD_SetControllerRole(uint8_t role);
+uint8_t USBD_GetControllerRole(void);
+uint16_t USBD_GetControllerPid(void);
 
 /* USER CODE END EXPORTED_FUNCTIONS */
 

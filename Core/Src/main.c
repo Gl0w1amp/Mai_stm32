@@ -29,6 +29,9 @@
 /* USER CODE BEGIN Includes */
 #include "LED.h"
 #include "dfu_jump.h"
+#include "usb_device.h"
+#include "flash.h"
+#include "usbd_desc.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -171,6 +174,8 @@ int main(void)
   /* Initialize interrupts */
   MX_NVIC_Init();
   /* USER CODE BEGIN 2 */
+  flash_read(Flash.raw_flash);
+  USBD_SetControllerRole((Flash.controller_role == 2u) ? 2u : 1u);
   MX_USB_DEVICE_Init();
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, 1);
   FET_LED_Init();

@@ -39,6 +39,7 @@ extern uint8_t uart_dma_buffer[128];
 extern uint16_t capsense_threshold[34];
 extern uint8_t capsense_touch_status[34];
 extern uint8_t touch_sheet[34];
+extern volatile uint8_t capsense_data_ready;
 
 void Touch_UART_IDLE_Handler();
 void capsense_init();
@@ -57,5 +58,7 @@ void capsense_uart_stats_note_uart_error(void);
 void capsense_uart_stats_note_auto_reset(void);
 void capsense_uart_stats_set_failure_streak(uint8_t streak);
 void capsense_link_state_get(uint32_t *last_good_tick_out, uint32_t *last_error_tick_out, uint8_t *protocol_version_out);
+void capsense_request_link_reset(void);
+void capsense_service_pending_reset(void);
 
 #endif /* INC_CAPSENSE_H_ */

@@ -24,7 +24,6 @@
 
 /* USER CODE BEGIN INCLUDE */
 #include "slider.h"
-#include "capsense.h"
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -425,10 +424,9 @@ static int8_t CDC_Receive(uint8_t cdc_ch, uint8_t *Buf, uint32_t *Len)
   //HAL_UART_Transmit_DMA(CDC_CH_To_UART_Handle(cdc_ch), Buf, *Len);
 	if((*Len == 1) && (debug_flag)){
 		debug_channel = Buf[0] <= 33 ? Buf[0] : 33;
+	} else if (serial_command_push(Buf, (uint16_t) *Len)) {
+		slider_notify_command_ready_from_isr();
 	}
-	rxLen = *Len;
-	memcpy(rxBuffer,Buf,rxLen);
-	slider_notify_command_ready_from_isr();
 	USBD_CDC_SetRxBuffer(cdc_ch, &hUsbDevice, &Buf[0]);
 	USBD_CDC_ReceivePacket(cdc_ch, &hUsbDevice);
 	return (USBD_OK);

@@ -25,7 +25,6 @@
 #include "capsense.h"
 #include "LED.h"
 extern uint8_t led_uart_buffer_rx[64];
-extern uint8_t led_uart_tmp[64];
 extern uint8_t uart_dma_buffer[128];
 
 #define CAPSENSE_CONSECUTIVE_FAILURE_RESET_THRESHOLD 8u
@@ -61,7 +60,7 @@ static void capsense_note_rx_failure(void)
     capsense_rx_failure_count = 0;
     capsense_uart_stats_note_auto_reset();
     capsense_uart_stats_set_failure_streak(capsense_rx_failure_count);
-    Boot_Buttom_IRQHandler();
+    capsense_request_link_reset();
 }
 /* USER CODE END 0 */
 
@@ -350,8 +349,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
     if (huart->Instance == USART1)
     {
-        memcpy(led_uart_tmp,led_uart_buffer_rx,64);
-        LED_Task_Process();
+        (void) LED_RxFramePush(led_uart_buffer_rx, Size);
 		while(HAL_UARTEx_ReceiveToIdle_DMA(&huart1, led_uart_buffer_rx,64) != HAL_OK);
         __HAL_DMA_DISABLE_IT(&hdma_usart1_rx, DMA_IT_HT);
     }

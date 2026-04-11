@@ -140,5 +140,7 @@ void LED_update_button(uint8_t speed);
 void LED_UART_Init();
 void LED_UART_IRQHandler();
 void LED_Fade_IRQHandler();
-void LED_Task_Process();
+uint8_t LED_RxFramePush(const uint8_t *data, uint16_t len);
+void LED_Task_Process(const uint8_t *data, uint16_t len);
+void LED_Task_ProcessPending(void);
 #endif

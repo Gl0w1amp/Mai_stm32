@@ -68,4 +68,8 @@ site/
 # Application version header
 Core/Inc/app_version.h
 
+# Scripts
 scripts/
+
+# Generated
+artifacts/
