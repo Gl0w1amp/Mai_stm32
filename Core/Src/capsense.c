@@ -52,6 +52,16 @@
 #define CAPSENSE_AUTO_THRESHOLD_MAX 4000
 #define CAPSENSE_AUTO_THRESHOLD_P2P_CAP_MULTIPLIER 2
 #define CAPSENSE_AUTO_THRESHOLD_POS_MULTIPLIER 4
+#define CAPSENSE_CALIBRATION_IDLE_SAMPLE_COUNT 32
+#define CAPSENSE_CALIBRATION_IDLE_STABLE_FRAMES 12
+#define CAPSENSE_CALIBRATION_PRESS_CONFIRM_FRAMES 4
+#define CAPSENSE_CALIBRATION_PRESS_HOLD_FRAMES 24
+#define CAPSENSE_CALIBRATION_FRAME_TIMEOUT_MS 20
+#define CAPSENSE_CALIBRATION_TOTAL_TIMEOUT_MS 6000
+#define CAPSENSE_CALIBRATION_PRESS_START_MIN_DELTA 220
+#define CAPSENSE_CALIBRATION_RELEASE_DELTA 120
+#define CAPSENSE_CALIBRATION_CHANNEL_RATIO_NUMERATOR 3
+#define CAPSENSE_CALIBRATION_CHANNEL_RATIO_DENOMINATOR 2
 #define CAPSENSE_UART_FRAME_SIZE 70u
 #define CAPSENSE_UART_STREAM_BUFFER_SIZE 512u
 
@@ -110,10 +120,56 @@ uint8_t debug_channel = 0;
 extern uint8_t debug_flag;
 static uint16_t capsense_auto_threshold_samples[34][CAPSENSE_AUTO_THRESHOLD_SAMPLE_COUNT];
 static uint16_t capsense_auto_threshold_sorted[CAPSENSE_AUTO_THRESHOLD_SAMPLE_COUNT];
+static uint16_t capsense_calibration_press_samples[34][CAPSENSE_CALIBRATION_PRESS_HOLD_FRAMES];
+static uint16_t capsense_calibration_press_sorted[CAPSENSE_CALIBRATION_PRESS_HOLD_FRAMES];
+static uint16_t capsense_calibration_threshold_stage[34];
+static uint8_t capsense_calibration_mapping_stage[34];
+static uint8_t capsense_calibration_active = 0;
 
 static uint8_t capsense_channel_for_logical(uint8_t logical_index)
 {
 	return Flash.touch_sheet[logical_index];
+}
+
+static uint8_t capsense_wait_for_next_frame(uint32_t *last_frame_counter, uint32_t start_tick,
+		uint32_t total_timeout_ms)
+{
+	uint32_t timeout_ms = CAPSENSE_CALIBRATION_FRAME_TIMEOUT_MS;
+
+	while (capsense_frame_counter == *last_frame_counter) {
+		if ((timeout_ms == 0u) ||
+				((HAL_GetTick() - start_tick) >= total_timeout_ms)) {
+			return 0u;
+		}
+		osDelay(1);
+		timeout_ms--;
+	}
+
+	*last_frame_counter = capsense_frame_counter;
+	return 1u;
+}
+
+static uint8_t capsense_any_touch_active(void)
+{
+	for (uint8_t logical = 0; logical < 34u; logical++) {
+		if (capsense_touch_status[logical] != 0u) {
+			return 1u;
+		}
+	}
+
+	return 0u;
+}
+
+static uint16_t capsense_clamp_threshold(uint32_t threshold)
+{
+	if (threshold < CAPSENSE_AUTO_THRESHOLD_MIN) {
+		threshold = CAPSENSE_AUTO_THRESHOLD_MIN;
+	}
+	if (threshold > CAPSENSE_AUTO_THRESHOLD_MAX) {
+		threshold = CAPSENSE_AUTO_THRESHOLD_MAX;
+	}
+
+	return (uint16_t) threshold;
 }
 
 static uint16_t capsense_uart_stream_count(void)
@@ -858,6 +914,308 @@ void capsense_init(){
 	for(uint8_t i = 0;i<16;i++){
 		capsense_hold_baseline_cooldown[i] = 0;
 	}
+}
+
+void capsense_calibration_begin(void)
+{
+	memcpy(capsense_calibration_threshold_stage, Flash.touch_threshold,
+			sizeof(capsense_calibration_threshold_stage));
+	memcpy(capsense_calibration_mapping_stage, Flash.touch_sheet,
+			sizeof(capsense_calibration_mapping_stage));
+	capsense_calibration_active = 1u;
+}
+
+void capsense_calibration_abort(void)
+{
+	capsense_calibration_active = 0u;
+}
+
+uint8_t capsense_calibration_capture(uint8_t logical_index, capsense_calibration_result_t *result_out)
+{
+	uint32_t idle_sum[34] = {0};
+	uint32_t press_sum[34] = {0};
+	uint16_t idle_min[34] = {0};
+	uint16_t idle_max[34] = {0};
+	uint16_t press_peak[34] = {0};
+	uint16_t prev_raw[34] = {0};
+	uint16_t idle_baseline[34] = {0};
+	uint32_t start_tick;
+	uint32_t last_frame_counter;
+	uint8_t idle_samples = 0u;
+	uint8_t stable_frames = 0u;
+	uint8_t prev_raw_valid = 0u;
+	uint8_t press_confirm = 0u;
+	uint8_t press_started = 0u;
+	uint8_t press_frames = 0u;
+
+	if ((logical_index >= 34u) || (result_out == NULL) ||
+			(capsense_calibration_active == 0u)) {
+		return 0u;
+	}
+
+	start_tick = HAL_GetTick();
+	last_frame_counter = capsense_frame_counter;
+
+	while (idle_samples < CAPSENSE_CALIBRATION_IDLE_SAMPLE_COUNT) {
+		uint8_t frame_valid = 1u;
+
+		if (!capsense_wait_for_next_frame(&last_frame_counter, start_tick,
+				CAPSENSE_CALIBRATION_TOTAL_TIMEOUT_MS)) {
+			return 0u;
+		}
+
+		if (capsense_any_touch_active()) {
+			frame_valid = 0u;
+		}
+
+		for (uint8_t channel = 0u; channel < 34u; channel++) {
+			uint16_t raw = Touch.channel_raw[channel];
+			uint16_t step_delta = 0u;
+
+			if (raw >= 0xFF00u) {
+				frame_valid = 0u;
+				break;
+			}
+
+			if (prev_raw_valid != 0u) {
+				step_delta = raw > prev_raw[channel] ?
+						(uint16_t) (raw - prev_raw[channel]) :
+						(uint16_t) (prev_raw[channel] - raw);
+				if (step_delta > CAPSENSE_AUTO_THRESHOLD_STEP_MAX) {
+					frame_valid = 0u;
+					break;
+				}
+			}
+
+			prev_raw[channel] = raw;
+		}
+
+		if (frame_valid == 0u) {
+			idle_samples = 0u;
+			stable_frames = 0u;
+			prev_raw_valid = 0u;
+			memset(idle_sum, 0, sizeof(idle_sum));
+			memset(idle_min, 0, sizeof(idle_min));
+			memset(idle_max, 0, sizeof(idle_max));
+			continue;
+		}
+
+		prev_raw_valid = 1u;
+
+		if (stable_frames < CAPSENSE_CALIBRATION_IDLE_STABLE_FRAMES) {
+			stable_frames++;
+			continue;
+		}
+
+		for (uint8_t channel = 0u; channel < 34u; channel++) {
+			uint16_t raw = Touch.channel_raw[channel];
+
+			idle_sum[channel] += raw;
+			if (idle_samples == 0u) {
+				idle_min[channel] = raw;
+				idle_max[channel] = raw;
+			} else {
+				if (raw < idle_min[channel]) {
+					idle_min[channel] = raw;
+				}
+				if (raw > idle_max[channel]) {
+					idle_max[channel] = raw;
+				}
+			}
+		}
+
+		idle_samples++;
+	}
+
+	for (uint8_t channel = 0u; channel < 34u; channel++) {
+		idle_baseline[channel] =
+				(uint16_t) (idle_sum[channel] / CAPSENSE_CALIBRATION_IDLE_SAMPLE_COUNT);
+	}
+
+	start_tick = HAL_GetTick();
+	last_frame_counter = capsense_frame_counter;
+
+	while (1) {
+		uint16_t frame_delta[34] = {0};
+		uint16_t top_delta = 0u;
+		uint16_t second_delta = 0u;
+		uint8_t top_channel = 0xFFu;
+		uint8_t frame_valid = 1u;
+
+		if (!capsense_wait_for_next_frame(&last_frame_counter, start_tick,
+				CAPSENSE_CALIBRATION_TOTAL_TIMEOUT_MS)) {
+			return 0u;
+		}
+
+		for (uint8_t channel = 0u; channel < 34u; channel++) {
+			uint16_t raw = Touch.channel_raw[channel];
+			uint16_t delta = raw > idle_baseline[channel] ?
+					(uint16_t) (raw - idle_baseline[channel]) : 0u;
+
+			if (raw >= 0xFF00u) {
+				frame_valid = 0u;
+				break;
+			}
+
+			frame_delta[channel] = delta;
+			if (delta >= top_delta) {
+				second_delta = top_delta;
+				top_delta = delta;
+				top_channel = channel;
+			} else if (delta > second_delta) {
+				second_delta = delta;
+			}
+		}
+
+		if (frame_valid == 0u) {
+			press_confirm = 0u;
+			if (press_started != 0u) {
+				break;
+			}
+			continue;
+		}
+
+		if (press_started == 0u) {
+			uint32_t idle_threshold;
+
+			if (top_channel == 0xFFu) {
+				continue;
+			}
+
+			idle_threshold = (uint32_t) (idle_max[top_channel] - idle_min[top_channel]) *
+					CAPSENSE_AUTO_THRESHOLD_TRIM_MULTIPLIER;
+			if (idle_threshold < CAPSENSE_CALIBRATION_PRESS_START_MIN_DELTA) {
+				idle_threshold = CAPSENSE_CALIBRATION_PRESS_START_MIN_DELTA;
+			}
+
+			if ((top_delta >= idle_threshold) &&
+					((second_delta == 0u) ||
+							((uint32_t) top_delta * CAPSENSE_CALIBRATION_CHANNEL_RATIO_DENOMINATOR >=
+									(uint32_t) second_delta * CAPSENSE_CALIBRATION_CHANNEL_RATIO_NUMERATOR))) {
+				press_confirm++;
+				if (press_confirm >= CAPSENSE_CALIBRATION_PRESS_CONFIRM_FRAMES) {
+					press_started = 1u;
+					press_frames = 0u;
+				}
+			} else {
+				press_confirm = 0u;
+			}
+			continue;
+		}
+
+		for (uint8_t channel = 0u; channel < 34u; channel++) {
+			uint16_t delta = frame_delta[channel];
+
+			capsense_calibration_press_samples[channel][press_frames] = delta;
+			press_sum[channel] += delta;
+			if (delta > press_peak[channel]) {
+				press_peak[channel] = delta;
+			}
+		}
+
+		press_frames++;
+		if ((press_frames >= CAPSENSE_CALIBRATION_PRESS_HOLD_FRAMES) ||
+				((press_frames >= 8u) && (top_delta <= CAPSENSE_CALIBRATION_RELEASE_DELTA))) {
+			break;
+		}
+	}
+
+	if ((press_started == 0u) || (press_frames < 8u)) {
+		return 0u;
+	}
+
+	{
+		uint32_t best_score = 0u;
+		uint32_t second_score = 0u;
+		uint8_t best_channel = 0xFFu;
+
+		for (uint8_t channel = 0u; channel < 34u; channel++) {
+			uint32_t score = press_sum[channel] / press_frames;
+
+			if (score >= best_score) {
+				second_score = best_score;
+				best_score = score;
+				best_channel = channel;
+			} else if (score > second_score) {
+				second_score = score;
+			}
+		}
+
+		if (best_channel == 0xFFu) {
+			return 0u;
+		}
+
+		{
+			uint16_t idle_threshold = capsense_clamp_threshold(
+					(uint32_t) (idle_max[best_channel] - idle_min[best_channel]) *
+					CAPSENSE_AUTO_THRESHOLD_TRIM_MULTIPLIER);
+			uint16_t press_reference;
+			uint16_t threshold;
+			uint8_t p25_index;
+			uint32_t confidence;
+
+			memcpy(capsense_calibration_press_sorted,
+					capsense_calibration_press_samples[best_channel],
+					(size_t) press_frames * sizeof(uint16_t));
+			for (uint8_t i = 1u; i < press_frames; i++) {
+				uint16_t value = capsense_calibration_press_sorted[i];
+				uint8_t j = i;
+
+				while ((j > 0u) && (capsense_calibration_press_sorted[j - 1u] > value)) {
+					capsense_calibration_press_sorted[j] =
+							capsense_calibration_press_sorted[j - 1u];
+					j--;
+				}
+				capsense_calibration_press_sorted[j] = value;
+			}
+
+			p25_index = (uint8_t) (((uint16_t) (press_frames - 1u) * 25u) / 100u);
+			press_reference = capsense_calibration_press_sorted[p25_index];
+
+			if ((press_reference <= idle_threshold) ||
+					((uint32_t) press_reference * CAPSENSE_CALIBRATION_CHANNEL_RATIO_DENOMINATOR <
+							(uint32_t) second_score * CAPSENSE_CALIBRATION_CHANNEL_RATIO_NUMERATOR)) {
+				return 0u;
+			}
+
+			threshold = capsense_clamp_threshold(
+					idle_threshold +
+					(((uint32_t) (press_reference - idle_threshold)) * 35u) / 100u);
+			confidence = second_score == 0u ? 255u :
+					((uint32_t) best_score * 255u) / second_score;
+			if (confidence > 255u) {
+				confidence = 255u;
+			}
+
+			capsense_calibration_mapping_stage[logical_index] = best_channel;
+			capsense_calibration_threshold_stage[logical_index] = threshold;
+
+			result_out->logical_index = logical_index;
+			result_out->best_channel = best_channel;
+			result_out->confidence = (uint8_t) confidence;
+			result_out->threshold = threshold;
+			result_out->peak_delta = press_peak[best_channel];
+			result_out->idle_threshold = idle_threshold;
+		}
+	}
+
+	return 1u;
+}
+
+uint8_t capsense_calibration_commit(void)
+{
+	if (capsense_calibration_active == 0u) {
+		return 0u;
+	}
+
+	memcpy(Flash.touch_threshold, capsense_calibration_threshold_stage,
+			sizeof(capsense_calibration_threshold_stage));
+	memcpy(Flash.touch_sheet, capsense_calibration_mapping_stage,
+			sizeof(capsense_calibration_mapping_stage));
+	flash_write(Flash.raw_flash);
+	capsense_calibration_active = 0u;
+
+	return 1u;
 }
 
 //void capsense_baseline_updata(uint8_t channel){

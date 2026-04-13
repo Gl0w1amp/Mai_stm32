@@ -57,13 +57,17 @@ Configure touch sensor parameters and read raw data.
 | `0x04` | `SCAN_STOP` | None | None | Stop touch scanning. |
 | `0x05` | `READ_MONO_THRESHOLD` | 1 byte (`idx`) | `FF 05 03 [idx] [val_L] [val_H] [CS]` | Read threshold for sensor `idx` (0-33). |
 | `0x06` | `WRITE_MONO_THRESHOLD` | 3 bytes (`idx`, `val_L`, `val_H`) | `FF 06 01 01 [CS]` | Write threshold for sensor `idx`. |
-| `0x07` | `READ_TOUCH_SHEET` | None | `FF 07 22 [34 bytes] [CS]` | Read all 34 sensor raw values. |
-| `0x08` | `WRITE_TOUCH_SHEET` | 34 bytes | `FF 08 01 01 [CS]` | Write all 34 sensor raw values. |
+| `0x07` | `READ_TOUCH_SHEET` | None | `FF 07 22 [34 bytes] [CS]` | Read the 34-entry logical-to-physical touch mapping table. |
+| `0x08` | `WRITE_TOUCH_SHEET` | 34 bytes | `FF 08 01 01 [CS]` | Write the 34-entry logical-to-physical touch mapping table. |
 | `0x09` | `TO_DEBUG_MODE` | None | `FF 09 01 01 [CS]` then `FF 09 02 02 [capsense_data_ready] [CS]` | Enable VOFA/debug streaming and immediately return an ACK plus the current `capsense_data_ready` snapshot. |
 | `0x0A` | `SET_DEBUG_CHANNEL` | 1 byte (`channel`) | `FF 0A 02 [channel] [ok] [CS]` | Select the logical touch channel (0-33) used by VOFA/debug streaming. `ok=1` when accepted. |
 | `0x12` | `READ_DELAY_SETTING` | 1 byte (`idx`) | `FF 12 02 [idx] [val] [CS]` | Read delay setting `idx` (0-1). |
 | `0x13` | `WRITE_DELAY_SETTING` | 2 bytes (`idx`, `val`) | `FF 13 01 [idx] [CS]` | Write delay setting `idx`. |
 | `0x17` | `AUTO_CALIBRATE_THRESHOLD` | None | `FF 17 06 [ok] [34] [min_L] [min_H] [max_L] [max_H] [CS]` then `FF 17 [2+2N] [start] [count] [thresholds...] [CS]` | Capture idle-noise samples, compute all 34 thresholds, save them to Flash, and report the results in chunks. Run this only when no fingers are touching the panel. |
+| `0x1C` | `CALIBRATION_BEGIN` | None | `FF 1C 01 01 [CS]` | Start guided calibration. The firmware copies the current mapping and threshold tables into RAM staging buffers. |
+| `0x1D` | `CALIBRATION_CAPTURE` | 1 byte (`logical`) | `FF 1D 0A [ok] [logical] [best_channel] [confidence] [threshold_L] [threshold_H] [peak_L] [peak_H] [idle_L] [idle_H] [CS]` | Capture one guided calibration sample. The MCU waits for an idle window, then for a clear press on the requested logical area, detects the strongest physical channel, computes a threshold candidate, and stores both into the RAM staging buffers. |
+| `0x1E` | `CALIBRATION_COMMIT` | None | `FF 1E 01 01 [CS]` | Commit the staged mapping and threshold tables to Flash in one write. |
+| `0x1F` | `CALIBRATION_ABORT` | None | `FF 1F 01 01 [CS]` | Abort guided calibration and discard the staged RAM-only values. |
 
 ### System Commands
 

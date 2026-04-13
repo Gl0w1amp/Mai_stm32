@@ -1054,6 +1054,93 @@ void Command_Task(void const * argument)
 				(void) usb_tx_enqueue_high(cmd_tmp, 5);
 				break;
 			}
+			case SERIAL_CMD_CALIBRATION_BEGIN:{
+				if(rxBuffer[2] != 0){
+					break;
+				}
+				capsense_calibration_begin();
+				{
+					uint8_t cmd_tmp[5] = {0xff, SERIAL_CMD_CALIBRATION_BEGIN, 1, 1, 0};
+					for(uint8_t i = 0; i < 4; i++){
+						cmd_tmp[4] += cmd_tmp[i];
+					}
+					(void) usb_tx_enqueue_high(cmd_tmp, sizeof(cmd_tmp));
+				}
+				break;
+			}
+			case SERIAL_CMD_CALIBRATION_CAPTURE:{
+				capsense_calibration_result_t result = {0};
+				uint8_t ok = 0u;
+				uint8_t cmd_tmp[14] = {
+					0xff,
+					SERIAL_CMD_CALIBRATION_CAPTURE,
+					10,
+					0,
+					0,
+					0xFF,
+					0,
+					0,
+					0,
+					0,
+					0,
+					0,
+					0,
+					0
+				};
+
+				if(rxBuffer[2] != 1){
+					break;
+				}
+
+				ok = capsense_calibration_capture(rxBuffer[3], &result);
+				cmd_tmp[3] = ok;
+				cmd_tmp[4] = rxBuffer[3];
+				if(ok != 0u){
+					cmd_tmp[5] = result.best_channel;
+					cmd_tmp[6] = result.confidence;
+					memcpy(&cmd_tmp[7], &result.threshold, 2);
+					memcpy(&cmd_tmp[9], &result.peak_delta, 2);
+					memcpy(&cmd_tmp[11], &result.idle_threshold, 2);
+				}
+
+				for(uint8_t i = 0; i < 13; i++){
+					cmd_tmp[13] += cmd_tmp[i];
+				}
+				(void) usb_tx_enqueue_high(cmd_tmp, sizeof(cmd_tmp));
+				break;
+			}
+			case SERIAL_CMD_CALIBRATION_COMMIT:{
+				uint8_t ok;
+
+				if(rxBuffer[2] != 0){
+					break;
+				}
+
+				ok = capsense_calibration_commit();
+				{
+					uint8_t cmd_tmp[5] = {0xff, SERIAL_CMD_CALIBRATION_COMMIT, 1, ok, 0};
+					for(uint8_t i = 0; i < 4; i++){
+						cmd_tmp[4] += cmd_tmp[i];
+					}
+					(void) usb_tx_enqueue_high(cmd_tmp, sizeof(cmd_tmp));
+				}
+				break;
+			}
+			case SERIAL_CMD_CALIBRATION_ABORT:{
+				if(rxBuffer[2] != 0){
+					break;
+				}
+
+				capsense_calibration_abort();
+				{
+					uint8_t cmd_tmp[5] = {0xff, SERIAL_CMD_CALIBRATION_ABORT, 1, 1, 0};
+					for(uint8_t i = 0; i < 4; i++){
+						cmd_tmp[4] += cmd_tmp[i];
+					}
+					(void) usb_tx_enqueue_high(cmd_tmp, sizeof(cmd_tmp));
+				}
+				break;
+			}
 			case SERIAL_CMD_READ_DELAY_SETTING:{
 				if(rxBuffer[2] != 1){
 					break;
