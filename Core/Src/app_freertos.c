@@ -1112,6 +1112,19 @@ void Command_Task(void const * argument)
 				Request_DFU_Mode_And_Reset();
 				break;
 			}
+			case SERIAL_CMD_JUMP_TO_BOOTLOADER:{
+				if(rxBuffer[2] != 0){
+					break;
+				}
+				uint8_t cmd_tmp[5] = {0xff, SERIAL_CMD_JUMP_TO_BOOTLOADER, 1, 1, 0};
+				for(uint8_t i = 0; i < 4; i++){
+					cmd_tmp[4] += cmd_tmp[i];
+				}
+				(void) usb_tx_enqueue_high(cmd_tmp, sizeof(cmd_tmp));
+				osDelay(200);
+				Request_Affine_Bootloader_And_Reset();
+				break;
+			}
 			case SERIAL_CMD_BENCHMARK:{
 				uint16_t expected_len = (uint16_t) rxBuffer[2] + 4;
 				if (rxBuffer[2] > BENCHMARK_MAX_PAYLOAD || rxLen < expected_len) {

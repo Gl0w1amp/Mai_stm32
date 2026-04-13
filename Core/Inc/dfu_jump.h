@@ -12,6 +12,7 @@
 
 /* Function prototypes */
 void Request_DFU_Mode_And_Reset(void);
+void Request_Affine_Bootloader_And_Reset(void);
 uint8_t Check_DFU_Request(void);
 void Enhanced_Jump_To_DFU_Mode(void);
 

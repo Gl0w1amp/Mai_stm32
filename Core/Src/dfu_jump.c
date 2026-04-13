@@ -11,6 +11,10 @@
 #define DFU_REQUEST_SIGNATURE   0xDEADBEEF
 #define DFU_REQUEST_ADDRESS     (0x20000000 + 0x7F00)  // Near end of RAM
 
+/* Magic pattern stored in RAM to indicate Affine bootloader request */
+#define AFFINE_BOOT_REQUEST_SIGNATURE   0x424F4F54UL
+#define AFFINE_BOOT_REQUEST_ADDRESS     (0x20000000 + 0x7F00)
+
 /**
   * @brief  Set DFU request flag and perform system reset
   * @retval None
@@ -25,6 +29,20 @@ void Request_DFU_Mode_And_Reset(void)
     __ISB();
     
     /* Perform system reset */
+    NVIC_SystemReset();
+}
+
+/**
+  * @brief  Set Affine bootloader request flag and perform system reset
+  * @retval None
+  */
+void Request_Affine_Bootloader_And_Reset(void)
+{
+    *(volatile uint32_t*)AFFINE_BOOT_REQUEST_ADDRESS = AFFINE_BOOT_REQUEST_SIGNATURE;
+
+    __DSB();
+    __ISB();
+
     NVIC_SystemReset();
 }
 
