@@ -355,44 +355,15 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
     }
     if (huart->Instance == UART4)
     {
-		uint8_t packet_ok = 0;
-		uint8_t count_failure = 0;
-		if(Size >= 70 ){
-			uint8_t ret = 0;
-			for(uint8_t i = 0;i<70;i++){
-				if(uart_dma_buffer[i] == 0){
-					ret++;
-				}else{
-					break;
-				}
-			}
-			if(ret >= 69){
-				capsense_uart_stats_note_empty_packet();
-				goto end;
-			}
-			count_failure = 1;
-			if ((uart_dma_buffer[0] == 0u) && (uart_dma_buffer[1] == 0u)) {
-				if (capsense_data_proc_legacy(uart_dma_buffer) || capsense_data_proc(uart_dma_buffer)) {
-					packet_ok = 1;
-				} else {
-					capsense_uart_stats_note_parse_fail();
-					goto end;
-				}
-			} else {
-				if (capsense_data_proc(uart_dma_buffer) || capsense_data_proc_legacy(uart_dma_buffer)) {
-					packet_ok = 1;
-				} else {
-					capsense_uart_stats_note_parse_fail();
-					goto end;
-				}
-			}
-		} else {
-			capsense_uart_stats_note_short_packet();
-		}
-		end:
-		if(packet_ok){
+		uint16_t accepted_frames = 0;
+		uint16_t rejected_frames = 0;
+
+		capsense_uart_stream_feed(uart_dma_buffer, Size, &accepted_frames,
+				&rejected_frames);
+
+		if(accepted_frames > 0u){
 			capsense_note_rx_success();
-		}else if(count_failure){
+		}else if(rejected_frames > 0u){
 			capsense_note_rx_failure();
 		}
 		while(HAL_UARTEx_ReceiveToIdle_DMA(&huart4, uart_dma_buffer, 128) != HAL_OK);

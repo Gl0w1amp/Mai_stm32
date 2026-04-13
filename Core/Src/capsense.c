@@ -52,6 +52,8 @@
 #define CAPSENSE_AUTO_THRESHOLD_MAX 4000
 #define CAPSENSE_AUTO_THRESHOLD_P2P_CAP_MULTIPLIER 2
 #define CAPSENSE_AUTO_THRESHOLD_POS_MULTIPLIER 4
+#define CAPSENSE_UART_FRAME_SIZE 70u
+#define CAPSENSE_UART_STREAM_BUFFER_SIZE 512u
 
 typedef enum {
 	CAPSENSE_HOLD_STATE_IDLE = 0,
@@ -94,6 +96,9 @@ static capsense_uart_stats_t capsense_uart_stats = {0};
 static volatile uint32_t capsense_last_good_frame_tick = 0;
 static volatile uint32_t capsense_last_error_tick = 0;
 static volatile uint8_t capsense_reset_pending = 0;
+static uint8_t capsense_uart_stream_buffer[CAPSENSE_UART_STREAM_BUFFER_SIZE];
+static uint16_t capsense_uart_stream_head = 0;
+static uint16_t capsense_uart_stream_tail = 0;
 
 typedef union{
     float raw_data_fl[6];
@@ -109,6 +114,60 @@ static uint16_t capsense_auto_threshold_sorted[CAPSENSE_AUTO_THRESHOLD_SAMPLE_CO
 static uint8_t capsense_channel_for_logical(uint8_t logical_index)
 {
 	return Flash.touch_sheet[logical_index];
+}
+
+static uint16_t capsense_uart_stream_count(void)
+{
+	if (capsense_uart_stream_head >= capsense_uart_stream_tail) {
+		return (uint16_t) (capsense_uart_stream_head - capsense_uart_stream_tail);
+	}
+
+	return (uint16_t) (CAPSENSE_UART_STREAM_BUFFER_SIZE -
+			(capsense_uart_stream_tail - capsense_uart_stream_head));
+}
+
+static uint16_t capsense_uart_stream_free(void)
+{
+	return (uint16_t) ((CAPSENSE_UART_STREAM_BUFFER_SIZE - 1u) -
+			capsense_uart_stream_count());
+}
+
+static uint8_t capsense_uart_stream_peek(uint16_t offset)
+{
+	uint16_t index = (uint16_t) (capsense_uart_stream_tail + offset);
+
+	if (index >= CAPSENSE_UART_STREAM_BUFFER_SIZE) {
+		index = (uint16_t) (index - CAPSENSE_UART_STREAM_BUFFER_SIZE);
+	}
+
+	return capsense_uart_stream_buffer[index];
+}
+
+static void capsense_uart_stream_drop(uint16_t count)
+{
+	capsense_uart_stream_tail = (uint16_t) (capsense_uart_stream_tail + count);
+	if (capsense_uart_stream_tail >= CAPSENSE_UART_STREAM_BUFFER_SIZE) {
+		capsense_uart_stream_tail = (uint16_t) (capsense_uart_stream_tail %
+				CAPSENSE_UART_STREAM_BUFFER_SIZE);
+	}
+}
+
+static void capsense_uart_stream_copy(uint8_t *dst, uint16_t count)
+{
+	for (uint16_t i = 0; i < count; i++) {
+		dst[i] = capsense_uart_stream_peek(i);
+	}
+}
+
+static uint8_t capsense_uart_frame_is_empty(const uint8_t *frame)
+{
+	for (uint8_t i = 0; i < (CAPSENSE_UART_FRAME_SIZE - 1u); i++) {
+		if (frame[i] != 0u) {
+			return 0u;
+		}
+	}
+
+	return 1u;
 }
 
 static uint16_t capsense_release_threshold(uint16_t enter_threshold)
@@ -512,6 +571,85 @@ static uint8_t capsense_detect_legacy_payload_offset(const uint8_t *data)
 	return 2;
 }
 
+void capsense_uart_stream_reset(void)
+{
+	capsense_uart_stream_head = 0;
+	capsense_uart_stream_tail = 0;
+}
+
+void capsense_uart_stream_feed(const uint8_t *data, uint16_t len,
+		uint16_t *accepted_frames_out, uint16_t *rejected_frames_out)
+{
+	uint16_t accepted_frames = 0;
+	uint16_t rejected_frames = 0;
+	uint8_t frame[CAPSENSE_UART_FRAME_SIZE];
+
+	if (accepted_frames_out != NULL) {
+		*accepted_frames_out = 0;
+	}
+	if (rejected_frames_out != NULL) {
+		*rejected_frames_out = 0;
+	}
+	if ((data == NULL) || (len == 0u)) {
+		return;
+	}
+
+	for (uint16_t i = 0; i < len; i++) {
+		if (capsense_uart_stream_free() == 0u) {
+			capsense_uart_stream_drop(1u);
+			rejected_frames++;
+			capsense_uart_stats_note_parse_fail();
+		}
+
+		capsense_uart_stream_buffer[capsense_uart_stream_head] = data[i];
+		capsense_uart_stream_head = (uint16_t) (capsense_uart_stream_head + 1u);
+		if (capsense_uart_stream_head >= CAPSENSE_UART_STREAM_BUFFER_SIZE) {
+			capsense_uart_stream_head = 0u;
+		}
+	}
+
+	while (capsense_uart_stream_count() >= CAPSENSE_UART_FRAME_SIZE) {
+		uint8_t packet_ok;
+
+		if (capsense_uart_stream_peek(0u) != 0u) {
+			capsense_uart_stream_drop(1u);
+			continue;
+		}
+
+		capsense_uart_stream_copy(frame, CAPSENSE_UART_FRAME_SIZE);
+
+		if (capsense_uart_frame_is_empty(frame)) {
+			capsense_uart_stats_note_empty_packet();
+			capsense_uart_stream_drop(CAPSENSE_UART_FRAME_SIZE);
+			continue;
+		}
+
+		if ((frame[0] == 0u) && (frame[1] == 0u)) {
+			packet_ok = (uint8_t) (capsense_data_proc_legacy(frame) ||
+					capsense_data_proc(frame));
+		} else {
+			packet_ok = (uint8_t) (capsense_data_proc(frame) ||
+					capsense_data_proc_legacy(frame));
+		}
+
+		if (packet_ok != 0u) {
+			accepted_frames++;
+			capsense_uart_stream_drop(CAPSENSE_UART_FRAME_SIZE);
+		} else {
+			rejected_frames++;
+			capsense_uart_stats_note_parse_fail();
+			capsense_uart_stream_drop(1u);
+		}
+	}
+
+	if (accepted_frames_out != NULL) {
+		*accepted_frames_out = accepted_frames;
+	}
+	if (rejected_frames_out != NULL) {
+		*rejected_frames_out = rejected_frames;
+	}
+}
+
 //static inline void UART_ClearIdle(UART_HandleTypeDef *huart)
 //{
 //	//dont use on stm32F1/F2/F3/F4,them has usart v1
@@ -692,6 +830,7 @@ void Boot_Buttom_IRQHandler(){
 	capsense_last_good_frame_tick = 0;
 	capsense_last_error_tick = 0;
 	capsense_reset_pending = 0;
+	capsense_uart_stream_reset();
 	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,1);
 }
 
@@ -710,6 +849,7 @@ void capsense_init(){
 	capsense_last_good_frame_tick = 0;
 	capsense_last_error_tick = 0;
 	capsense_reset_pending = 0;
+	capsense_uart_stream_reset();
 	osDelay(100);
 	for(uint8_t i = 0;i<34;i++){
 		capsense_baseline[i] = Touch.channel_raw[i];
