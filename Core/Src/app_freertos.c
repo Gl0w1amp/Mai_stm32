@@ -1336,6 +1336,22 @@ void Command_Task(void const * argument)
 				(void) usb_tx_enqueue_high(cmd_tmp, 6);
 				break;
 			}
+			case SERIAL_CMD_EXIT_DEBUG_MODE:{
+				if(rxBuffer[2] != 0u){
+					break;
+				}
+
+				debug_flag = 0u;
+				debug_stream_mode = SERIAL_DEBUG_STREAM_MODE_FOCUS;
+				{
+					uint8_t ack_cmd[5] = {0xff, SERIAL_CMD_EXIT_DEBUG_MODE, 1, 1, 0};
+					for(uint8_t i = 0; i < 4; i++){
+						ack_cmd[4] += ack_cmd[i];
+					}
+					(void) usb_tx_enqueue_high(ack_cmd, 5);
+				}
+				break;
+			}
 			case SERIAL_CMD_GET_BOARD_INFO:{
 				if(rxBuffer[2] != 0){
 					break;
