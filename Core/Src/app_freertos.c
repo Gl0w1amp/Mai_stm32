@@ -50,7 +50,7 @@
 typedef struct usb_tx_packet {
 	uint16_t len;
 	uint32_t enqueue_tick;
-	uint8_t data[160];
+	uint8_t data[64];
 } usb_tx_packet_t;
 
 typedef struct usb_cdc_tx_stats {
