@@ -126,15 +126,47 @@ static uint16_t capsense_calibration_press_samples[34][CAPSENSE_CALIBRATION_PRES
 static uint16_t capsense_calibration_press_sorted[CAPSENSE_CALIBRATION_PRESS_HOLD_FRAMES];
 static uint16_t capsense_calibration_threshold_stage[34];
 static uint8_t capsense_calibration_mapping_stage[34];
+static uint8_t capsense_calibration_locked_channel_for_logical[34];
+static uint8_t capsense_calibration_channel_lock_owner[34];
 static uint8_t capsense_calibration_active = 0;
 static volatile uint8_t capsense_calibration_cancel_requested = 0u;
 
 static void capsense_reset_runtime_state(void);
 static void capsense_restart_uart4_rx(void);
+static void capsense_calibration_reset_channel_locks(void);
 
 static uint8_t capsense_channel_for_logical(uint8_t logical_index)
 {
 	return Flash.touch_sheet[logical_index];
+}
+
+static void capsense_calibration_reset_channel_locks(void)
+{
+	memset(capsense_calibration_locked_channel_for_logical, 0xFF,
+			sizeof(capsense_calibration_locked_channel_for_logical));
+	memset(capsense_calibration_channel_lock_owner, 0xFF,
+			sizeof(capsense_calibration_channel_lock_owner));
+}
+
+static uint8_t capsense_calibration_channel_locked_for_other_logical(
+		uint8_t logical_index, uint8_t channel)
+{
+	uint8_t owner = capsense_calibration_channel_lock_owner[channel];
+
+	return (uint8_t) ((owner != 0xFFu) && (owner != logical_index));
+}
+
+static void capsense_calibration_lock_channel(uint8_t logical_index, uint8_t channel)
+{
+	uint8_t previous_channel = capsense_calibration_locked_channel_for_logical[logical_index];
+
+	if ((previous_channel < 34u) &&
+			(capsense_calibration_channel_lock_owner[previous_channel] == logical_index)) {
+		capsense_calibration_channel_lock_owner[previous_channel] = 0xFFu;
+	}
+
+	capsense_calibration_locked_channel_for_logical[logical_index] = channel;
+	capsense_calibration_channel_lock_owner[channel] = logical_index;
 }
 
 static uint8_t capsense_calibration_ratio_pass(uint32_t primary, uint32_t secondary,
@@ -953,12 +985,14 @@ void capsense_calibration_begin(void)
 			sizeof(capsense_calibration_threshold_stage));
 	memcpy(capsense_calibration_mapping_stage, Flash.touch_sheet,
 			sizeof(capsense_calibration_mapping_stage));
+	capsense_calibration_reset_channel_locks();
 	capsense_calibration_cancel_requested = 0u;
 	capsense_calibration_active = 1u;
 }
 
 void capsense_calibration_abort(void)
 {
+	capsense_calibration_reset_channel_locks();
 	capsense_calibration_cancel_requested = 0u;
 	capsense_calibration_active = 0u;
 }
@@ -1107,6 +1141,12 @@ uint8_t capsense_calibration_capture(uint8_t logical_index, uint8_t capture_flag
 			 * guided calibration must not discard those frames.
 			 */
 
+			if (capsense_calibration_channel_locked_for_other_logical(logical_index,
+					channel) != 0u) {
+				frame_delta[channel] = 0u;
+				continue;
+			}
+
 			frame_delta[channel] = delta;
 			if (delta >= top_delta) {
 				second_delta = top_delta;
@@ -1179,6 +1219,11 @@ uint8_t capsense_calibration_capture(uint8_t logical_index, uint8_t capture_flag
 		uint8_t best_channel = 0xFFu;
 
 		for (uint8_t channel = 0u; channel < 34u; channel++) {
+			if (capsense_calibration_channel_locked_for_other_logical(logical_index,
+					channel) != 0u) {
+				continue;
+			}
+
 			uint32_t score = press_sum[channel] / press_frames;
 
 			if (score >= best_score) {
@@ -1241,6 +1286,7 @@ uint8_t capsense_calibration_capture(uint8_t logical_index, uint8_t capture_flag
 				return 0u;
 			}
 
+			capsense_calibration_lock_channel(logical_index, best_channel);
 			capsense_calibration_mapping_stage[logical_index] = best_channel;
 			capsense_calibration_threshold_stage[logical_index] = threshold;
 
@@ -1267,6 +1313,7 @@ uint8_t capsense_calibration_commit(void)
 	memcpy(Flash.touch_sheet, capsense_calibration_mapping_stage,
 			sizeof(capsense_calibration_mapping_stage));
 	flash_write(Flash.raw_flash);
+	capsense_calibration_reset_channel_locks();
 	capsense_calibration_cancel_requested = 0u;
 	capsense_calibration_active = 0u;
 
