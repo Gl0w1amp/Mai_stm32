@@ -5,6 +5,7 @@
  *      Author: Qinh
  */
 #include "slider.h"
+#include "capsense.h"
 #include "main.h"
 #include <string.h>
 
@@ -16,6 +17,23 @@ static serial_frame_t serial_command_queue[SERIAL_COMMAND_QUEUE_LENGTH];
 static volatile uint8_t serial_command_head = 0;
 static volatile uint8_t serial_command_tail = 0;
 static volatile uint8_t serial_command_count = 0;
+
+static uint8_t serial_frame_is_calibration_cancel_capture(const uint8_t *data, uint16_t len)
+{
+	uint8_t checksum = 0u;
+
+	if ((data == NULL) || (len != 4u) || (data[0] != 0xFFu) ||
+			(data[1] != SERIAL_CMD_CALIBRATION_CANCEL_CAPTURE) ||
+			(data[2] != 0u)) {
+		return 0u;
+	}
+
+	for (uint16_t i = 0u; i < (len - 1u); i++) {
+		checksum += data[i];
+	}
+
+	return (uint8_t) (checksum == data[len - 1u]);
+}
 
 static uint32_t serial_lock_irq(void)
 {
@@ -46,6 +64,7 @@ void serial_command_init(void)
 
 uint8_t serial_command_push(const uint8_t *data, uint16_t len)
 {
+	uint8_t is_cancel_capture;
 	uint32_t primask;
 	serial_frame_t *frame;
 
@@ -53,10 +72,15 @@ uint8_t serial_command_push(const uint8_t *data, uint16_t len)
 		return 0;
 	}
 
+	is_cancel_capture = serial_frame_is_calibration_cancel_capture(data, len);
+	if (is_cancel_capture != 0u) {
+		capsense_calibration_request_cancel();
+	}
+
 	primask = serial_lock_irq();
 	if (serial_command_count >= SERIAL_COMMAND_QUEUE_LENGTH) {
 		serial_unlock_irq(primask);
-		return 0;
+		return is_cancel_capture;
 	}
 
 	frame = &serial_command_queue[serial_command_head];

@@ -60,8 +60,10 @@
 #define CAPSENSE_CALIBRATION_TOTAL_TIMEOUT_MS 6000
 #define CAPSENSE_CALIBRATION_PRESS_START_MIN_DELTA 220
 #define CAPSENSE_CALIBRATION_RELEASE_DELTA 120
-#define CAPSENSE_CALIBRATION_CHANNEL_RATIO_NUMERATOR 3
-#define CAPSENSE_CALIBRATION_CHANNEL_RATIO_DENOMINATOR 2
+#define CAPSENSE_CALIBRATION_CHANNEL_RATIO_STRICT_NUMERATOR 5
+#define CAPSENSE_CALIBRATION_CHANNEL_RATIO_STRICT_DENOMINATOR 4
+#define CAPSENSE_CALIBRATION_CHANNEL_RATIO_RELAXED_NUMERATOR 6
+#define CAPSENSE_CALIBRATION_CHANNEL_RATIO_RELAXED_DENOMINATOR 5
 #define CAPSENSE_UART_FRAME_SIZE 70u
 #define CAPSENSE_UART_STREAM_BUFFER_SIZE 512u
 
@@ -125,10 +127,32 @@ static uint16_t capsense_calibration_press_sorted[CAPSENSE_CALIBRATION_PRESS_HOL
 static uint16_t capsense_calibration_threshold_stage[34];
 static uint8_t capsense_calibration_mapping_stage[34];
 static uint8_t capsense_calibration_active = 0;
+static volatile uint8_t capsense_calibration_cancel_requested = 0u;
+
+static void capsense_reset_runtime_state(void);
+static void capsense_restart_uart4_rx(void);
 
 static uint8_t capsense_channel_for_logical(uint8_t logical_index)
 {
 	return Flash.touch_sheet[logical_index];
+}
+
+static uint8_t capsense_calibration_ratio_pass(uint32_t primary, uint32_t secondary,
+		uint8_t capture_flags)
+{
+	uint32_t numerator = CAPSENSE_CALIBRATION_CHANNEL_RATIO_STRICT_NUMERATOR;
+	uint32_t denominator = CAPSENSE_CALIBRATION_CHANNEL_RATIO_STRICT_DENOMINATOR;
+
+	if (secondary == 0u) {
+		return 1u;
+	}
+
+	if ((capture_flags & CAPSENSE_CALIBRATION_CAPTURE_FLAG_RELAXED) != 0u) {
+		numerator = CAPSENSE_CALIBRATION_CHANNEL_RATIO_RELAXED_NUMERATOR;
+		denominator = CAPSENSE_CALIBRATION_CHANNEL_RATIO_RELAXED_DENOMINATOR;
+	}
+
+	return (uint8_t) ((primary * denominator) >= (secondary * numerator));
 }
 
 static uint8_t capsense_wait_for_next_frame(uint32_t *last_frame_counter, uint32_t start_tick,
@@ -137,6 +161,10 @@ static uint8_t capsense_wait_for_next_frame(uint32_t *last_frame_counter, uint32
 	uint32_t timeout_ms = CAPSENSE_CALIBRATION_FRAME_TIMEOUT_MS;
 
 	while (capsense_frame_counter == *last_frame_counter) {
+		if (capsense_calibration_cancel_requested != 0u) {
+			capsense_calibration_cancel_requested = 0u;
+			return 0u;
+		}
 		if ((timeout_ms == 0u) ||
 				((HAL_GetTick() - start_tick) >= total_timeout_ms)) {
 			return 0u;
@@ -854,8 +882,8 @@ uint8_t capsense_take_latest_snapshot(void)
 	return snapshot_ready;
 }
 
-void Boot_Buttom_IRQHandler(){
-	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,0);
+static void capsense_reset_runtime_state(void)
+{
 	for(uint8_t i = 0;i<34;i++){
 		capsense_baseline[i] = 0;
 		capsense_freeze[i] = 0;
@@ -887,25 +915,28 @@ void Boot_Buttom_IRQHandler(){
 	capsense_last_error_tick = 0;
 	capsense_reset_pending = 0;
 	capsense_uart_stream_reset();
-	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,1);
 }
 
-void capsense_init(){
+static void capsense_restart_uart4_rx(void)
+{
+	(void) HAL_UART_DMAStop(&huart4);
+	__HAL_UART_CLEAR_IT(&huart4,
+			UART_CLEAR_OREF | UART_CLEAR_NEF | UART_CLEAR_FEF | UART_CLEAR_PEF);
 	while(HAL_UARTEx_ReceiveToIdle_DMA(&huart4, uart_dma_buffer, 128) != HAL_OK){
 
 	}
 	__HAL_DMA_DISABLE_IT(&hdma_uart4_rx, DMA_IT_HT);
-	capsense_procotl_version = 0;
-	capsense_checksum_last = 0;
-	capsense_legacy_payload_offset = 0;
-	capsense_protocol1_confirm_count = 0;
-	capsense_uart_stats.protocol_version = 0;
-	capsense_uart_stats.legacy_payload_offset = 0;
-	capsense_uart_stats.rx_failure_streak = 0;
-	capsense_last_good_frame_tick = 0;
-	capsense_last_error_tick = 0;
-	capsense_reset_pending = 0;
-	capsense_uart_stream_reset();
+}
+
+void Boot_Buttom_IRQHandler(){
+	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,0);
+	capsense_reset_runtime_state();
+	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,1);
+}
+
+void capsense_init(){
+	capsense_reset_runtime_state();
+	capsense_restart_uart4_rx();
 	osDelay(100);
 	for(uint8_t i = 0;i<34;i++){
 		capsense_baseline[i] = Touch.channel_raw[i];
@@ -922,15 +953,23 @@ void capsense_calibration_begin(void)
 			sizeof(capsense_calibration_threshold_stage));
 	memcpy(capsense_calibration_mapping_stage, Flash.touch_sheet,
 			sizeof(capsense_calibration_mapping_stage));
+	capsense_calibration_cancel_requested = 0u;
 	capsense_calibration_active = 1u;
 }
 
 void capsense_calibration_abort(void)
 {
+	capsense_calibration_cancel_requested = 0u;
 	capsense_calibration_active = 0u;
 }
 
-uint8_t capsense_calibration_capture(uint8_t logical_index, capsense_calibration_result_t *result_out)
+void capsense_calibration_request_cancel(void)
+{
+	capsense_calibration_cancel_requested = 1u;
+}
+
+uint8_t capsense_calibration_capture(uint8_t logical_index, uint8_t capture_flags,
+		capsense_calibration_result_t *result_out)
 {
 	uint32_t idle_sum[34] = {0};
 	uint32_t press_sum[34] = {0};
@@ -953,11 +992,17 @@ uint8_t capsense_calibration_capture(uint8_t logical_index, capsense_calibration
 		return 0u;
 	}
 
+	capsense_calibration_cancel_requested = 0u;
 	start_tick = HAL_GetTick();
 	last_frame_counter = capsense_frame_counter;
 
 	while (idle_samples < CAPSENSE_CALIBRATION_IDLE_SAMPLE_COUNT) {
 		uint8_t frame_valid = 1u;
+
+		if (capsense_calibration_cancel_requested != 0u) {
+			capsense_calibration_cancel_requested = 0u;
+			return 0u;
+		}
 
 		if (!capsense_wait_for_next_frame(&last_frame_counter, start_tick,
 				CAPSENSE_CALIBRATION_TOTAL_TIMEOUT_MS)) {
@@ -1042,6 +1087,11 @@ uint8_t capsense_calibration_capture(uint8_t logical_index, capsense_calibration
 		uint8_t top_channel = 0xFFu;
 		uint8_t frame_valid = 1u;
 
+		if (capsense_calibration_cancel_requested != 0u) {
+			capsense_calibration_cancel_requested = 0u;
+			return 0u;
+		}
+
 		if (!capsense_wait_for_next_frame(&last_frame_counter, start_tick,
 				CAPSENSE_CALIBRATION_TOTAL_TIMEOUT_MS)) {
 			return 0u;
@@ -1052,10 +1102,10 @@ uint8_t capsense_calibration_capture(uint8_t logical_index, capsense_calibration
 			uint16_t delta = raw > idle_baseline[channel] ?
 					(uint16_t) (raw - idle_baseline[channel]) : 0u;
 
-			if (raw >= 0xFF00u) {
-				frame_valid = 0u;
-				break;
-			}
+			/* Strong presses can legitimately saturate a channel. The normal
+			 * runtime touch path already treats raw >= 0xFF00 as active, so
+			 * guided calibration must not discard those frames.
+			 */
 
 			frame_delta[channel] = delta;
 			if (delta >= top_delta) {
@@ -1089,9 +1139,8 @@ uint8_t capsense_calibration_capture(uint8_t logical_index, capsense_calibration
 			}
 
 			if ((top_delta >= idle_threshold) &&
-					((second_delta == 0u) ||
-							((uint32_t) top_delta * CAPSENSE_CALIBRATION_CHANNEL_RATIO_DENOMINATOR >=
-									(uint32_t) second_delta * CAPSENSE_CALIBRATION_CHANNEL_RATIO_NUMERATOR))) {
+					capsense_calibration_ratio_pass((uint32_t) top_delta,
+							(uint32_t) second_delta, capture_flags)) {
 				press_confirm++;
 				if (press_confirm >= CAPSENSE_CALIBRATION_PRESS_CONFIRM_FRAMES) {
 					press_started = 1u;
@@ -1173,8 +1222,8 @@ uint8_t capsense_calibration_capture(uint8_t logical_index, capsense_calibration
 			press_reference = capsense_calibration_press_sorted[p25_index];
 
 			if ((press_reference <= idle_threshold) ||
-					((uint32_t) press_reference * CAPSENSE_CALIBRATION_CHANNEL_RATIO_DENOMINATOR <
-							(uint32_t) second_score * CAPSENSE_CALIBRATION_CHANNEL_RATIO_NUMERATOR)) {
+					(capsense_calibration_ratio_pass((uint32_t) press_reference,
+							(uint32_t) second_score, capture_flags) == 0u)) {
 				return 0u;
 			}
 
@@ -1185,6 +1234,11 @@ uint8_t capsense_calibration_capture(uint8_t logical_index, capsense_calibration
 					((uint32_t) best_score * 255u) / second_score;
 			if (confidence > 255u) {
 				confidence = 255u;
+			}
+
+			if (capsense_calibration_cancel_requested != 0u) {
+				capsense_calibration_cancel_requested = 0u;
+				return 0u;
 			}
 
 			capsense_calibration_mapping_stage[logical_index] = best_channel;
@@ -1213,6 +1267,7 @@ uint8_t capsense_calibration_commit(void)
 	memcpy(Flash.touch_sheet, capsense_calibration_mapping_stage,
 			sizeof(capsense_calibration_mapping_stage));
 	flash_write(Flash.raw_flash);
+	capsense_calibration_cancel_requested = 0u;
 	capsense_calibration_active = 0u;
 
 	return 1u;
@@ -1592,9 +1647,12 @@ void capsense_service_pending_reset(void)
 	__disable_irq();
 	if (capsense_reset_pending != 0u) {
 		capsense_reset_pending = 0;
-		Boot_Buttom_IRQHandler();
 	}
 	if (primask == 0u) {
 		__enable_irq();
 	}
+
+	(void) HAL_UART_DMAStop(&huart4);
+	Boot_Buttom_IRQHandler();
+	capsense_restart_uart4_rx();
 }

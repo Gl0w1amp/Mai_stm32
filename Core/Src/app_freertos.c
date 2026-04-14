@@ -1070,6 +1070,7 @@ void Command_Task(void const * argument)
 			}
 			case SERIAL_CMD_CALIBRATION_CAPTURE:{
 				capsense_calibration_result_t result = {0};
+				uint8_t capture_flags = 0u;
 				uint8_t ok = 0u;
 				uint8_t cmd_tmp[14] = {
 					0xff,
@@ -1088,11 +1089,15 @@ void Command_Task(void const * argument)
 					0
 				};
 
-				if(rxBuffer[2] != 1){
+				if((rxBuffer[2] != 1u) && (rxBuffer[2] != 2u)){
 					break;
 				}
 
-				ok = capsense_calibration_capture(rxBuffer[3], &result);
+				if(rxBuffer[2] == 2u){
+					capture_flags = rxBuffer[4];
+				}
+
+				ok = capsense_calibration_capture(rxBuffer[3], capture_flags, &result);
 				cmd_tmp[3] = ok;
 				cmd_tmp[4] = rxBuffer[3];
 				if(ok != 0u){
@@ -1134,6 +1139,20 @@ void Command_Task(void const * argument)
 				capsense_calibration_abort();
 				{
 					uint8_t cmd_tmp[5] = {0xff, SERIAL_CMD_CALIBRATION_ABORT, 1, 1, 0};
+					for(uint8_t i = 0; i < 4; i++){
+						cmd_tmp[4] += cmd_tmp[i];
+					}
+					(void) usb_tx_enqueue_high(cmd_tmp, sizeof(cmd_tmp));
+				}
+				break;
+			}
+			case SERIAL_CMD_CALIBRATION_CANCEL_CAPTURE:{
+				if(rxBuffer[2] != 0u){
+					break;
+				}
+
+				{
+					uint8_t cmd_tmp[5] = {0xff, SERIAL_CMD_CALIBRATION_CANCEL_CAPTURE, 1, 1, 0};
 					for(uint8_t i = 0; i < 4; i++){
 						cmd_tmp[4] += cmd_tmp[i];
 					}

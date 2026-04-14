@@ -43,6 +43,8 @@ typedef struct {
 	uint16_t idle_threshold;
 } capsense_calibration_result_t;
 
+#define CAPSENSE_CALIBRATION_CAPTURE_FLAG_RELAXED 0x01u
+
 extern packet_capsense_t Touch;
 extern uint8_t uart_dma_buffer[128];
 extern uint16_t capsense_threshold[34];
@@ -63,7 +65,8 @@ void Boot_Buttom_IRQHandler(void);
 uint8_t capsense_auto_calibrate_thresholds(uint16_t *thresholds_out, uint16_t *min_threshold_out, uint16_t *max_threshold_out);
 void capsense_calibration_begin(void);
 void capsense_calibration_abort(void);
-uint8_t capsense_calibration_capture(uint8_t logical_index, capsense_calibration_result_t *result_out);
+void capsense_calibration_request_cancel(void);
+uint8_t capsense_calibration_capture(uint8_t logical_index, uint8_t capture_flags, capsense_calibration_result_t *result_out);
 uint8_t capsense_calibration_commit(void);
 void capsense_uart_stats_get(capsense_uart_stats_t *stats_out);
 void capsense_uart_stats_reset(void);
