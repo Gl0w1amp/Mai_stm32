@@ -50,7 +50,7 @@
 typedef struct usb_tx_packet {
 	uint16_t len;
 	uint32_t enqueue_tick;
-	uint8_t data[64];
+	uint8_t data[160];
 } usb_tx_packet_t;
 
 typedef struct usb_cdc_tx_stats {
@@ -165,6 +165,7 @@ uint8_t current_touch_status[34];
 uint8_t current_button_status[2];
 extern volatile uint8_t capsense_data_ready;
 volatile uint8_t debug_flag = 0;
+volatile uint8_t debug_stream_mode = SERIAL_DEBUG_STREAM_MODE_FOCUS;
 volatile uint32_t benchmark_quiet_until_ms = 0;
 volatile uint8_t benchmark_event_pending = 0;
 volatile uint32_t benchmark_event_due_ms = 0;
@@ -1284,22 +1285,37 @@ void Command_Task(void const * argument)
 				heart_beat_refresh();
 				break;
 			case SERIAL_CMD_TO_DEBUG_MODE:
-				if(rxBuffer[2] != 0){
-					break;
-				}
-				debug_flag = 1;
 				{
-					uint8_t ack_cmd[5] = {0xff, SERIAL_CMD_TO_DEBUG_MODE, 1, 1, 0};
+					uint8_t requested_mode = SERIAL_DEBUG_STREAM_MODE_FOCUS;
+					uint8_t ok = 0u;
+					uint8_t ack_cmd[5] = {0xff, SERIAL_CMD_TO_DEBUG_MODE, 1, 0, 0};
 					uint8_t status_cmd[6] = {0xff, SERIAL_CMD_TO_DEBUG_MODE, 2, 2, capsense_data_ready, 0};
 
+					if(rxBuffer[2] == 0u){
+						ok = 1u;
+					}else if((rxBuffer[2] == 1u) &&
+							(rxBuffer[3] <= SERIAL_DEBUG_STREAM_MODE_RAW_34)){
+						requested_mode = rxBuffer[3];
+						ok = 1u;
+					}
+
+					if (ok != 0u) {
+						debug_stream_mode = requested_mode;
+						debug_flag = 1;
+					}
+					ack_cmd[3] = ok;
 					for(uint8_t i = 0; i < 4; i++){
 						ack_cmd[4] += ack_cmd[i];
 					}
-					for(uint8_t i = 0; i < 5; i++){
-						status_cmd[5] += status_cmd[i];
+					if (ok != 0u) {
+						for(uint8_t i = 0; i < 5; i++){
+							status_cmd[5] += status_cmd[i];
+						}
 					}
 					(void) usb_tx_enqueue_high(ack_cmd, 5);
-					(void) usb_tx_enqueue_high(status_cmd, 6);
+					if (ok != 0u) {
+						(void) usb_tx_enqueue_high(status_cmd, 6);
+					}
 				}
 				break;
 			case SERIAL_CMD_SET_DEBUG_CHANNEL:{

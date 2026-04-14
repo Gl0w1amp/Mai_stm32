@@ -10,6 +10,8 @@
 #include <stdint.h>
 
 #define SERIAL_FRAME_MAX_LEN 64u
+#define SERIAL_DEBUG_STREAM_MODE_FOCUS 0u
+#define SERIAL_DEBUG_STREAM_MODE_RAW_34 1u
 
 typedef struct serial_frame {
 	uint8_t len;

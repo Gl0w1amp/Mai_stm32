@@ -64,6 +64,9 @@
 #define CAPSENSE_CALIBRATION_CHANNEL_RATIO_STRICT_DENOMINATOR 4
 #define CAPSENSE_CALIBRATION_CHANNEL_RATIO_RELAXED_NUMERATOR 6
 #define CAPSENSE_CALIBRATION_CHANNEL_RATIO_RELAXED_DENOMINATOR 5
+#define CAPSENSE_DEBUG_FOCUS_FLOAT_COUNT 6u
+#define CAPSENSE_DEBUG_RAW_FLOAT_COUNT 34u
+#define CAPSENSE_DEBUG_VOFA_TAIL_SIZE 4u
 #define CAPSENSE_UART_FRAME_SIZE 70u
 #define CAPSENSE_UART_STREAM_BUFFER_SIZE 512u
 
@@ -72,6 +75,16 @@ typedef enum {
 	CAPSENSE_HOLD_STATE_ACTIVE = 1,
 	CAPSENSE_HOLD_STATE_RELEASE_CONFIRM = 2
 } capsense_hold_state_t;
+
+typedef union {
+	float raw_data_fl[CAPSENSE_DEBUG_FOCUS_FLOAT_COUNT];
+	uint8_t raw_data_u8[CAPSENSE_DEBUG_FOCUS_FLOAT_COUNT * sizeof(float)];
+} vofa_focus_t;
+
+typedef union {
+	float raw_data_fl[CAPSENSE_DEBUG_RAW_FLOAT_COUNT];
+	uint8_t raw_data_u8[CAPSENSE_DEBUG_RAW_FLOAT_COUNT * sizeof(float)];
+} vofa_raw_t;
 
 uint8_t uart_dma_buffer[128];
 
@@ -111,15 +124,14 @@ static volatile uint8_t capsense_reset_pending = 0;
 static uint8_t capsense_uart_stream_buffer[CAPSENSE_UART_STREAM_BUFFER_SIZE];
 static uint16_t capsense_uart_stream_head = 0;
 static uint16_t capsense_uart_stream_tail = 0;
-
-typedef union{
-    float raw_data_fl[6];
-    uint8_t raw_data_u8[24];
-}vofa;
-
-vofa vofa1;
+static const uint8_t capsense_debug_vofa_tail[CAPSENSE_DEBUG_VOFA_TAIL_SIZE] = {
+		0x00u, 0x00u, 0x80u, 0x7Fu
+};
+static vofa_focus_t capsense_debug_focus_frame;
+static vofa_raw_t capsense_debug_raw_frame;
 uint8_t debug_channel = 0;
-extern uint8_t debug_flag;
+extern volatile uint8_t debug_flag;
+extern volatile uint8_t debug_stream_mode;
 static uint16_t capsense_auto_threshold_samples[34][CAPSENSE_AUTO_THRESHOLD_SAMPLE_COUNT];
 static uint16_t capsense_auto_threshold_sorted[CAPSENSE_AUTO_THRESHOLD_SAMPLE_COUNT];
 static uint16_t capsense_calibration_press_samples[34][CAPSENSE_CALIBRATION_PRESS_HOLD_FRAMES];
@@ -1421,32 +1433,51 @@ void capsense_check(){
 
 
 	if(debug_flag){
-		uint8_t logical = debug_channel < 34 ? debug_channel : 0;
-		uint8_t channel = capsense_channel_for_logical(logical);
-		uint8_t hold_index =
-				(logical < 8) ? logical :
-				((logical >= 18) && (logical < 26)) ? (logical - 10) : 0xFF;
-		float hold_state = -1.0f;
-		float hold_duration = 0.0f;
-		static uint8_t tmp[28] = {
-				0,0,0,0,0,0,0,0,0,0,
-				0,0,0,0,0,0,0,0,0,0,
-				0,0,0,0,0,0,0x80,0x7f
-		};
+		if (debug_stream_mode == SERIAL_DEBUG_STREAM_MODE_RAW_34) {
+			static uint8_t raw_tmp[(CAPSENSE_DEBUG_RAW_FLOAT_COUNT * sizeof(float)) +
+					CAPSENSE_DEBUG_VOFA_TAIL_SIZE] = {0};
 
-		if (hold_index != 0xFF) {
-			hold_state = (float) capsense_hold_state[hold_index];
-			hold_duration = (float) capsense_hold_duration[hold_index];
+			for (uint8_t channel = 0u; channel < 34u; channel++) {
+				capsense_debug_raw_frame.raw_data_fl[channel] =
+						(float) Touch.channel_raw[channel];
+			}
+
+			memcpy(raw_tmp, capsense_debug_raw_frame.raw_data_u8,
+					sizeof(capsense_debug_raw_frame.raw_data_u8));
+			memcpy(&raw_tmp[sizeof(capsense_debug_raw_frame.raw_data_u8)],
+					capsense_debug_vofa_tail, CAPSENSE_DEBUG_VOFA_TAIL_SIZE);
+			(void) serial_cdc_tx_enqueue_low(raw_tmp, sizeof(raw_tmp));
+		} else {
+			uint8_t logical = debug_channel < 34 ? debug_channel : 0;
+			uint8_t channel = capsense_channel_for_logical(logical);
+			uint8_t hold_index =
+					(logical < 8) ? logical :
+					((logical >= 18) && (logical < 26)) ? (logical - 10) : 0xFF;
+			float hold_state = -1.0f;
+			float hold_duration = 0.0f;
+			static uint8_t focus_tmp[(CAPSENSE_DEBUG_FOCUS_FLOAT_COUNT * sizeof(float)) +
+					CAPSENSE_DEBUG_VOFA_TAIL_SIZE] = {0};
+
+			if (hold_index != 0xFF) {
+				hold_state = (float) capsense_hold_state[hold_index];
+				hold_duration = (float) capsense_hold_duration[hold_index];
+			}
+
+			capsense_debug_focus_frame.raw_data_fl[0] = Touch.channel_raw[channel];
+			capsense_debug_focus_frame.raw_data_fl[1] =
+					capsense_debug_enter_line(logical);
+			capsense_debug_focus_frame.raw_data_fl[2] =
+					capsense_debug_release_line(logical);
+			capsense_debug_focus_frame.raw_data_fl[3] = hold_state;
+			capsense_debug_focus_frame.raw_data_fl[4] =
+					capsense_touch_status[logical] ? 1.0f : 0.0f;
+			capsense_debug_focus_frame.raw_data_fl[5] = hold_duration;
+			memcpy(focus_tmp, capsense_debug_focus_frame.raw_data_u8,
+					sizeof(capsense_debug_focus_frame.raw_data_u8));
+			memcpy(&focus_tmp[sizeof(capsense_debug_focus_frame.raw_data_u8)],
+					capsense_debug_vofa_tail, CAPSENSE_DEBUG_VOFA_TAIL_SIZE);
+			(void) serial_cdc_tx_enqueue_low(focus_tmp, sizeof(focus_tmp));
 		}
-
-		vofa1.raw_data_fl[0] = Touch.channel_raw[channel];
-		vofa1.raw_data_fl[1] = capsense_debug_enter_line(logical);
-		vofa1.raw_data_fl[2] = capsense_debug_release_line(logical);
-		vofa1.raw_data_fl[3] = hold_state;
-		vofa1.raw_data_fl[4] = capsense_touch_status[logical] ? 1.0f : 0.0f;
-		vofa1.raw_data_fl[5] = hold_duration;
-		memcpy(tmp,vofa1.raw_data_u8,24);
-		(void) serial_cdc_tx_enqueue_low(tmp, 28);
 	}
 }
 

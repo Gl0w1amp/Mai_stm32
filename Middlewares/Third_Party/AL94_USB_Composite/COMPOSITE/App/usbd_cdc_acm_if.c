@@ -33,7 +33,8 @@
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 extern uint8_t debug_channel;
-extern uint8_t debug_flag;
+extern volatile uint8_t debug_flag;
+extern volatile uint8_t debug_stream_mode;
 /* USER CODE END PV */
 
 /** @addtogroup STM32_USB_OTG_DEVICE_LIBRARY
@@ -422,7 +423,8 @@ static int8_t CDC_Receive(uint8_t cdc_ch, uint8_t *Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 6 */
   //HAL_UART_Transmit_DMA(CDC_CH_To_UART_Handle(cdc_ch), Buf, *Len);
-	if((*Len == 1) && (debug_flag)){
+	if((*Len == 1) && (debug_flag) &&
+			(debug_stream_mode == SERIAL_DEBUG_STREAM_MODE_FOCUS)){
 		debug_channel = Buf[0] <= 33 ? Buf[0] : 33;
 	} else if (serial_command_push(Buf, (uint16_t) *Len)) {
 		slider_notify_command_ready_from_isr();
