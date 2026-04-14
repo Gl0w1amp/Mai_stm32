@@ -68,6 +68,7 @@
 #define CAPSENSE_DEBUG_RAW_FLOAT_COUNT 34u
 #define CAPSENSE_DEBUG_STREAM_CHUNK_FLOAT_COUNT 16u
 #define CAPSENSE_DEBUG_VOFA_TAIL_SIZE 4u
+#define CAPSENSE_DEBUG_RAW_MIN_INTERVAL_MS 8u
 #define CAPSENSE_UART_FRAME_SIZE 70u
 #define CAPSENSE_UART_STREAM_BUFFER_SIZE 512u
 
@@ -117,6 +118,7 @@ static capsense_uart_stats_t capsense_uart_stats = {0};
 static volatile uint32_t capsense_last_good_frame_tick = 0;
 static volatile uint32_t capsense_last_error_tick = 0;
 static volatile uint8_t capsense_reset_pending = 0;
+static uint32_t capsense_debug_raw_last_emit_tick = 0;
 static uint8_t capsense_uart_stream_buffer[CAPSENSE_UART_STREAM_BUFFER_SIZE];
 static uint16_t capsense_uart_stream_head = 0;
 static uint16_t capsense_uart_stream_tail = 0;
@@ -1440,25 +1442,31 @@ void capsense_check(){
 
 	if(debug_flag){
 		if (debug_stream_mode == SERIAL_DEBUG_STREAM_MODE_RAW_34) {
-			vofa_debug_chunk_t chunk = {0};
+			uint32_t now = HAL_GetTick();
 
-			for (uint8_t start = 0u; start < CAPSENSE_DEBUG_RAW_FLOAT_COUNT;
-					start += CAPSENSE_DEBUG_STREAM_CHUNK_FLOAT_COUNT) {
-				uint8_t count = (uint8_t) (CAPSENSE_DEBUG_RAW_FLOAT_COUNT - start);
+			if ((capsense_debug_raw_last_emit_tick == 0u) ||
+					((uint32_t)(now - capsense_debug_raw_last_emit_tick) >= CAPSENSE_DEBUG_RAW_MIN_INTERVAL_MS)) {
+				vofa_debug_chunk_t chunk = {0};
 
-				if (count > CAPSENSE_DEBUG_STREAM_CHUNK_FLOAT_COUNT) {
-					count = CAPSENSE_DEBUG_STREAM_CHUNK_FLOAT_COUNT;
+				capsense_debug_raw_last_emit_tick = now;
+				for (uint8_t start = 0u; start < CAPSENSE_DEBUG_RAW_FLOAT_COUNT;
+						start += CAPSENSE_DEBUG_STREAM_CHUNK_FLOAT_COUNT) {
+					uint8_t count = (uint8_t) (CAPSENSE_DEBUG_RAW_FLOAT_COUNT - start);
+
+					if (count > CAPSENSE_DEBUG_STREAM_CHUNK_FLOAT_COUNT) {
+						count = CAPSENSE_DEBUG_STREAM_CHUNK_FLOAT_COUNT;
+					}
+
+					for (uint8_t offset = 0u; offset < count; offset++) {
+						chunk.raw_data_fl[offset] =
+								(float) Touch.channel_raw[start + offset];
+					}
+
+					(void) capsense_debug_stream_chunk(chunk.raw_data_fl, count);
 				}
-
-				for (uint8_t offset = 0u; offset < count; offset++) {
-					chunk.raw_data_fl[offset] =
-							(float) Touch.channel_raw[start + offset];
-				}
-
-				(void) capsense_debug_stream_chunk(chunk.raw_data_fl, count);
+				(void) serial_cdc_tx_enqueue_low(capsense_debug_vofa_tail,
+						CAPSENSE_DEBUG_VOFA_TAIL_SIZE);
 			}
-			(void) serial_cdc_tx_enqueue_low(capsense_debug_vofa_tail,
-					CAPSENSE_DEBUG_VOFA_TAIL_SIZE);
 		} else {
 			uint8_t logical = debug_channel < 34 ? debug_channel : 0;
 			uint8_t channel = capsense_channel_for_logical(logical);
