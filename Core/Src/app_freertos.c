@@ -391,6 +391,12 @@ uint8_t serial_cdc_tx_enqueue_low(const uint8_t *buf, uint16_t len)
 	return usb_tx_enqueue_low(buf, len);
 }
 
+uint32_t serial_cdc_tx_low_spaces_available(void)
+{
+	return (usb_tx_low_queue != NULL) ?
+			(uint32_t) uxQueueSpacesAvailable(usb_tx_low_queue) : 0u;
+}
+
 /* Echoes the benchmark payload and attaches device-side cycle timestamps. */
 static void serial_send_benchmark_reply(uint8_t cmd, const uint8_t *payload, uint8_t payload_len, uint64_t dispatch_cycles)
 {

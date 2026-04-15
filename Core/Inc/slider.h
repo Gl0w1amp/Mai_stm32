@@ -67,6 +67,7 @@ uint8_t serial_command_push(const uint8_t *data, uint16_t len);
 uint8_t serial_command_pop(serial_frame_t *frame);
 uint8_t serial_cdc_tx_enqueue_high(const uint8_t *buf, uint16_t len);
 uint8_t serial_cdc_tx_enqueue_low(const uint8_t *buf, uint16_t len);
+uint32_t serial_cdc_tx_low_spaces_available(void);
 
 extern uint8_t slider_scan_flag;
 
