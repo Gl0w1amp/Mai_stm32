@@ -50,6 +50,8 @@
 typedef struct usb_tx_packet {
 	uint16_t len;
 	uint32_t enqueue_tick;
+	/* Keep queued CDC frames within one full-speed packet. Transfers above
+	 * 64 bytes have proven unstable on the current Windows CDC path. */
 	uint8_t data[64];
 } usb_tx_packet_t;
 
@@ -88,6 +90,10 @@ typedef struct usb_cdc_tx_stats {
 #define CAPSENSE_LED_WAIT_BLINK_HALF_PERIOD_MS 500u
 #define CAPSENSE_LED_ERROR_BLINK_HALF_PERIOD_MS 125u
 #define HEART_BEAT_HOLD_MS 300u
+#define DEBUG_EXIT_RESET_DELAY_MS 500u
+#define DEBUG_EXIT_USB_DISCONNECT_HOLD_MS 500u
+#define RAW_DEBUG_SNAPSHOT_PARTS 2u
+#define RAW_DEBUG_SNAPSHOT_VALUES_PER_PART (34u / RAW_DEBUG_SNAPSHOT_PARTS)
 const char VERSION[] = FIRMWARE_VERSION;
 
 // Firmware Header instance placed in specific section
@@ -171,6 +177,8 @@ volatile uint8_t benchmark_event_pending = 0;
 volatile uint32_t benchmark_event_due_ms = 0;
 volatile uint32_t benchmark_event_sequence = 0;
 volatile uint8_t benchmark_event_transport = 0;
+volatile uint8_t debug_exit_reset_pending = 0u;
+volatile uint32_t debug_exit_reset_deadline_ms = 0u;
 static uint32_t benchmark_last_cycles = 0;
 static uint32_t benchmark_cycles_high = 0;
 static usb_cdc_tx_stats_t usb_cdc_tx_stats = {0};
@@ -197,6 +205,8 @@ static void capsense_update_link_led(void);
 static uint8_t usb_tx_enqueue(QueueHandle_t queue, const uint8_t *buf, uint16_t len);
 static uint8_t usb_tx_enqueue_high(const uint8_t *buf, uint16_t len);
 static uint8_t usb_tx_enqueue_low(const uint8_t *buf, uint16_t len);
+static uint8_t serial_send_raw_debug_snapshot(uint8_t sequence, uint8_t part_index);
+static void serial_build_live_state_frame(uint8_t command, uint8_t *buf, uint8_t *len_out);
 static void usb_cdc_tx_stats_reset(void);
 static void usb_cdc_tx_stats_snapshot(usb_cdc_tx_stats_t *stats_out, uint32_t *high_depth_out, uint32_t *low_depth_out);
 static void serial_send_benchmark_reply(uint8_t cmd, const uint8_t *payload, uint8_t payload_len, uint64_t dispatch_cycles);
@@ -207,6 +217,7 @@ static uint8_t serial_binary_frame_valid(const uint8_t *frame, uint8_t len);
 static void heart_beat_refresh(void);
 static uint8_t heart_beat_active(void);
 static uint8_t controller_role_normalize(uint8_t role);
+static void debug_exit_reset_now(void);
 /* USER CODE END FunctionPrototypes */
 
 void Touch_Task(void const * argument);
@@ -293,6 +304,18 @@ static uint8_t heart_beat_active(void)
 static uint8_t controller_role_normalize(uint8_t role)
 {
 	return (role == 2u) ? 2u : 1u;
+}
+
+static void debug_exit_reset_now(void)
+{
+	debug_exit_reset_pending = 0u;
+	/* Keep USB offline long enough for Windows CDC to retire the current
+	 * devnode before the MCU comes back and re-enumerates.
+	 */
+	(void) USBD_Stop(&hUsbDevice);
+	(void) USBD_DeInit(&hUsbDevice);
+	osDelay(DEBUG_EXIT_USB_DISCONNECT_HOLD_MS);
+	NVIC_SystemReset();
 }
 
 static void usb_cdc_tx_stats_reset(void)
@@ -386,6 +409,28 @@ uint8_t serial_cdc_tx_enqueue_high(const uint8_t *buf, uint16_t len)
 	return usb_tx_enqueue_high(buf, len);
 }
 
+uint8_t serial_cdc_tx_enqueue_high_isr(const uint8_t *buf, uint16_t len)
+{
+	usb_tx_packet_t packet;
+	BaseType_t higher_priority_task_woken = pdFALSE;
+
+	if (usb_tx_high_queue == NULL || buf == NULL || len == 0u || len > sizeof(packet.data)) {
+		return 0u;
+	}
+
+	packet.len = len;
+	packet.enqueue_tick = HAL_GetTick();
+	memcpy(packet.data, buf, len);
+
+	if (xQueueSendFromISR(usb_tx_high_queue, &packet, &higher_priority_task_woken) != pdPASS) {
+		return 0u;
+	}
+
+	usb_cdc_tx_stats.high_enqueued_count++;
+	portYIELD_FROM_ISR(higher_priority_task_woken);
+	return 1u;
+}
+
 uint8_t serial_cdc_tx_enqueue_low(const uint8_t *buf, uint16_t len)
 {
 	return usb_tx_enqueue_low(buf, len);
@@ -395,6 +440,76 @@ uint32_t serial_cdc_tx_low_spaces_available(void)
 {
 	return (usb_tx_low_queue != NULL) ?
 			(uint32_t) uxQueueSpacesAvailable(usb_tx_low_queue) : 0u;
+}
+
+static uint8_t serial_send_raw_debug_snapshot(uint8_t sequence, uint8_t part_index)
+{
+	uint8_t cmd_tmp[1u + 1u + 1u + 1u + 1u + 1u +
+			(RAW_DEBUG_SNAPSHOT_VALUES_PER_PART * 2u) + 1u] = {0};
+	uint8_t idx = 0u;
+	uint8_t first_channel = (uint8_t) (part_index * RAW_DEBUG_SNAPSHOT_VALUES_PER_PART);
+
+	if (part_index >= RAW_DEBUG_SNAPSHOT_PARTS) {
+		return 0u;
+	}
+
+	cmd_tmp[idx++] = 0xFFu;
+	cmd_tmp[idx++] = SERIAL_CMD_GET_RAW_DEBUG_SNAPSHOT;
+	cmd_tmp[idx++] = (uint8_t) (3u + (RAW_DEBUG_SNAPSHOT_VALUES_PER_PART * 2u));
+	cmd_tmp[idx++] = sequence;
+	cmd_tmp[idx++] = part_index;
+	cmd_tmp[idx++] = RAW_DEBUG_SNAPSHOT_PARTS;
+
+	for (uint8_t channel = first_channel;
+			channel < (uint8_t) (first_channel + RAW_DEBUG_SNAPSHOT_VALUES_PER_PART);
+			channel++) {
+		uint16_t raw = Touch.channel_raw[channel];
+		cmd_tmp[idx++] = (uint8_t) (raw & 0xFFu);
+		cmd_tmp[idx++] = (uint8_t) ((raw >> 8) & 0xFFu);
+	}
+
+	for (uint8_t checksum_index = 0u; checksum_index < idx; checksum_index++) {
+		cmd_tmp[idx] += cmd_tmp[checksum_index];
+	}
+
+	return usb_tx_enqueue_high(cmd_tmp, (uint16_t) (idx + 1u));
+}
+
+static void serial_build_live_state_frame(uint8_t command, uint8_t *buf, uint8_t *len_out)
+{
+	uint8_t idx = 0u;
+
+	if ((buf == NULL) || (len_out == NULL)) {
+		return;
+	}
+
+	buf[idx++] = 0xFFu;
+	buf[idx++] = command;
+	buf[idx++] = 0x0Au;
+	buf[idx++] = current_button_status[0] & 0x0Fu;
+	buf[idx++] = current_button_status[0] & 0xF0u;
+	buf[idx++] = current_button_status[1];
+
+	for (uint8_t group = 0u; group < 7u; group++) {
+		uint8_t packed = 0u;
+		for (uint8_t bit = 0u; bit < 5u; bit++) {
+			uint8_t touch_index = (uint8_t) (group * 5u + bit);
+			if (touch_index >= 34u) {
+				break;
+			}
+			if (current_touch_status[touch_index] != 0u) {
+				packed |= (uint8_t) (1u << bit);
+			}
+		}
+		buf[idx++] = packed;
+	}
+
+	buf[idx] = 0u;
+	for (uint8_t checksum_index = 0u; checksum_index < idx; checksum_index++) {
+		buf[idx] += buf[checksum_index];
+	}
+
+	*len_out = (uint8_t) (idx + 1u);
 }
 
 /* Echoes the benchmark payload and attaches device-side cycle timestamps. */
@@ -525,6 +640,7 @@ void slider_notify_command_ready_from_isr(void)
 void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
   serial_command_init();
+  UsbTxGuard_Init();
   usb_tx_high_queue = xQueueCreate(USB_TX_HIGH_QUEUE_LENGTH, sizeof(usb_tx_packet_t));
   usb_tx_low_queue = xQueueCreate(USB_TX_LOW_QUEUE_LENGTH, sizeof(usb_tx_packet_t));
   usb_tx_queue_set = xQueueCreateSet(USB_TX_HIGH_QUEUE_LENGTH + USB_TX_LOW_QUEUE_LENGTH);
@@ -535,6 +651,9 @@ void MX_FREERTOS_Init(void) {
 	  if (usb_tx_low_queue != NULL) {
 		  (void) xQueueAddToSet(usb_tx_low_queue, usb_tx_queue_set);
 	  }
+  }
+  if ((usb_tx_high_queue == NULL) || (usb_tx_low_queue == NULL) || (usb_tx_queue_set == NULL)) {
+	  Error_Handler();
   }
 
   /* USER CODE END Init */
@@ -557,7 +676,7 @@ void MX_FREERTOS_Init(void) {
 
   /* Create the thread(s) */
   /* definition and creation of TouchTask */
-  osThreadDef(TouchTask, Touch_Task, osPriorityNormal, 0, 128);
+  osThreadDef(TouchTask, Touch_Task, osPriorityNormal, 0, 256);
   TouchTaskHandle = osThreadCreate(osThread(TouchTask), NULL);
 
   /* definition and creation of ButtonTask */
@@ -565,7 +684,9 @@ void MX_FREERTOS_Init(void) {
   ButtonTaskHandle = osThreadCreate(osThread(ButtonTask), NULL);
 
   /* definition and creation of CommandTask */
-  /* Command_Task has a large switch and several reply builders; 128 words was effectively stack-starved. */
+  /* Command_Task executes a large command switch plus several reply builders.
+   * The pre-debug stack budget was conservative but much safer in practice.
+   */
   osThreadDef(CommandTask, Command_Task, osPriorityBelowNormal, 0, 384);
   CommandTaskHandle = osThreadCreate(osThread(CommandTask), NULL);
 
@@ -576,6 +697,10 @@ void MX_FREERTOS_Init(void) {
   /* definition and creation of UsbTxTask */
   osThreadDef(UsbTxTask, UsbTx_Task, osPriorityAboveNormal, 0, 256);
   UsbTxTaskHandle = osThreadCreate(osThread(UsbTxTask), NULL);
+  if ((TouchTaskHandle == NULL) || (ButtonTaskHandle == NULL) || (CommandTaskHandle == NULL) ||
+		  (LEDTaskHandle == NULL) || (UsbTxTaskHandle == NULL)) {
+	  Error_Handler();
+  }
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -595,6 +720,7 @@ void Touch_Task(void const * argument)
   /* USER CODE BEGIN Touch_Task */
 	/* Infinite loop */
 	uint8_t cmd_mai2io[14];
+	uint8_t cmd_mai2io_len = 0u;
 	uint8_t cmd_mai2touch[9];
 
 	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 0);
@@ -647,16 +773,17 @@ void Touch_Task(void const * argument)
 			capsense_check();
 			stack_flow_touch(current_touch_status);
 		}
+		capsense_debug_service();
 		capsense_update_link_led();
-		memset(cmd_mai2io, 0, sizeof(cmd_mai2io));
 		memset(cmd_mai2touch, 0, sizeof(cmd_mai2touch));
-		cmd_mai2io[0] = 0xff;
-		cmd_mai2io[1] = 0x01;
-		cmd_mai2io[2] = 0x0A;
 		cmd_mai2touch[0] = 0x28;
 		cmd_mai2touch[8] = 0x29;
 
 		stack_flow_button(current_button_status);
+		memset(cmd_mai2io, 0, sizeof(cmd_mai2io));
+		cmd_mai2io[0] = 0xFFu;
+		cmd_mai2io[1] = SERIAL_CMD_AUTO_SCAN;
+		cmd_mai2io[2] = 0x0Au;
 		for(uint8_t j = 0;j<7;j++){
 			for(uint8_t i = 0;i<5;i++){
 				if(j == 6 && i == 4){
@@ -674,9 +801,12 @@ void Touch_Task(void const * argument)
 		for (uint8_t i = 0; i < (uint8_t) (sizeof(cmd_mai2io) - 1u); i++) {
 			cmd_mai2io[13] += cmd_mai2io[i];
 		}
+		memset(cmd_mai2io, 0, sizeof(cmd_mai2io));
+		cmd_mai2io_len = 0u;
+		serial_build_live_state_frame(SERIAL_CMD_AUTO_SCAN, cmd_mai2io, &cmd_mai2io_len);
 		if(debug_flag == 0 && !benchmark_quiet_active()){
-			if(heart_beat_active()){
-				(void) usb_tx_enqueue_low(cmd_mai2io, 14);
+			if(heart_beat_active() && cmd_mai2io_len == sizeof(cmd_mai2io)){
+				(void) usb_tx_enqueue_low(cmd_mai2io, cmd_mai2io_len);
 			}else if(touch_scan_flag != 0){
 				memcpy(cmd_mai2touch+1,cmd_mai2io+6,7);
 				(void) usb_tx_enqueue_low(cmd_mai2touch, 9);
@@ -714,8 +844,9 @@ void Button_Task(void const * argument)
 		osDelay(3);
 		button_scan();
 		stack_flow_button(current_button_status);
-		if (current_button_status[0] != last_hid_buttons0 ||
-			current_button_status[1] != last_hid_io_status) {
+		if ((debug_flag == 0u || debug_stream_mode != SERIAL_DEBUG_STREAM_MODE_RAW_34) &&
+			(current_button_status[0] != last_hid_buttons0 ||
+			current_button_status[1] != last_hid_io_status)) {
 			if (mai2_hid_buttons_send_report(current_button_status[0], current_button_status[1]) == USBD_OK) {
 				last_hid_buttons0 = current_button_status[0];
 				last_hid_io_status = current_button_status[1];
@@ -729,15 +860,23 @@ void Button_Task(void const * argument)
 				keyboard_buffer[i+8] =  (current_button_status[1] & (1 << i)) ? keyboard_sheet[i+8] : 0;
 			}
 			if(memcmp(last_keyboard_buffer,keyboard_buffer,14) != 0){
-				USBD_HID_Keybaord_SendReport(&hUsbDevice, keyboard_buffer, 14);
-				memcpy(last_keyboard_buffer,keyboard_buffer,14);
+				if (UsbTxGuard_Take(0u) != 0u) {
+					if (USBD_HID_Keybaord_SendReport(&hUsbDevice, keyboard_buffer, 14) == USBD_OK) {
+						memcpy(last_keyboard_buffer,keyboard_buffer,14);
+					}
+					UsbTxGuard_Give();
+				}
 			}
 		}else{
 			memset(keyboard_buffer,0,14);
 			keyboard_buffer[11] =  (current_button_status[1] & (1 << 3)) ? keyboard_sheet[11] : 0;
 			if(memcmp(last_keyboard_buffer,keyboard_buffer,14) != 0){
-				USBD_HID_Keybaord_SendReport(&hUsbDevice, keyboard_buffer, 14);
-				memcpy(last_keyboard_buffer,keyboard_buffer,14);
+				if (UsbTxGuard_Take(0u) != 0u) {
+					if (USBD_HID_Keybaord_SendReport(&hUsbDevice, keyboard_buffer, 14) == USBD_OK) {
+						memcpy(last_keyboard_buffer,keyboard_buffer,14);
+					}
+					UsbTxGuard_Give();
+				}
 			}
 		}
 	}
@@ -936,6 +1075,44 @@ void Command_Task(void const * argument)
 				idx += sizeof(high_depth);
 				memcpy(&cmd_tmp[idx], &low_depth, sizeof(low_depth));
 				idx += sizeof(low_depth);
+
+				cmd_tmp[idx] = 0;
+				for(uint8_t i = 0; i < idx; i++){
+					cmd_tmp[idx] += cmd_tmp[i];
+				}
+				(void) usb_tx_enqueue_high(cmd_tmp, (uint16_t) (idx + 1));
+				break;
+			}
+			case SERIAL_CMD_GET_CAPSENSE_DEBUG_STATS:{
+				capsense_debug_stats_t stats;
+				uint8_t cmd_tmp[32] = {0};
+				uint8_t idx = 3;
+
+				if ((rxBuffer[2] > 1) || ((rxBuffer[2] == 1) && (rxBuffer[3] != 1))) {
+					break;
+				}
+				if ((rxBuffer[2] == 1) && (rxBuffer[3] == 1)) {
+					capsense_debug_stats_reset();
+				}
+
+				capsense_debug_stats_get(&stats);
+
+				cmd_tmp[0] = 0xff;
+				cmd_tmp[1] = SERIAL_CMD_GET_CAPSENSE_DEBUG_STATS;
+				cmd_tmp[2] = 20;
+
+				memcpy(&cmd_tmp[idx], &stats.service_call_count, sizeof(stats.service_call_count));
+				idx += sizeof(stats.service_call_count);
+				memcpy(&cmd_tmp[idx], &stats.emit_batch_count, sizeof(stats.emit_batch_count));
+				idx += sizeof(stats.emit_batch_count);
+				memcpy(&cmd_tmp[idx], &stats.enqueue_attempt_count, sizeof(stats.enqueue_attempt_count));
+				idx += sizeof(stats.enqueue_attempt_count);
+				memcpy(&cmd_tmp[idx], &stats.enqueue_success_count, sizeof(stats.enqueue_success_count));
+				idx += sizeof(stats.enqueue_success_count);
+				cmd_tmp[idx++] = stats.last_queue_slots;
+				cmd_tmp[idx++] = stats.last_debug_flag;
+				cmd_tmp[idx++] = stats.last_debug_stream_mode;
+				cmd_tmp[idx++] = stats.last_enqueue_success_mask;
 
 				cmd_tmp[idx] = 0;
 				for(uint8_t i = 0; i < idx; i++){
@@ -1295,7 +1472,6 @@ void Command_Task(void const * argument)
 					uint8_t requested_mode = SERIAL_DEBUG_STREAM_MODE_FOCUS;
 					uint8_t ok = 0u;
 					uint8_t ack_cmd[5] = {0xff, SERIAL_CMD_TO_DEBUG_MODE, 1, 0, 0};
-					uint8_t status_cmd[6] = {0xff, SERIAL_CMD_TO_DEBUG_MODE, 2, 2, capsense_data_ready, 0};
 
 					if(rxBuffer[2] == 0u){
 						ok = 1u;
@@ -1306,6 +1482,7 @@ void Command_Task(void const * argument)
 					}
 
 					if (ok != 0u) {
+						mai2_hid_raw_debug_reset();
 						debug_stream_mode = requested_mode;
 						debug_flag = 1;
 					}
@@ -1313,15 +1490,7 @@ void Command_Task(void const * argument)
 					for(uint8_t i = 0; i < 4; i++){
 						ack_cmd[4] += ack_cmd[i];
 					}
-					if (ok != 0u) {
-						for(uint8_t i = 0; i < 5; i++){
-							status_cmd[5] += status_cmd[i];
-						}
-					}
 					(void) usb_tx_enqueue_high(ack_cmd, 5);
-					if (ok != 0u) {
-						(void) usb_tx_enqueue_high(status_cmd, 6);
-					}
 				}
 				break;
 			case SERIAL_CMD_SET_DEBUG_CHANNEL:{
@@ -1347,8 +1516,13 @@ void Command_Task(void const * argument)
 					break;
 				}
 
+				/* Leaving debug mode should return the device to normal operation
+				 * without forcing a USB disconnect/re-enumeration cycle.
+				 */
+				debug_exit_reset_pending = 0u;
 				debug_flag = 0u;
 				debug_stream_mode = SERIAL_DEBUG_STREAM_MODE_FOCUS;
+				mai2_hid_raw_debug_reset();
 				{
 					uint8_t ack_cmd[5] = {0xff, SERIAL_CMD_EXIT_DEBUG_MODE, 1, 1, 0};
 					for(uint8_t i = 0; i < 4; i++){
@@ -1356,6 +1530,37 @@ void Command_Task(void const * argument)
 					}
 					(void) usb_tx_enqueue_high(ack_cmd, 5);
 				}
+				break;
+			}
+			case SERIAL_CMD_GET_LIVE_STATE:{
+				uint8_t cmd_tmp[14] = {0};
+				uint8_t cmd_len = 0u;
+				if(rxBuffer[2] != 0u){
+					break;
+				}
+				serial_build_live_state_frame(SERIAL_CMD_GET_LIVE_STATE, cmd_tmp, &cmd_len);
+				if(cmd_len != 0u){
+					(void) usb_tx_enqueue_high(cmd_tmp, cmd_len);
+				}
+				break;
+			}
+			case SERIAL_CMD_GET_RAW_DEBUG_SNAPSHOT:{
+				uint8_t sequence = 0u;
+				uint8_t part_index = 0u;
+
+				if ((rxBuffer[2] == 0u) ||
+						(rxBuffer[2] > 2u) ||
+						(debug_flag == 0u) ||
+						(debug_stream_mode != SERIAL_DEBUG_STREAM_MODE_RAW_34)) {
+					break;
+				}
+
+				sequence = rxBuffer[3];
+				if (rxBuffer[2] == 2u) {
+					part_index = rxBuffer[4];
+				}
+
+				(void) serial_send_raw_debug_snapshot(sequence, part_index);
 				break;
 			}
 			case SERIAL_CMD_GET_BOARD_INFO:{
@@ -1448,7 +1653,11 @@ void Command_Task(void const * argument)
 			default:
 				break;
 		}
+		}
 	}
+	if ((debug_exit_reset_pending != 0u) &&
+			((int32_t)(HAL_GetTick() - debug_exit_reset_deadline_ms) >= 0)) {
+		debug_exit_reset_now();
 	}
   }
   /* USER CODE END Command_Task */
@@ -1498,8 +1707,8 @@ void UsbTx_Task(void const * argument)
 			continue;
 		}
 
-		if (usb_tx_high_queue != NULL &&
-			xQueueReceive(usb_tx_high_queue, &packet, 0) == pdPASS) {
+		if ((usb_tx_high_queue != NULL) &&
+				(xQueueReceive(usb_tx_high_queue, &packet, 0) == pdPASS)) {
 			/* High-priority control traffic preempts streamed touch packets. */
 		} else if (ready == usb_tx_low_queue) {
 			if (xQueueReceive(usb_tx_low_queue, &packet, 0) != pdPASS) {
@@ -1518,7 +1727,9 @@ void UsbTx_Task(void const * argument)
 			uint8_t tx_ok = 0;
 
 			for (uint8_t attempt = 0; attempt < BENCHMARK_TX_RETRY_COUNT; attempt++) {
-				uint8_t tx_result = CDC_Transmit(0, packet.data, packet.len);
+				uint8_t tx_result;
+
+				tx_result = CDC_Transmit(0u, packet.data, packet.len);
 
 				if (tx_result == USBD_OK) {
 					uint32_t tx_latency_ms = HAL_GetTick() - packet.enqueue_tick;

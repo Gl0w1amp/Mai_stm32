@@ -2,13 +2,22 @@
  * capsense.c
  *
  *  Created on: Jan 8, 2025
- *      Author: Qinh
+ *      Original Author: Qinh
+		Optimized: Gl0w1amp
+
+		This file includes implementation of proprietary and patent-related
+		algorithms developed by Ruminasu Labs.
+
+		Use, reproduction, or redistribution of these portions may be subject
+		to intellectual property restrictions.
  */
+#include "FreeRTOS.h"
 #include "capsense.h"
 #include "usart.h"
 #include "string.h"
 #include <math.h>
 #include "usbd_cdc_acm_if.h"
+#include "usbd_hid_custom_if.h"
 #include "cmsis_os.h"
 #include "flash.h"
 #include "stdbool.h"
@@ -52,6 +61,7 @@
 #define CAPSENSE_AUTO_THRESHOLD_MAX 4000
 #define CAPSENSE_AUTO_THRESHOLD_P2P_CAP_MULTIPLIER 2
 #define CAPSENSE_AUTO_THRESHOLD_POS_MULTIPLIER 4
+#define CAPSENSE_AUTO_THRESHOLD_BATCH_CHANNELS 17
 #define CAPSENSE_CALIBRATION_IDLE_SAMPLE_COUNT 32
 #define CAPSENSE_CALIBRATION_IDLE_STABLE_FRAMES 12
 #define CAPSENSE_CALIBRATION_PRESS_CONFIRM_FRAMES 4
@@ -66,12 +76,23 @@
 #define CAPSENSE_CALIBRATION_CHANNEL_RATIO_RELAXED_DENOMINATOR 5
 #define CAPSENSE_DEBUG_FOCUS_FLOAT_COUNT 6u
 #define CAPSENSE_DEBUG_RAW_FLOAT_COUNT 34u
-#define CAPSENSE_DEBUG_STREAM_CHUNK_FLOAT_COUNT 16u
+#define CAPSENSE_DEBUG_STREAM_CHUNK_FLOAT_COUNT 15u
 #define CAPSENSE_DEBUG_VOFA_TAIL_SIZE 4u
 #define CAPSENSE_DEBUG_RAW_MIN_INTERVAL_MS 12u
 #define CAPSENSE_DEBUG_RAW_PACKET_COUNT 3u
 #define CAPSENSE_UART_FRAME_SIZE 70u
 #define CAPSENSE_UART_STREAM_BUFFER_SIZE 512u
+#define CAPSENSE_DEMO_FALLBACK_ENABLE 1u
+#define CAPSENSE_DEMO_START_DELAY_MS 1200u
+#define CAPSENSE_DEMO_REAL_LINK_HOLD_MS 250u
+#define CAPSENSE_DEMO_FRAME_INTERVAL_MS 8u
+#define CAPSENSE_DEMO_BASELINE 1800u
+#define CAPSENSE_DEMO_WAVE_DELTA 90u
+#define CAPSENSE_DEMO_TOUCH_DELTA 950u
+#define CAPSENSE_DEMO_NEIGHBOR_DELTA 240u
+#define CAPSENSE_DEMO_WARMUP_MS 600u
+#define CAPSENSE_DEMO_TOUCH_STEP_MS 260u
+#define CAPSENSE_DEMO_WAVE_STEP_MS 7u
 
 typedef enum {
 	CAPSENSE_HOLD_STATE_IDLE = 0,
@@ -84,6 +105,11 @@ typedef union {
 	uint8_t raw_data_u8[CAPSENSE_DEBUG_STREAM_CHUNK_FLOAT_COUNT * sizeof(float)];
 } vofa_debug_chunk_t;
 
+typedef struct {
+	uint16_t samples[CAPSENSE_AUTO_THRESHOLD_BATCH_CHANNELS][CAPSENSE_AUTO_THRESHOLD_SAMPLE_COUNT];
+	uint16_t sorted[CAPSENSE_AUTO_THRESHOLD_SAMPLE_COUNT];
+} capsense_auto_threshold_workspace_t;
+
 uint8_t uart_dma_buffer[128];
 
 extern UART_HandleTypeDef huart4;
@@ -92,8 +118,6 @@ extern FlashData Flash;
 
 packet_capsense_t Touch;
 static packet_capsense_t capsense_rx_touch;
-uint16_t capsense_raw_windows[10][34];
-uint8_t capsense_raw_bet = 0;
 uint16_t capsense_hold_duration[16] = {0};
 uint16_t capsense_level[8] = {0};
 uint16_t capsense_freeze[34];
@@ -116,10 +140,13 @@ uint8_t capsense_legacy_payload_offset = 0;
 uint8_t capsense_protocol1_confirm_count = 0;
 volatile uint32_t capsense_frame_counter = 0;
 static capsense_uart_stats_t capsense_uart_stats = {0};
+static capsense_debug_stats_t capsense_debug_stats = {0};
 static volatile uint32_t capsense_last_good_frame_tick = 0;
+static volatile uint32_t capsense_last_real_frame_tick = 0;
 static volatile uint32_t capsense_last_error_tick = 0;
 static volatile uint8_t capsense_reset_pending = 0;
-static uint32_t capsense_debug_raw_last_emit_tick = 0;
+static uint32_t capsense_demo_boot_tick = 0;
+static uint32_t capsense_demo_last_emit_tick = 0;
 static uint8_t capsense_uart_stream_buffer[CAPSENSE_UART_STREAM_BUFFER_SIZE];
 static uint16_t capsense_uart_stream_head = 0;
 static uint16_t capsense_uart_stream_tail = 0;
@@ -129,8 +156,6 @@ static const uint8_t capsense_debug_vofa_tail[CAPSENSE_DEBUG_VOFA_TAIL_SIZE] = {
 uint8_t debug_channel = 0;
 extern volatile uint8_t debug_flag;
 extern volatile uint8_t debug_stream_mode;
-static uint16_t capsense_auto_threshold_samples[34][CAPSENSE_AUTO_THRESHOLD_SAMPLE_COUNT];
-static uint16_t capsense_auto_threshold_sorted[CAPSENSE_AUTO_THRESHOLD_SAMPLE_COUNT];
 static uint16_t capsense_calibration_press_samples[34][CAPSENSE_CALIBRATION_PRESS_HOLD_FRAMES];
 static uint16_t capsense_calibration_press_sorted[CAPSENSE_CALIBRATION_PRESS_HOLD_FRAMES];
 static uint16_t capsense_calibration_threshold_stage[34];
@@ -141,9 +166,16 @@ static uint8_t capsense_calibration_active = 0;
 static volatile uint8_t capsense_calibration_cancel_requested = 0u;
 
 static void capsense_reset_runtime_state(void);
-static void capsense_restart_uart4_rx(void);
+static uint8_t capsense_restart_uart4_rx(void);
 static void capsense_calibration_reset_channel_locks(void);
 static uint8_t capsense_debug_stream_chunk(const float *values, uint8_t count);
+static uint8_t capsense_auto_calibrate_threshold_batch(uint8_t logical_start,
+		uint8_t logical_count, capsense_auto_threshold_workspace_t *workspace,
+		uint16_t *thresholds_out, uint16_t *threshold_min_io,
+		uint16_t *threshold_max_io);
+static uint16_t capsense_demo_triangle(uint32_t phase, uint16_t amplitude);
+static void capsense_demo_generate_frame(uint32_t now);
+static void capsense_demo_maybe_generate(void);
 
 static uint8_t capsense_channel_for_logical(uint8_t logical_index)
 {
@@ -159,6 +191,86 @@ static uint8_t capsense_debug_stream_chunk(const float *values, uint8_t count)
 
 	return serial_cdc_tx_enqueue_low((const uint8_t *) values,
 			(uint16_t) (count * sizeof(float)));
+}
+
+static uint16_t capsense_demo_triangle(uint32_t phase, uint16_t amplitude)
+{
+	uint32_t period = 64u;
+	uint32_t half_period = period / 2u;
+	uint32_t position = phase % period;
+	uint32_t ramp = position < half_period ? position : (period - position);
+
+	return (uint16_t) ((ramp * amplitude) / half_period);
+}
+
+static void capsense_demo_generate_frame(uint32_t now)
+{
+	uint32_t elapsed = now - capsense_demo_boot_tick;
+	uint8_t active_logical = 0u;
+	uint8_t secondary_logical = 0u;
+	uint8_t warmup_complete =
+			(uint8_t) (elapsed >= (CAPSENSE_DEMO_START_DELAY_MS + CAPSENSE_DEMO_WARMUP_MS));
+
+	for (uint8_t channel = 0u; channel < 34u; channel++) {
+		uint32_t phase = (now / CAPSENSE_DEMO_WAVE_STEP_MS) + (channel * 5u);
+		uint16_t raw = CAPSENSE_DEMO_BASELINE +
+				capsense_demo_triangle(phase, CAPSENSE_DEMO_WAVE_DELTA);
+
+		capsense_rx_touch.channel_raw[channel] = raw;
+	}
+
+	if (warmup_complete == 0u) {
+		return;
+	}
+
+	active_logical = (uint8_t) (((elapsed - CAPSENSE_DEMO_START_DELAY_MS -
+			CAPSENSE_DEMO_WARMUP_MS) / CAPSENSE_DEMO_TOUCH_STEP_MS) % 34u);
+	secondary_logical = (uint8_t) ((active_logical + 1u) % 34u);
+
+	{
+		uint8_t active_channel = capsense_channel_for_logical(active_logical);
+		uint8_t secondary_channel = capsense_channel_for_logical(secondary_logical);
+
+		if (active_channel < 34u) {
+			capsense_rx_touch.channel_raw[active_channel] += CAPSENSE_DEMO_TOUCH_DELTA;
+		}
+		if ((secondary_channel < 34u) && (secondary_channel != active_channel)) {
+			capsense_rx_touch.channel_raw[secondary_channel] += CAPSENSE_DEMO_NEIGHBOR_DELTA;
+		}
+	}
+}
+
+static void capsense_demo_maybe_generate(void)
+{
+#if CAPSENSE_DEMO_FALLBACK_ENABLE
+	uint32_t now = HAL_GetTick();
+
+	if (capsense_data_ready != 0u) {
+		return;
+	}
+	if ((capsense_demo_boot_tick == 0u) ||
+			((uint32_t) (now - capsense_demo_boot_tick) < CAPSENSE_DEMO_START_DELAY_MS)) {
+		return;
+	}
+	if ((capsense_last_real_frame_tick != 0u) &&
+			((uint32_t) (now - capsense_last_real_frame_tick) <= CAPSENSE_DEMO_REAL_LINK_HOLD_MS)) {
+		return;
+	}
+	if ((capsense_demo_last_emit_tick != 0u) &&
+			((uint32_t) (now - capsense_demo_last_emit_tick) < CAPSENSE_DEMO_FRAME_INTERVAL_MS)) {
+		return;
+	}
+
+	capsense_demo_generate_frame(now);
+	capsense_demo_last_emit_tick = now;
+	capsense_last_good_frame_tick = now;
+	capsense_frame_counter++;
+	capsense_data_ready = 1u;
+	if (capsense_procotl_version == 0u) {
+		capsense_procotl_version = 1u;
+	}
+	capsense_uart_stats.protocol_version = capsense_procotl_version;
+#endif
 }
 
 static void capsense_calibration_reset_channel_locks(void)
@@ -642,6 +754,7 @@ static uint8_t capsense_accept_packet(const uint8_t *data, uint8_t lock_protocol
 	} else {
 		capsense_uart_stats.checksum_accept_count++;
 	}
+	capsense_last_real_frame_tick = HAL_GetTick();
 	capsense_last_good_frame_tick = HAL_GetTick();
 	capsense_frame_counter++;
 	capsense_data_ready = 1;
@@ -657,6 +770,7 @@ static uint8_t capsense_accept_legacy_packet(const uint8_t *data, uint8_t payloa
 	capsense_uart_stats.legacy_accept_count++;
 	capsense_legacy_payload_offset = payload_offset;
 	capsense_protocol1_confirm_count = 0;
+	capsense_last_real_frame_tick = HAL_GetTick();
 	capsense_last_good_frame_tick = HAL_GetTick();
 	capsense_frame_counter++;
 	capsense_data_ready = 1;
@@ -922,6 +1036,8 @@ uint8_t capsense_take_latest_snapshot(void)
 	uint8_t snapshot_ready = 0;
 	uint32_t primask = __get_PRIMASK();
 
+	capsense_demo_maybe_generate();
+
 	__disable_irq();
 	if (capsense_data_ready) {
 		memcpy(&Touch, &capsense_rx_touch, sizeof(Touch));
@@ -964,21 +1080,30 @@ static void capsense_reset_runtime_state(void)
 	capsense_uart_stats.protocol_version = 0;
 	capsense_uart_stats.legacy_payload_offset = 0;
 	capsense_uart_stats.rx_failure_streak = 0;
+	memset(&capsense_debug_stats, 0, sizeof(capsense_debug_stats));
 	capsense_last_good_frame_tick = 0;
+	capsense_last_real_frame_tick = 0;
 	capsense_last_error_tick = 0;
 	capsense_reset_pending = 0;
+	capsense_demo_boot_tick = HAL_GetTick();
+	capsense_demo_last_emit_tick = 0;
 	capsense_uart_stream_reset();
 }
 
-static void capsense_restart_uart4_rx(void)
+static uint8_t capsense_restart_uart4_rx(void)
 {
+	HAL_StatusTypeDef status;
+
 	(void) HAL_UART_DMAStop(&huart4);
 	__HAL_UART_CLEAR_IT(&huart4,
 			UART_CLEAR_OREF | UART_CLEAR_NEF | UART_CLEAR_FEF | UART_CLEAR_PEF);
-	while(HAL_UARTEx_ReceiveToIdle_DMA(&huart4, uart_dma_buffer, 128) != HAL_OK){
-
+	status = HAL_UARTEx_ReceiveToIdle_DMA(&huart4, uart_dma_buffer, 128);
+	if (status != HAL_OK) {
+		capsense_uart_stats_note_uart_error();
+		return 0u;
 	}
 	__HAL_DMA_DISABLE_IT(&hdma_uart4_rx, DMA_IT_HT);
+	return 1u;
 }
 
 void Boot_Buttom_IRQHandler(){
@@ -989,8 +1114,11 @@ void Boot_Buttom_IRQHandler(){
 
 void capsense_init(){
 	capsense_reset_runtime_state();
-	capsense_restart_uart4_rx();
+	if (capsense_restart_uart4_rx() == 0u) {
+		capsense_request_link_reset();
+	}
 	osDelay(100);
+	capsense_demo_boot_tick = HAL_GetTick();
 	for(uint8_t i = 0;i<34;i++){
 		capsense_baseline[i] = Touch.channel_raw[i];
 		capsense_freeze[i] = Touch.channel_raw[i];
@@ -1441,87 +1569,71 @@ void capsense_check(){
 
 
 
-	if(debug_flag){
-		if (debug_stream_mode == SERIAL_DEBUG_STREAM_MODE_RAW_34) {
-			uint32_t now = HAL_GetTick();
+}
 
-			if ((capsense_debug_raw_last_emit_tick == 0u) ||
-					((uint32_t)(now - capsense_debug_raw_last_emit_tick) >= CAPSENSE_DEBUG_RAW_MIN_INTERVAL_MS)) {
-				vofa_debug_chunk_t chunk = {0};
-				uint32_t queue_slots = serial_cdc_tx_low_spaces_available();
+void capsense_debug_service(void)
+{
+	capsense_debug_stats.service_call_count++;
+	capsense_debug_stats.last_debug_flag = debug_flag;
+	capsense_debug_stats.last_debug_stream_mode = debug_stream_mode;
 
-				if (queue_slots >= CAPSENSE_DEBUG_RAW_PACKET_COUNT) {
-					capsense_debug_raw_last_emit_tick = now;
-					for (uint8_t start = 0u; start < CAPSENSE_DEBUG_RAW_FLOAT_COUNT;
-							start += CAPSENSE_DEBUG_STREAM_CHUNK_FLOAT_COUNT) {
-						uint8_t count = (uint8_t) (CAPSENSE_DEBUG_RAW_FLOAT_COUNT - start);
-						uint8_t is_last_chunk = 0u;
+	if(debug_flag == 0u){
+		return;
+	}
 
-						if (count > CAPSENSE_DEBUG_STREAM_CHUNK_FLOAT_COUNT) {
-							count = CAPSENSE_DEBUG_STREAM_CHUNK_FLOAT_COUNT;
-						}
-						is_last_chunk = (uint8_t) ((start + count) >= CAPSENSE_DEBUG_RAW_FLOAT_COUNT);
+	if (debug_stream_mode == SERIAL_DEBUG_STREAM_MODE_RAW_34) {
+		uint8_t hid_status;
 
-						for (uint8_t offset = 0u; offset < count; offset++) {
-							chunk.raw_data_fl[offset] =
-									(float) Touch.channel_raw[start + offset];
-						}
-
-						if (is_last_chunk != 0u) {
-							uint8_t final_packet[(CAPSENSE_DEBUG_STREAM_CHUNK_FLOAT_COUNT * sizeof(float)) +
-								CAPSENSE_DEBUG_VOFA_TAIL_SIZE] = {0};
-							uint16_t payload_len = (uint16_t) (count * sizeof(float));
-
-							memcpy(final_packet, chunk.raw_data_u8, payload_len);
-							memcpy(final_packet + payload_len, capsense_debug_vofa_tail,
-									CAPSENSE_DEBUG_VOFA_TAIL_SIZE);
-							(void) serial_cdc_tx_enqueue_low(final_packet,
-									(uint16_t) (payload_len + CAPSENSE_DEBUG_VOFA_TAIL_SIZE));
-						} else {
-							(void) capsense_debug_stream_chunk(chunk.raw_data_fl, count);
-						}
-					}
-				}
-			}
+		capsense_debug_stats.enqueue_attempt_count++;
+		hid_status = mai2_hid_raw_debug_stream(Touch.channel_raw, 34u);
+		if (hid_status == (uint8_t) USBD_OK) {
+			capsense_debug_stats.emit_batch_count++;
+			capsense_debug_stats.enqueue_success_count++;
+			capsense_debug_stats.last_enqueue_success_mask = 0x01u;
 		} else {
-			uint8_t logical = debug_channel < 34 ? debug_channel : 0;
-			uint8_t channel = capsense_channel_for_logical(logical);
-			uint8_t hold_index =
-					(logical < 8) ? logical :
-					((logical >= 18) && (logical < 26)) ? (logical - 10) : 0xFF;
-			float hold_state = -1.0f;
-			float hold_duration = 0.0f;
-			float focus_values[CAPSENSE_DEBUG_FOCUS_FLOAT_COUNT] = {0};
-
-			if (hold_index != 0xFF) {
-				hold_state = (float) capsense_hold_state[hold_index];
-				hold_duration = (float) capsense_hold_duration[hold_index];
-			}
-
-			focus_values[0] = (float) Touch.channel_raw[channel];
-			focus_values[1] = capsense_debug_enter_line(logical);
-			focus_values[2] = capsense_debug_release_line(logical);
-			focus_values[3] = hold_state;
-			focus_values[4] = capsense_touch_status[logical] ? 1.0f : 0.0f;
-			focus_values[5] = hold_duration;
-			(void) capsense_debug_stream_chunk(focus_values,
-					CAPSENSE_DEBUG_FOCUS_FLOAT_COUNT);
-			(void) serial_cdc_tx_enqueue_low(capsense_debug_vofa_tail,
-					CAPSENSE_DEBUG_VOFA_TAIL_SIZE);
+			capsense_debug_stats.last_enqueue_success_mask = 0x00u;
 		}
+		capsense_debug_stats.last_queue_slots = hid_status;
+		return;
+	} else {
+		uint8_t logical = debug_channel < 34 ? debug_channel : 0;
+		uint8_t channel = capsense_channel_for_logical(logical);
+		uint8_t hold_index =
+				(logical < 8) ? logical :
+				((logical >= 18) && (logical < 26)) ? (logical - 10) : 0xFF;
+		float hold_state = -1.0f;
+		float hold_duration = 0.0f;
+		float focus_values[CAPSENSE_DEBUG_FOCUS_FLOAT_COUNT] = {0};
+
+		if (hold_index != 0xFF) {
+			hold_state = (float) capsense_hold_state[hold_index];
+			hold_duration = (float) capsense_hold_duration[hold_index];
+		}
+
+		focus_values[0] = (float) Touch.channel_raw[channel];
+		focus_values[1] = capsense_debug_enter_line(logical);
+		focus_values[2] = capsense_debug_release_line(logical);
+		focus_values[3] = hold_state;
+		focus_values[4] = capsense_touch_status[logical] ? 1.0f : 0.0f;
+		focus_values[5] = hold_duration;
+		(void) capsense_debug_stream_chunk(focus_values,
+				CAPSENSE_DEBUG_FOCUS_FLOAT_COUNT);
+		(void) serial_cdc_tx_enqueue_low(capsense_debug_vofa_tail,
+				CAPSENSE_DEBUG_VOFA_TAIL_SIZE);
 	}
 }
 
-uint8_t capsense_auto_calibrate_thresholds(uint16_t *thresholds_out, uint16_t *min_threshold_out, uint16_t *max_threshold_out)
+static uint8_t capsense_auto_calibrate_threshold_batch(uint8_t logical_start,
+		uint8_t logical_count, capsense_auto_threshold_workspace_t *workspace,
+		uint16_t *thresholds_out, uint16_t *threshold_min_io,
+		uint16_t *threshold_max_io)
 {
-	uint16_t min_raw[34];
-	uint16_t max_raw[34];
-	uint16_t max_positive_delta[34];
-	uint16_t raw_frame[34];
-	uint16_t positive_delta_frame[34];
-	uint16_t prev_raw[34];
-	uint16_t threshold_min = 0xFFFF;
-	uint16_t threshold_max = 0;
+	uint16_t min_raw[CAPSENSE_AUTO_THRESHOLD_BATCH_CHANNELS];
+	uint16_t max_raw[CAPSENSE_AUTO_THRESHOLD_BATCH_CHANNELS];
+	uint16_t max_positive_delta[CAPSENSE_AUTO_THRESHOLD_BATCH_CHANNELS];
+	uint16_t raw_frame[CAPSENSE_AUTO_THRESHOLD_BATCH_CHANNELS];
+	uint16_t positive_delta_frame[CAPSENSE_AUTO_THRESHOLD_BATCH_CHANNELS];
+	uint16_t prev_raw[CAPSENSE_AUTO_THRESHOLD_BATCH_CHANNELS];
 	uint32_t last_frame_counter;
 	uint32_t start_tick;
 	uint16_t sample_count = 0;
@@ -1530,112 +1642,122 @@ uint8_t capsense_auto_calibrate_thresholds(uint16_t *thresholds_out, uint16_t *m
 	const uint16_t trim_low_index = (CAPSENSE_AUTO_THRESHOLD_SAMPLE_COUNT * CAPSENSE_AUTO_THRESHOLD_TRIM_PERCENT) / 100;
 	const uint16_t trim_high_index = CAPSENSE_AUTO_THRESHOLD_SAMPLE_COUNT - 1 - trim_low_index;
 
-	if (thresholds_out == NULL) {
-		return 0;
+	if ((workspace == NULL) || (thresholds_out == NULL) ||
+			(threshold_min_io == NULL) || (threshold_max_io == NULL) ||
+			(logical_count == 0u) ||
+			(logical_count > CAPSENSE_AUTO_THRESHOLD_BATCH_CHANNELS) ||
+			((logical_start + logical_count) > 34u)) {
+		return 0u;
 	}
+
 	last_frame_counter = capsense_frame_counter;
 	start_tick = HAL_GetTick();
 
 	while (sample_count < CAPSENSE_AUTO_THRESHOLD_SAMPLE_COUNT) {
 		uint32_t timeout_ms = CAPSENSE_AUTO_THRESHOLD_FRAME_TIMEOUT_MS;
-		uint8_t frame_valid = 1;
+		uint8_t frame_valid = 1u;
 
 		while (capsense_frame_counter == last_frame_counter) {
-			if ((timeout_ms == 0) || ((HAL_GetTick() - start_tick) >= CAPSENSE_AUTO_THRESHOLD_TOTAL_TIMEOUT_MS)) {
-				return 0;
+			if ((timeout_ms == 0u) ||
+					((HAL_GetTick() - start_tick) >= CAPSENSE_AUTO_THRESHOLD_TOTAL_TIMEOUT_MS)) {
+				return 0u;
 			}
 			osDelay(1);
 			timeout_ms--;
 		}
 		last_frame_counter = capsense_frame_counter;
 
-		for (uint8_t logical = 0; logical < 34; logical++) {
+		for (uint8_t logical_offset = 0u; logical_offset < logical_count; logical_offset++) {
+			uint8_t logical = (uint8_t) (logical_start + logical_offset);
 			uint8_t channel = capsense_channel_for_logical(logical);
 			uint16_t raw = Touch.channel_raw[channel];
 			uint16_t baseline = capsense_baseline[channel];
-			uint16_t positive_delta = raw > baseline ? (uint16_t) (raw - baseline) : 0;
-			uint16_t step_delta = 0;
+			uint16_t positive_delta = raw > baseline ? (uint16_t) (raw - baseline) : 0u;
+			uint16_t step_delta = 0u;
 
-			if (prev_raw_valid) {
-				step_delta = raw > prev_raw[logical] ? (uint16_t) (raw - prev_raw[logical]) :
-						(uint16_t) (prev_raw[logical] - raw);
+			if (prev_raw_valid != 0u) {
+				step_delta = raw > prev_raw[logical_offset] ?
+						(uint16_t) (raw - prev_raw[logical_offset]) :
+						(uint16_t) (prev_raw[logical_offset] - raw);
 			}
 
-			if (capsense_touch_status[logical] || (raw >= 0xFF00) ||
+			if ((capsense_touch_status[logical] != 0u) || (raw >= 0xFF00u) ||
 					(positive_delta > CAPSENSE_AUTO_THRESHOLD_BASELINE_DELTA_MAX) ||
-					(prev_raw_valid && (step_delta > CAPSENSE_AUTO_THRESHOLD_STEP_MAX))) {
-				frame_valid = 0;
+					((prev_raw_valid != 0u) && (step_delta > CAPSENSE_AUTO_THRESHOLD_STEP_MAX))) {
+				frame_valid = 0u;
 				break;
 			}
 
-			raw_frame[logical] = raw;
-			positive_delta_frame[logical] = positive_delta;
+			raw_frame[logical_offset] = raw;
+			positive_delta_frame[logical_offset] = positive_delta;
 		}
 
-		if (!frame_valid) {
-			stable_frames = 0;
-			sample_count = 0;
-			prev_raw_valid = 0;
+		if (frame_valid == 0u) {
+			stable_frames = 0u;
+			sample_count = 0u;
+			prev_raw_valid = 0u;
 			continue;
 		}
 
-		memcpy(prev_raw, raw_frame, sizeof(prev_raw));
-		prev_raw_valid = 1;
+		memcpy(prev_raw, raw_frame, logical_count * sizeof(prev_raw[0]));
+		prev_raw_valid = 1u;
 
 		if (stable_frames < CAPSENSE_AUTO_THRESHOLD_STABLE_FRAMES) {
 			stable_frames++;
 			continue;
 		}
 
-		for (uint8_t logical = 0; logical < 34; logical++) {
-			uint16_t raw = raw_frame[logical];
-			uint16_t positive_delta = positive_delta_frame[logical];
+		for (uint8_t logical_offset = 0u; logical_offset < logical_count; logical_offset++) {
+			uint16_t raw = raw_frame[logical_offset];
+			uint16_t positive_delta = positive_delta_frame[logical_offset];
 
-			capsense_auto_threshold_samples[logical][sample_count] = raw;
+			workspace->samples[logical_offset][sample_count] = raw;
 
-			if (sample_count == 0) {
-				min_raw[logical] = raw;
-				max_raw[logical] = raw;
-				max_positive_delta[logical] = positive_delta;
+			if (sample_count == 0u) {
+				min_raw[logical_offset] = raw;
+				max_raw[logical_offset] = raw;
+				max_positive_delta[logical_offset] = positive_delta;
 				continue;
 			}
 
-			if (raw < min_raw[logical]) {
-				min_raw[logical] = raw;
+			if (raw < min_raw[logical_offset]) {
+				min_raw[logical_offset] = raw;
 			}
-			if (raw > max_raw[logical]) {
-				max_raw[logical] = raw;
+			if (raw > max_raw[logical_offset]) {
+				max_raw[logical_offset] = raw;
 			}
-			if (positive_delta > max_positive_delta[logical]) {
-				max_positive_delta[logical] = positive_delta;
+			if (positive_delta > max_positive_delta[logical_offset]) {
+				max_positive_delta[logical_offset] = positive_delta;
 			}
 		}
 
 		sample_count++;
 	}
 
-	for (uint8_t logical = 0; logical < 34; logical++) {
-		uint32_t peak_to_peak = (uint32_t) max_raw[logical] - (uint32_t) min_raw[logical];
+	for (uint8_t logical_offset = 0u; logical_offset < logical_count; logical_offset++) {
+		uint8_t logical = (uint8_t) (logical_start + logical_offset);
+		uint32_t peak_to_peak = (uint32_t) max_raw[logical_offset] - (uint32_t) min_raw[logical_offset];
 		uint32_t trimmed_span;
 		uint32_t threshold;
-		uint32_t positive_candidate = (uint32_t) max_positive_delta[logical] * CAPSENSE_AUTO_THRESHOLD_POS_MULTIPLIER;
+		uint32_t positive_candidate =
+				(uint32_t) max_positive_delta[logical_offset] * CAPSENSE_AUTO_THRESHOLD_POS_MULTIPLIER;
 
-		memcpy(capsense_auto_threshold_sorted, capsense_auto_threshold_samples[logical],
-				sizeof(capsense_auto_threshold_sorted));
+		memcpy(workspace->sorted, workspace->samples[logical_offset],
+				sizeof(workspace->sorted));
 
-		for (uint16_t i = 1; i < CAPSENSE_AUTO_THRESHOLD_SAMPLE_COUNT; i++) {
-			uint16_t value = capsense_auto_threshold_sorted[i];
+		for (uint16_t i = 1u; i < CAPSENSE_AUTO_THRESHOLD_SAMPLE_COUNT; i++) {
+			uint16_t value = workspace->sorted[i];
 			uint16_t j = i;
 
-			while ((j > 0) && (capsense_auto_threshold_sorted[j - 1] > value)) {
-				capsense_auto_threshold_sorted[j] = capsense_auto_threshold_sorted[j - 1];
+			while ((j > 0u) && (workspace->sorted[j - 1u] > value)) {
+				workspace->sorted[j] = workspace->sorted[j - 1u];
 				j--;
 			}
-			capsense_auto_threshold_sorted[j] = value;
+			workspace->sorted[j] = value;
 		}
 
-		trimmed_span = (uint32_t) capsense_auto_threshold_sorted[trim_high_index] -
-				(uint32_t) capsense_auto_threshold_sorted[trim_low_index];
+		trimmed_span = (uint32_t) workspace->sorted[trim_high_index] -
+				(uint32_t) workspace->sorted[trim_low_index];
 		threshold = trimmed_span * CAPSENSE_AUTO_THRESHOLD_TRIM_MULTIPLIER;
 		if ((peak_to_peak * CAPSENSE_AUTO_THRESHOLD_P2P_CAP_MULTIPLIER) < threshold) {
 			threshold = peak_to_peak * CAPSENSE_AUTO_THRESHOLD_P2P_CAP_MULTIPLIER;
@@ -1653,14 +1775,49 @@ uint8_t capsense_auto_calibrate_thresholds(uint16_t *thresholds_out, uint16_t *m
 		Flash.touch_threshold[logical] = (uint16_t) threshold;
 		thresholds_out[logical] = (uint16_t) threshold;
 
-		if ((uint16_t) threshold < threshold_min) {
-			threshold_min = (uint16_t) threshold;
+		if ((uint16_t) threshold < *threshold_min_io) {
+			*threshold_min_io = (uint16_t) threshold;
 		}
-		if ((uint16_t) threshold > threshold_max) {
-			threshold_max = (uint16_t) threshold;
+		if ((uint16_t) threshold > *threshold_max_io) {
+			*threshold_max_io = (uint16_t) threshold;
 		}
 	}
 
+	return 1u;
+}
+
+uint8_t capsense_auto_calibrate_thresholds(uint16_t *thresholds_out,
+		uint16_t *min_threshold_out, uint16_t *max_threshold_out)
+{
+	capsense_auto_threshold_workspace_t *workspace;
+	uint16_t threshold_min = 0xFFFFu;
+	uint16_t threshold_max = 0u;
+
+	if (thresholds_out == NULL) {
+		return 0u;
+	}
+
+	workspace = (capsense_auto_threshold_workspace_t *) pvPortMalloc(sizeof(*workspace));
+	if (workspace == NULL) {
+		return 0u;
+	}
+
+	for (uint8_t logical_start = 0u; logical_start < 34u;
+			logical_start = (uint8_t) (logical_start + CAPSENSE_AUTO_THRESHOLD_BATCH_CHANNELS)) {
+		uint8_t logical_count = (uint8_t) (34u - logical_start);
+
+		if (logical_count > CAPSENSE_AUTO_THRESHOLD_BATCH_CHANNELS) {
+			logical_count = CAPSENSE_AUTO_THRESHOLD_BATCH_CHANNELS;
+		}
+
+		if (capsense_auto_calibrate_threshold_batch(logical_start, logical_count,
+				workspace, thresholds_out, &threshold_min, &threshold_max) == 0u) {
+			vPortFree(workspace);
+			return 0u;
+		}
+	}
+
+	vPortFree(workspace);
 	flash_write(Flash.raw_flash);
 
 	if (min_threshold_out != NULL) {
@@ -1670,7 +1827,7 @@ uint8_t capsense_auto_calibrate_thresholds(uint16_t *thresholds_out, uint16_t *m
 		*max_threshold_out = threshold_max;
 	}
 
-	return 1;
+	return 1u;
 }
 
 void capsense_uart_stats_get(capsense_uart_stats_t *stats_out)
@@ -1689,6 +1846,20 @@ void capsense_uart_stats_reset(void)
 	memset(&capsense_uart_stats, 0, sizeof(capsense_uart_stats));
 	capsense_uart_stats.protocol_version = capsense_procotl_version;
 	capsense_uart_stats.legacy_payload_offset = capsense_legacy_payload_offset;
+}
+
+void capsense_debug_stats_get(capsense_debug_stats_t *stats_out)
+{
+	if (stats_out == NULL) {
+		return;
+	}
+
+	*stats_out = capsense_debug_stats;
+}
+
+void capsense_debug_stats_reset(void)
+{
+	memset(&capsense_debug_stats, 0, sizeof(capsense_debug_stats));
 }
 
 void capsense_uart_stats_note_short_packet(void)
@@ -1763,5 +1934,7 @@ void capsense_service_pending_reset(void)
 
 	(void) HAL_UART_DMAStop(&huart4);
 	Boot_Buttom_IRQHandler();
-	capsense_restart_uart4_rx();
+	if (capsense_restart_uart4_rx() == 0u) {
+		capsense_request_link_reset();
+	}
 }

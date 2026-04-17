@@ -52,6 +52,9 @@ typedef enum serial_cmd {
 	SERIAL_CMD_BENCHMARK_EVENT = 0x23,
 	SERIAL_CMD_BENCHMARK_HID_EVENT = 0x24,
 	SERIAL_CMD_JUMP_TO_BOOTLOADER = 0x25,
+	SERIAL_CMD_GET_CAPSENSE_DEBUG_STATS = 0x26,
+	SERIAL_CMD_GET_RAW_DEBUG_SNAPSHOT = 0x27,
+	SERIAL_CMD_GET_LIVE_STATE = 0x28,
 	SERIAL_CMD_GET_BOARD_INFO = 0xF0
 } serial_cmd_t;
 
@@ -63,9 +66,12 @@ void slider_get_board_info();
 void slider_scan();
 void slider_notify_command_ready_from_isr(void);
 void serial_command_init(void);
+uint8_t serial_command_feed(const uint8_t *data, uint16_t len);
 uint8_t serial_command_push(const uint8_t *data, uint16_t len);
 uint8_t serial_command_pop(serial_frame_t *frame);
+uint8_t serial_command_stream_pending(void);
 uint8_t serial_cdc_tx_enqueue_high(const uint8_t *buf, uint16_t len);
+uint8_t serial_cdc_tx_enqueue_high_isr(const uint8_t *buf, uint16_t len);
 uint8_t serial_cdc_tx_enqueue_low(const uint8_t *buf, uint16_t len);
 uint32_t serial_cdc_tx_low_spaces_available(void);
 

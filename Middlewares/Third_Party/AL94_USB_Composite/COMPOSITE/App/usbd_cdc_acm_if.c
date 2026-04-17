@@ -98,7 +98,6 @@ static SemaphoreHandle_t usb_tx_guard_mutex = NULL;
 
 #define APP_RX_DATA_SIZE 128
 #define APP_TX_DATA_SIZE 128
-
 /** RX buffer for USB */
 uint8_t RX_Buffer[NUMBER_OF_CDC][APP_RX_DATA_SIZE];
 
@@ -399,7 +398,6 @@ static int8_t CDC_Control(uint8_t cdc_ch, uint8_t cmd, uint8_t *pbuf, uint16_t l
     break;
 
   case CDC_SET_CONTROL_LINE_STATE:
-
     break;
 
   case CDC_SEND_BREAK:
@@ -433,10 +431,12 @@ static int8_t CDC_Receive(uint8_t cdc_ch, uint8_t *Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 6 */
   //HAL_UART_Transmit_DMA(CDC_CH_To_UART_Handle(cdc_ch), Buf, *Len);
-	if((*Len == 1) && (debug_flag) &&
-			(debug_stream_mode == SERIAL_DEBUG_STREAM_MODE_FOCUS)){
+	if((*Len == 1u) && (debug_flag != 0u) &&
+			(debug_stream_mode == SERIAL_DEBUG_STREAM_MODE_FOCUS) &&
+			(Buf[0] != 0xFFu) &&
+			(serial_command_stream_pending() == 0u)){
 		debug_channel = Buf[0] <= 33 ? Buf[0] : 33;
-	} else if (serial_command_push(Buf, (uint16_t) *Len)) {
+	} else if (serial_command_feed(Buf, (uint16_t) *Len) != 0u) {
 		slider_notify_command_ready_from_isr();
 	}
 	USBD_CDC_SetRxBuffer(cdc_ch, &hUsbDevice, &Buf[0]);
