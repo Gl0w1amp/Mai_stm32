@@ -80,17 +80,6 @@
 #define CAPSENSE_DEBUG_RAW_PACKET_COUNT 3u
 #define CAPSENSE_UART_FRAME_SIZE 70u
 #define CAPSENSE_UART_STREAM_BUFFER_SIZE 512u
-#define CAPSENSE_DEMO_FALLBACK_ENABLE 1u
-#define CAPSENSE_DEMO_START_DELAY_MS 1200u
-#define CAPSENSE_DEMO_REAL_LINK_HOLD_MS 250u
-#define CAPSENSE_DEMO_FRAME_INTERVAL_MS 8u
-#define CAPSENSE_DEMO_BASELINE 1800u
-#define CAPSENSE_DEMO_WAVE_DELTA 90u
-#define CAPSENSE_DEMO_TOUCH_DELTA 950u
-#define CAPSENSE_DEMO_NEIGHBOR_DELTA 240u
-#define CAPSENSE_DEMO_WARMUP_MS 600u
-#define CAPSENSE_DEMO_TOUCH_STEP_MS 260u
-#define CAPSENSE_DEMO_WAVE_STEP_MS 7u
 
 typedef enum {
 	CAPSENSE_HOLD_STATE_IDLE = 0,
@@ -140,11 +129,8 @@ volatile uint32_t capsense_frame_counter = 0;
 static capsense_uart_stats_t capsense_uart_stats = {0};
 static capsense_debug_stats_t capsense_debug_stats = {0};
 static volatile uint32_t capsense_last_good_frame_tick = 0;
-static volatile uint32_t capsense_last_real_frame_tick = 0;
 static volatile uint32_t capsense_last_error_tick = 0;
 static volatile uint8_t capsense_reset_pending = 0;
-static uint32_t capsense_demo_boot_tick = 0;
-static uint32_t capsense_demo_last_emit_tick = 0;
 static uint8_t capsense_uart_stream_buffer[CAPSENSE_UART_STREAM_BUFFER_SIZE];
 static uint16_t capsense_uart_stream_head = 0;
 static uint16_t capsense_uart_stream_tail = 0;
@@ -171,9 +157,6 @@ static uint8_t capsense_auto_calibrate_threshold_batch(uint8_t logical_start,
 		uint8_t logical_count, capsense_auto_threshold_workspace_t *workspace,
 		uint16_t *thresholds_out, uint16_t *threshold_min_io,
 		uint16_t *threshold_max_io);
-static uint16_t capsense_demo_triangle(uint32_t phase, uint16_t amplitude);
-static void capsense_demo_generate_frame(uint32_t now);
-static void capsense_demo_maybe_generate(void);
 
 static uint8_t capsense_channel_for_logical(uint8_t logical_index)
 {
@@ -189,86 +172,6 @@ static uint8_t capsense_debug_stream_chunk(const float *values, uint8_t count)
 
 	return serial_cdc_tx_enqueue_low((const uint8_t *) values,
 			(uint16_t) (count * sizeof(float)));
-}
-
-static uint16_t capsense_demo_triangle(uint32_t phase, uint16_t amplitude)
-{
-	uint32_t period = 64u;
-	uint32_t half_period = period / 2u;
-	uint32_t position = phase % period;
-	uint32_t ramp = position < half_period ? position : (period - position);
-
-	return (uint16_t) ((ramp * amplitude) / half_period);
-}
-
-static void capsense_demo_generate_frame(uint32_t now)
-{
-	uint32_t elapsed = now - capsense_demo_boot_tick;
-	uint8_t active_logical = 0u;
-	uint8_t secondary_logical = 0u;
-	uint8_t warmup_complete =
-			(uint8_t) (elapsed >= (CAPSENSE_DEMO_START_DELAY_MS + CAPSENSE_DEMO_WARMUP_MS));
-
-	for (uint8_t channel = 0u; channel < 34u; channel++) {
-		uint32_t phase = (now / CAPSENSE_DEMO_WAVE_STEP_MS) + (channel * 5u);
-		uint16_t raw = CAPSENSE_DEMO_BASELINE +
-				capsense_demo_triangle(phase, CAPSENSE_DEMO_WAVE_DELTA);
-
-		capsense_rx_touch.channel_raw[channel] = raw;
-	}
-
-	if (warmup_complete == 0u) {
-		return;
-	}
-
-	active_logical = (uint8_t) (((elapsed - CAPSENSE_DEMO_START_DELAY_MS -
-			CAPSENSE_DEMO_WARMUP_MS) / CAPSENSE_DEMO_TOUCH_STEP_MS) % 34u);
-	secondary_logical = (uint8_t) ((active_logical + 1u) % 34u);
-
-	{
-		uint8_t active_channel = capsense_channel_for_logical(active_logical);
-		uint8_t secondary_channel = capsense_channel_for_logical(secondary_logical);
-
-		if (active_channel < 34u) {
-			capsense_rx_touch.channel_raw[active_channel] += CAPSENSE_DEMO_TOUCH_DELTA;
-		}
-		if ((secondary_channel < 34u) && (secondary_channel != active_channel)) {
-			capsense_rx_touch.channel_raw[secondary_channel] += CAPSENSE_DEMO_NEIGHBOR_DELTA;
-		}
-	}
-}
-
-static void capsense_demo_maybe_generate(void)
-{
-#if CAPSENSE_DEMO_FALLBACK_ENABLE
-	uint32_t now = HAL_GetTick();
-
-	if (capsense_data_ready != 0u) {
-		return;
-	}
-	if ((capsense_demo_boot_tick == 0u) ||
-			((uint32_t) (now - capsense_demo_boot_tick) < CAPSENSE_DEMO_START_DELAY_MS)) {
-		return;
-	}
-	if ((capsense_last_real_frame_tick != 0u) &&
-			((uint32_t) (now - capsense_last_real_frame_tick) <= CAPSENSE_DEMO_REAL_LINK_HOLD_MS)) {
-		return;
-	}
-	if ((capsense_demo_last_emit_tick != 0u) &&
-			((uint32_t) (now - capsense_demo_last_emit_tick) < CAPSENSE_DEMO_FRAME_INTERVAL_MS)) {
-		return;
-	}
-
-	capsense_demo_generate_frame(now);
-	capsense_demo_last_emit_tick = now;
-	capsense_last_good_frame_tick = now;
-	capsense_frame_counter++;
-	capsense_data_ready = 1u;
-	if (capsense_procotl_version == 0u) {
-		capsense_procotl_version = 1u;
-	}
-	capsense_uart_stats.protocol_version = capsense_procotl_version;
-#endif
 }
 
 static void capsense_calibration_reset_channel_locks(void)
@@ -752,7 +655,6 @@ static uint8_t capsense_accept_packet(const uint8_t *data, uint8_t lock_protocol
 	} else {
 		capsense_uart_stats.checksum_accept_count++;
 	}
-	capsense_last_real_frame_tick = HAL_GetTick();
 	capsense_last_good_frame_tick = HAL_GetTick();
 	capsense_frame_counter++;
 	capsense_data_ready = 1;
@@ -768,7 +670,6 @@ static uint8_t capsense_accept_legacy_packet(const uint8_t *data, uint8_t payloa
 	capsense_uart_stats.legacy_accept_count++;
 	capsense_legacy_payload_offset = payload_offset;
 	capsense_protocol1_confirm_count = 0;
-	capsense_last_real_frame_tick = HAL_GetTick();
 	capsense_last_good_frame_tick = HAL_GetTick();
 	capsense_frame_counter++;
 	capsense_data_ready = 1;
@@ -1034,8 +935,6 @@ uint8_t capsense_take_latest_snapshot(void)
 	uint8_t snapshot_ready = 0;
 	uint32_t primask = __get_PRIMASK();
 
-	capsense_demo_maybe_generate();
-
 	__disable_irq();
 	if (capsense_data_ready) {
 		memcpy(&Touch, &capsense_rx_touch, sizeof(Touch));
@@ -1080,11 +979,8 @@ static void capsense_reset_runtime_state(void)
 	capsense_uart_stats.rx_failure_streak = 0;
 	memset(&capsense_debug_stats, 0, sizeof(capsense_debug_stats));
 	capsense_last_good_frame_tick = 0;
-	capsense_last_real_frame_tick = 0;
 	capsense_last_error_tick = 0;
 	capsense_reset_pending = 0;
-	capsense_demo_boot_tick = HAL_GetTick();
-	capsense_demo_last_emit_tick = 0;
 	capsense_uart_stream_reset();
 }
 
@@ -1116,7 +1012,6 @@ void capsense_init(){
 		capsense_request_link_reset();
 	}
 	osDelay(100);
-	capsense_demo_boot_tick = HAL_GetTick();
 	for(uint8_t i = 0;i<34;i++){
 		capsense_baseline[i] = Touch.channel_raw[i];
 		capsense_freeze[i] = Touch.channel_raw[i];
