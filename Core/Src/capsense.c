@@ -1,15 +1,13 @@
 /*
  * capsense.c
  *
- *  Created on: Jan 8, 2025
- *      Original Author: Qinh
-		Optimized: Gl0w1amp
-
-		This file includes implementation of proprietary and patent-related
-		algorithms developed by Ruminasu Labs.
-
-		Use, reproduction, or redistribution of these portions may be subject
-		to intellectual property restrictions.
+ * Created on: Jan 8, 2025
+ * Originally created by Qinh.
+ *
+ * The current capsense processing, calibration, and debug architecture
+ * has been substantially redesigned and extended by Gl0w1amp.
+ *
+ * Copyright (c) Ruminasu Labs. All rights reserved.
  */
 #include "FreeRTOS.h"
 #include "capsense.h"
