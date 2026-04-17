@@ -74,6 +74,7 @@ static LedRxFrame led_rx_queue[LED_RX_QUEUE_LENGTH];
 static volatile uint8_t led_rx_head = 0;
 static volatile uint8_t led_rx_tail = 0;
 static volatile uint8_t led_rx_count = 0;
+static volatile uint8_t led_uart_rx_restart_pending = 0u;
 
 volatile uint32_t timer7_count = 0;
 volatile uint32_t timer7_target = 0;
@@ -81,6 +82,19 @@ volatile uint8_t timer7_active = 0;
 
 void set_led_immediate(uint8_t index, uint8_t r, uint8_t g, uint8_t b);
 void set_led_fade(uint8_t index, uint8_t r, uint8_t g, uint8_t b, uint8_t speed);
+
+static uint8_t led_uart_start_receive_to_idle(void)
+{
+	HAL_StatusTypeDef status;
+
+	status = HAL_UARTEx_ReceiveToIdle_DMA(&huart1, led_uart_buffer_rx, 64);
+	if (status != HAL_OK) {
+		return 0u;
+	}
+
+	__HAL_DMA_DISABLE_IT(&hdma_usart1_rx, DMA_IT_HT);
+	return 1u;
+}
 
 static uint32_t led_lock_irq(void)
 {
@@ -173,14 +187,19 @@ void FET_LED_Update(uint8_t BodyLed,uint8_t ExtLed,uint8_t SideLed){
 	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_4,SideLed);
 }
 void LED_UART_Init(){
-	for(uint16_t i = 0;i < 128 + NUM_LED * 24 + 64;i++){
-		WS2812_data_DMA_buffer[i] = 0;
-	}
+	memset(WS2812_data_DMA_buffer, 0, sizeof(WS2812_data_DMA_buffer));
 	led_rx_head = 0;
 	led_rx_tail = 0;
 	led_rx_count = 0;
-	while(HAL_UARTEx_ReceiveToIdle_DMA(&huart1, led_uart_buffer_rx,64) != HAL_OK);
-	__HAL_DMA_DISABLE_IT(&hdma_usart1_rx, DMA_IT_HT);
+	led_uart_rx_restart_pending = 0u;
+	if (led_uart_start_receive_to_idle() == 0u) {
+		led_uart_rx_restart_pending = 1u;
+	}
+}
+
+void LED_UART_RequestRxRestart(void)
+{
+	led_uart_rx_restart_pending = 1u;
 }
 
 void set_led_immediate(uint8_t index, uint8_t r, uint8_t g, uint8_t b) {
@@ -500,6 +519,12 @@ void LED_Task_Process(const uint8_t *data, uint16_t len){
 void LED_Task_ProcessPending(void)
 {
     LedRxFrame frame;
+
+    if (led_uart_rx_restart_pending != 0u) {
+        if (led_uart_start_receive_to_idle() != 0u) {
+            led_uart_rx_restart_pending = 0u;
+        }
+    }
 
     while (led_rx_frame_pop(&frame)) {
         LED_Task_Process(frame.data, frame.len);

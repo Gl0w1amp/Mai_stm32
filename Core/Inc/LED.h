@@ -138,6 +138,7 @@ void LED_set(uint8_t led_no,uint8_t r,uint8_t g,uint8_t b);
 void LED_refresh();
 void LED_update_button(uint8_t speed);
 void LED_UART_Init();
+void LED_UART_RequestRxRestart(void);
 void LED_UART_IRQHandler();
 void LED_Fade_IRQHandler();
 uint8_t LED_RxFramePush(const uint8_t *data, uint16_t len);

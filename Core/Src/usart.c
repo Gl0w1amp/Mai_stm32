@@ -26,12 +26,42 @@
 #include "LED.h"
 extern uint8_t led_uart_buffer_rx[64];
 extern uint8_t uart_dma_buffer[128];
+extern UART_HandleTypeDef huart4;
+extern UART_HandleTypeDef huart1;
+extern DMA_HandleTypeDef hdma_uart4_rx;
+extern DMA_HandleTypeDef hdma_usart1_rx;
 
 #define CAPSENSE_CONSECUTIVE_FAILURE_RESET_THRESHOLD 8u
 #define CAPSENSE_RESET_COOLDOWN_MS 500u
 
 static uint8_t capsense_rx_failure_count = 0;
 static uint32_t capsense_last_reset_tick = 0;
+
+static uint8_t usart1_start_receive_to_idle(void)
+{
+	HAL_StatusTypeDef status;
+
+	status = HAL_UARTEx_ReceiveToIdle_DMA(&huart1, led_uart_buffer_rx, 64);
+	if (status != HAL_OK) {
+		return 0u;
+	}
+
+	__HAL_DMA_DISABLE_IT(&hdma_usart1_rx, DMA_IT_HT);
+	return 1u;
+}
+
+static uint8_t uart4_start_receive_to_idle(void)
+{
+	HAL_StatusTypeDef status;
+
+	status = HAL_UARTEx_ReceiveToIdle_DMA(&huart4, uart_dma_buffer, 128);
+	if (status != HAL_OK) {
+		return 0u;
+	}
+
+	__HAL_DMA_DISABLE_IT(&hdma_uart4_rx, DMA_IT_HT);
+	return 1u;
+}
 
 static void capsense_note_rx_success(void)
 {
@@ -350,8 +380,9 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
     if (huart->Instance == USART1)
     {
         (void) LED_RxFramePush(led_uart_buffer_rx, Size);
-		while(HAL_UARTEx_ReceiveToIdle_DMA(&huart1, led_uart_buffer_rx,64) != HAL_OK);
-        __HAL_DMA_DISABLE_IT(&hdma_usart1_rx, DMA_IT_HT);
+		if (usart1_start_receive_to_idle() == 0u) {
+			LED_UART_RequestRxRestart();
+		}
     }
     if (huart->Instance == UART4)
     {
@@ -366,8 +397,10 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 		}else if(rejected_frames > 0u){
 			capsense_note_rx_failure();
 		}
-		while(HAL_UARTEx_ReceiveToIdle_DMA(&huart4, uart_dma_buffer, 128) != HAL_OK);
-        __HAL_DMA_DISABLE_IT(&hdma_uart4_rx, DMA_IT_HT);
+		if (uart4_start_receive_to_idle() == 0u) {
+			capsense_uart_stats_note_uart_error();
+			capsense_request_link_reset();
+		}
     }
 }
 
@@ -378,14 +411,16 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 
     if (huart->Instance == USART1)
     {
-        HAL_UARTEx_ReceiveToIdle_DMA(&huart1, led_uart_buffer_rx,64);
-         __HAL_DMA_DISABLE_IT(&hdma_usart1_rx, DMA_IT_HT);
+        if (usart1_start_receive_to_idle() == 0u) {
+        	LED_UART_RequestRxRestart();
+        }
     }
     if (huart->Instance == UART4){
     	capsense_uart_stats_note_uart_error();
     	capsense_note_rx_failure();
-    	HAL_UARTEx_ReceiveToIdle_DMA(&huart4, uart_dma_buffer, 128);
-    	__HAL_DMA_DISABLE_IT(&hdma_uart4_rx, DMA_IT_HT);
+    	if (uart4_start_receive_to_idle() == 0u) {
+    		capsense_request_link_reset();
+    	}
     }
 }
 
