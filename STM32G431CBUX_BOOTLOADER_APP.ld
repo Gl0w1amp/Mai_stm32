@@ -19,7 +19,10 @@ ENTRY(Reset_Handler)
 
 _estack = ORIGIN(RAM) + LENGTH(RAM);
 
-_Min_Heap_Size = 0x600;
+/* Reserved for rare newlib allocations such as lock bootstrap.
+ * FreeRTOS dynamic objects live in heap_4 instead.
+ */
+_Min_Heap_Size = 0x200;
 _Min_Stack_Size = 0x800;
 
 MEMORY
