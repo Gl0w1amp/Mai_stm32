@@ -104,8 +104,12 @@ extern USBD_CDC_ACM_ItfTypeDef  USBD_CDC_ACM_fops;
   */
 
 uint8_t CDC_Transmit(uint8_t ch, uint8_t* Buf, uint16_t Len);
+uint8_t CDC_TransmitReady(uint8_t ch);
 
 /* USER CODE BEGIN EXPORTED_FUNCTIONS */
+void UsbTxGuard_Init(void);
+uint8_t UsbTxGuard_Take(uint32_t timeout_ms);
+void UsbTxGuard_Give(void);
 
 /* USER CODE END EXPORTED_FUNCTIONS */
 

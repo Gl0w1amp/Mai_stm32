@@ -44,7 +44,7 @@ extern "C" {
 
 #define HID_KEYBOARD_STR_DESC                               "Curva USB KeyBoard"
 
-#define HID_KEYBOARD_EPIN_SIZE                              0x08U
+#define HID_KEYBOARD_EPIN_SIZE                              0x0EU
 
 #define HID_KEYBOARD_CONFIG_DESC_SIZE                       34U
 #define HID_KEYBOARD_DESC_SIZE                              9U

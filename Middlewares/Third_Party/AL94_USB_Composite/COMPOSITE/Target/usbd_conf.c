@@ -398,13 +398,13 @@ USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *pdev)
 #endif
 #if (USBD_USE_HID_KEYBOARD == 1)
     HAL_PCDEx_PMAConfig((PCD_HandleTypeDef *)pdev->pData, HID_KEYBOARD_IN_EP, PCD_SNG_BUF, pma_track);
-    pma_track += 8;
+    pma_track += HID_KEYBOARD_EPIN_SIZE;
 #endif
 #if (USBD_USE_HID_CUSTOM == 1)
     HAL_PCDEx_PMAConfig((PCD_HandleTypeDef *)pdev->pData, CUSTOM_HID_IN_EP, PCD_SNG_BUF, pma_track);
-    pma_track += 8;
+    pma_track += CUSTOM_HID_EPIN_SIZE;
     HAL_PCDEx_PMAConfig((PCD_HandleTypeDef *)pdev->pData, CUSTOM_HID_OUT_EP, PCD_SNG_BUF, pma_track);
-    pma_track += 8;
+    pma_track += CUSTOM_HID_EPOUT_SIZE;
 #endif
 #if (USBD_USE_UAC_MIC == 1)
     HAL_PCDEx_PMAConfig((PCD_HandleTypeDef *)pdev->pData, AUDIO_MIC_EP, PCD_SNG_BUF, pma_track);
@@ -436,13 +436,13 @@ USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *pdev)
     for (uint8_t i = 0; i < USBD_CDC_ACM_COUNT; i++)
     {
       HAL_PCDEx_PMAConfig((PCD_HandleTypeDef *)pdev->pData, CDC_IN_EP[i], PCD_SNG_BUF, pma_track);
-      pma_track += 48;
+      pma_track += CDC_DATA_FS_IN_PACKET_SIZE;
 
       HAL_PCDEx_PMAConfig((PCD_HandleTypeDef *)pdev->pData, CDC_OUT_EP[i], PCD_SNG_BUF, pma_track);
-      pma_track += 48;
+      pma_track += CDC_DATA_FS_OUT_PACKET_SIZE;
 
       HAL_PCDEx_PMAConfig((PCD_HandleTypeDef *)pdev->pData, CDC_CMD_EP[i], PCD_SNG_BUF, pma_track);
-      pma_track += 8;
+      pma_track += CDC_CMD_PACKET_SIZE;
     }
 #endif
 #else /** if HAL_PCDEx_SetRxFiFo() is used by HAL driver */

@@ -23,6 +23,10 @@
 #include "usbd_cdc_acm_if.h"
 
 /* USER CODE BEGIN INCLUDE */
+#include <string.h>
+#include "FreeRTOS.h"
+#include "task.h"
+#include "semphr.h"
 #include "slider.h"
 /* USER CODE END INCLUDE */
 
@@ -35,6 +39,7 @@
 extern uint8_t debug_channel;
 extern volatile uint8_t debug_flag;
 extern volatile uint8_t debug_stream_mode;
+static SemaphoreHandle_t usb_tx_guard_mutex = NULL;
 /* USER CODE END PV */
 
 /** @addtogroup STM32_USB_OTG_DEVICE_LIBRARY
@@ -286,6 +291,11 @@ USBD_CDC_ACM_ItfTypeDef USBD_CDC_ACM_fops = {CDC_Init,
 static int8_t CDC_Init(uint8_t cdc_ch)
 {
   /* USER CODE BEGIN 3 */
+  memset(&Line_Coding[cdc_ch], 0, sizeof(Line_Coding[cdc_ch]));
+  Line_Coding[cdc_ch].bitrate = 115200U;
+  Line_Coding[cdc_ch].format = 0U;
+  Line_Coding[cdc_ch].paritytype = 0U;
+  Line_Coding[cdc_ch].datatype = 8U;
 
   /* ##-1- Set Application Buffers */
   USBD_CDC_SetRxBuffer(cdc_ch, &hUsbDevice, RX_Buffer[cdc_ch]);
@@ -469,18 +479,90 @@ uint8_t CDC_Transmit(uint8_t ch, uint8_t *Buf, uint16_t Len)
   /* USER CODE BEGIN 7 */
   extern USBD_CDC_ACM_HandleTypeDef CDC_ACM_Class_Data[];
   USBD_CDC_ACM_HandleTypeDef *hcdc = NULL;
+  if (ch >= NUMBER_OF_CDC)
+  {
+    return USBD_FAIL;
+  }
   hcdc = &CDC_ACM_Class_Data[ch];
-  if (hcdc->TxState != 0)
+  if ((Buf == NULL) || (Len > APP_TX_DATA_SIZE))
+  {
+    return USBD_FAIL;
+  }
+  if (hUsbDevice.dev_state != USBD_STATE_CONFIGURED)
   {
     return USBD_BUSY;
   }
-  USBD_CDC_SetTxBuffer(ch, &hUsbDevice, Buf, Len);
+  if (UsbTxGuard_Take(2u) == 0u)
+  {
+    return USBD_BUSY;
+  }
+  if (hcdc->TxState != 0)
+  {
+    UsbTxGuard_Give();
+    return USBD_BUSY;
+  }
+
+  /* The USB core transmits asynchronously, so the caller's buffer must remain
+   * valid until the IN transfer completes. Stage into the CDC app buffer to
+   * avoid dangling pointers to task stack data. */
+  memcpy(TX_Buffer[ch], Buf, Len);
+  USBD_CDC_SetTxBuffer(ch, &hUsbDevice, TX_Buffer[ch], Len);
   result = USBD_CDC_TransmitPacket(ch, &hUsbDevice);
+  UsbTxGuard_Give();
   /* USER CODE END 7 */
   return result;
 }
 
+uint8_t CDC_TransmitReady(uint8_t ch)
+{
+  extern USBD_CDC_ACM_HandleTypeDef CDC_ACM_Class_Data[];
+  USBD_CDC_ACM_HandleTypeDef *hcdc = NULL;
+
+  if ((ch >= NUMBER_OF_CDC) || (hUsbDevice.dev_state != USBD_STATE_CONFIGURED))
+  {
+    return 0u;
+  }
+  hcdc = &CDC_ACM_Class_Data[ch];
+  return (uint8_t)(hcdc->TxState == 0U);
+}
+
 /* USER CODE BEGIN PRIVATE_FUNCTIONS_IMPLEMENTATION */
+void UsbTxGuard_Init(void)
+{
+  if (usb_tx_guard_mutex == NULL)
+  {
+    usb_tx_guard_mutex = xSemaphoreCreateMutex();
+  }
+}
+
+uint8_t UsbTxGuard_Take(uint32_t timeout_ms)
+{
+  TickType_t wait_ticks = 0u;
+
+  if (usb_tx_guard_mutex == NULL)
+  {
+    return 1u;
+  }
+  if (timeout_ms != 0u)
+  {
+    wait_ticks = pdMS_TO_TICKS(timeout_ms);
+    if (wait_ticks == 0u)
+    {
+      wait_ticks = 1u;
+    }
+  }
+
+  return (uint8_t)(xSemaphoreTake(usb_tx_guard_mutex, wait_ticks) == pdTRUE);
+}
+
+void UsbTxGuard_Give(void)
+{
+  if (usb_tx_guard_mutex != NULL)
+  {
+    (void)xSemaphoreGive(usb_tx_guard_mutex);
+  }
+}
+
 //void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 //{
 //  /* Initiate next USB packet transfer once UART completes transfer (transmitting data over Tx line) */
