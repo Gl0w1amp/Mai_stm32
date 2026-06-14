@@ -7,10 +7,10 @@
 **                under the Affine USB-CDC bootloader.
 **
 **                Flash layout:
-**                  0x08000000 - 0x08003FFF  Bootloader (16 KB)
-**                  0x08004000 - 0x0801EFFF  Application slot (108 KB)
-**                  0x0801F000 - 0x0801F7FF  Boot metadata page (2 KB)
-**                  0x0801F800 - 0x0801FFFF  App settings page (2 KB)
+**                  0x08000000 - 0x08005FFF  Affine bootloader (24 KB)
+**                  0x08006000 - 0x0801CFFF  Application image (92 KB)
+**                  0x0801D000 - 0x0801DFFF  App settings (4 KB)
+**                  0x0801E000 - 0x0801FFFF  Boot metadata (8 KB)
 **
 ******************************************************************************
 */
@@ -28,7 +28,7 @@ _Min_Stack_Size = 0x800;
 MEMORY
 {
   RAM   (xrw) : ORIGIN = 0x20000000, LENGTH = 32K
-  FLASH (rx)  : ORIGIN = 0x08004000, LENGTH = 108K
+  FLASH (rx)  : ORIGIN = 0x08006000, LENGTH = 92K
 }
 
 SECTIONS

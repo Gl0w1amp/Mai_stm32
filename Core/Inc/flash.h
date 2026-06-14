@@ -8,6 +8,8 @@
 #ifndef INC_FLASH_H_
 #define INC_FLASH_H_
 
+#include <stdint.h>
+
 typedef union{
 	uint64_t raw_flash[16];
 	struct{
@@ -32,7 +34,7 @@ typedef union{
 
 extern FlashData Flash;
 
-void flash_write(uint64_t* data);
+uint8_t flash_write(uint64_t* data);
 void flash_read(uint64_t* data);
 
 #endif /* INC_FLASH_H_ */
