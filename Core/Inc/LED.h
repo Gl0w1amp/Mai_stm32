@@ -83,7 +83,7 @@ typedef union {
 } PacketReq;
 
 typedef union {
-  uint8_t bytes[12];
+  uint8_t bytes[32];
   struct {
     struct {
       // uint8_t sync;

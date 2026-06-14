@@ -6,6 +6,7 @@
 
 #define NUM_LED 16
 #define PRE_BUTTON_LED 2
+#define BUTTON_LED_COUNT (NUM_LED / PRE_BUTTON_LED)
 #define WS2812_HIGH 143
 #define WS2812_LOW 67
 #define LED_RX_QUEUE_LENGTH 4u
@@ -134,7 +135,7 @@ static uint8_t led_rx_frame_pop(LedRxFrame *frame)
 }
 
 void LED_set(uint8_t led_no,uint8_t r,uint8_t g,uint8_t b){
-	if(led_no > 8){
+	if(led_no >= BUTTON_LED_COUNT){
 		return;
 	}
 	for(uint8_t i = 0;i<PRE_BUTTON_LED;i++){
@@ -203,7 +204,7 @@ void LED_UART_RequestRxRestart(void)
 }
 
 void set_led_immediate(uint8_t index, uint8_t r, uint8_t g, uint8_t b) {
-    if (index >= NUM_LED) return;
+    if (index >= BUTTON_LED_COUNT) return;
     fade_ctx[index].start[0] = r;
     fade_ctx[index].start[1] = g;
     fade_ctx[index].start[2] = b;
@@ -219,7 +220,7 @@ void set_led_immediate(uint8_t index, uint8_t r, uint8_t g, uint8_t b) {
 }
 
 void set_led_fade(uint8_t index, uint8_t r, uint8_t g, uint8_t b, uint8_t speed) {
-    if (index >= NUM_LED) return;
+    if (index >= BUTTON_LED_COUNT) return;
     if (speed == 0) {
         set_led_immediate(index, r, g, b);
         return;
@@ -236,19 +237,19 @@ void set_led_fade(uint8_t index, uint8_t r, uint8_t g, uint8_t b, uint8_t speed)
 static uint8_t resolve_multi_len(uint8_t start, uint8_t end_field) {
     uint8_t count = end_field;
     if (count == 0x20) {
-        count = NUM_LED; // host shortcut for "all"
+        count = BUTTON_LED_COUNT; // host shortcut for "all"
     }
-    if (start >= NUM_LED) {
+    if (start >= BUTTON_LED_COUNT) {
         return 0;
     }
-    if (start + count > NUM_LED) {
-        count = NUM_LED - start;
+    if (start + count > BUTTON_LED_COUNT) {
+        count = BUTTON_LED_COUNT - start;
     }
     return count;
 }
 
 static void schedule_led_fade(uint8_t index, uint8_t r, uint8_t g, uint8_t b, uint8_t speed) {
-    if (index >= NUM_LED) return;
+    if (index >= BUTTON_LED_COUNT) return;
     if (speed == 0) {
         set_led_immediate(index, r, g, b);
         return;
@@ -261,7 +262,7 @@ static void schedule_led_fade(uint8_t index, uint8_t r, uint8_t g, uint8_t b, ui
 }
 
 static void start_pending_fades(void) {
-    for (uint8_t i = 0; i < NUM_LED; i++) {
+    for (uint8_t i = 0; i < BUTTON_LED_COUNT; i++) {
         if (fade_pending_active[i]) {
             fade_ctx[i].start[0] = fade_ctx[i].current[0];
             fade_ctx[i].start[1] = fade_ctx[i].current[1];
@@ -274,7 +275,7 @@ static void start_pending_fades(void) {
 }
 
 void LED_Fade_IRQHandler(){
-    for(int i=0; i<NUM_LED; i++) {
+    for(int i=0; i<BUTTON_LED_COUNT; i++) {
         if(fade_ctx[i].duration > 0) {
             fade_ctx[i].elapsed++;
             if(fade_ctx[i].elapsed >= fade_ctx[i].duration) {
@@ -371,7 +372,7 @@ void led_packet_write() {
   if (res.cmd == 0) {
     return;
   }
-  memset(led_write_buffer,0,16);
+  memset(led_write_buffer,0,sizeof(led_write_buffer));
   led_write_buffer[0] = 0xE0;
   uint8_t current_pos = 0;
   while (len <= res.length + 3) {
@@ -392,7 +393,7 @@ void led_packet_write() {
   }
   res.cmd = 0;
   HAL_UART_Transmit_DMA(&huart1, led_write_buffer, ++current_pos);
-  memset(res.bytes,0,12);
+  memset(res.bytes,0,sizeof(res.bytes));
 }
 
 void res_init(uint8_t length, uint8_t status, uint8_t report) {
@@ -443,25 +444,37 @@ void LED_Task_Process(const uint8_t *data, uint16_t len){
 		}
 		switch(cmd){
 		case SetLedGs8Bit:
-			set_led_immediate(req.index, req.color[0], req.color[1], req.color[2]);
-			res_init(0,AckStatus_Ok,AckReport_Ok);
+			if (req.index < BUTTON_LED_COUNT) {
+				set_led_immediate(req.index, req.color[0], req.color[1], req.color[2]);
+				res_init(0,AckStatus_Ok,AckReport_Ok);
+			} else {
+				res_init(0,AckStatus_Ok,AckReport_ParamError);
+			}
 			break;
 		case SetLedGs8BitMulti:
 		{
 			uint8_t count = resolve_multi_len(req.start, req.end);
-			for(uint8_t i = 0; i < count; i++){
-                set_led_immediate(req.start + i, req.Multi_color[0], req.Multi_color[1], req.Multi_color[2]);
+			if ((req.start >= BUTTON_LED_COUNT) && (count == 0u)) {
+				res_init(0,AckStatus_Ok,AckReport_ParamError);
+			} else {
+				for(uint8_t i = 0; i < count; i++){
+					set_led_immediate(req.start + i, req.Multi_color[0], req.Multi_color[1], req.Multi_color[2]);
+				}
+				res_init(0,AckStatus_Ok,AckReport_Ok);
 			}
-			res_init(0,AckStatus_Ok,AckReport_Ok);
 			break;
 		}
 		case SetLedGs8BitMultiFade:
 		{
 			uint8_t count = resolve_multi_len(req.start, req.end);
-			for(uint8_t i = 0; i < count; i++){
-                schedule_led_fade(req.start + i, req.Multi_color[0], req.Multi_color[1], req.Multi_color[2], req.speed);
+			if ((req.start >= BUTTON_LED_COUNT) && (count == 0u)) {
+				res_init(0,AckStatus_Ok,AckReport_ParamError);
+			} else {
+				for(uint8_t i = 0; i < count; i++){
+					schedule_led_fade(req.start + i, req.Multi_color[0], req.Multi_color[1], req.Multi_color[2], req.speed);
+				}
+				res_init(0,AckStatus_Ok,AckReport_Ok);
 			}
-			res_init(0,AckStatus_Ok,AckReport_Ok);
 			break;
 		}
 		case SetLedFet:
@@ -474,13 +487,21 @@ void LED_Task_Process(const uint8_t *data, uint16_t len){
 			res_init(0,AckStatus_Ok,AckReport_Ok);
 			break;
 		case SetEEPRom:
-			dummyEEPRom[req.Set_adress] = req.writeData;
-			res_init(0,AckStatus_Ok,AckReport_Ok);
+			if (req.Set_adress < sizeof(dummyEEPRom)) {
+				dummyEEPRom[req.Set_adress] = req.writeData;
+				res_init(0,AckStatus_Ok,AckReport_Ok);
+			} else {
+				res_init(0,AckStatus_Ok,AckReport_ParamError);
+			}
 			break;
 		case GetEEPRom:
 			//GetEEPRom
-			res.eepData = dummyEEPRom[req.Get_adress];
-			res_init(1,AckStatus_Ok,AckReport_Ok);
+			if (req.Get_adress < sizeof(dummyEEPRom)) {
+				res.eepData = dummyEEPRom[req.Get_adress];
+				res_init(1,AckStatus_Ok,AckReport_Ok);
+			} else {
+				res_init(0,AckStatus_Ok,AckReport_ParamError);
+			}
 			//HAL_UART_Transmit_DMA(&huart1, mai_led_eeprom_response, 9);
 			break;
 		case GetBoardInfo:
