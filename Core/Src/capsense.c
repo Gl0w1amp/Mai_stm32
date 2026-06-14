@@ -1346,15 +1346,24 @@ uint8_t capsense_calibration_capture(uint8_t logical_index, uint8_t capture_flag
 
 uint8_t capsense_calibration_commit(void)
 {
+	uint16_t previous_thresholds[34];
+	uint8_t previous_sheet[34];
+
 	if (capsense_calibration_active == 0u) {
 		return 0u;
 	}
 
+	memcpy(previous_thresholds, Flash.touch_threshold, sizeof(previous_thresholds));
+	memcpy(previous_sheet, Flash.touch_sheet, sizeof(previous_sheet));
 	memcpy(Flash.touch_threshold, capsense_calibration_threshold_stage,
 			sizeof(capsense_calibration_threshold_stage));
 	memcpy(Flash.touch_sheet, capsense_calibration_mapping_stage,
 			sizeof(capsense_calibration_mapping_stage));
-	flash_write(Flash.raw_flash);
+	if (flash_write(Flash.raw_flash) == 0u) {
+		memcpy(Flash.touch_threshold, previous_thresholds, sizeof(previous_thresholds));
+		memcpy(Flash.touch_sheet, previous_sheet, sizeof(previous_sheet));
+		return 0u;
+	}
 	capsense_calibration_reset_channel_locks();
 	capsense_calibration_cancel_requested = 0u;
 	capsense_calibration_active = 0u;
@@ -1683,12 +1692,14 @@ uint8_t capsense_auto_calibrate_thresholds(uint16_t *thresholds_out,
 		uint16_t *min_threshold_out, uint16_t *max_threshold_out)
 {
 	capsense_auto_threshold_workspace_t *workspace;
+	uint16_t previous_thresholds[34];
 	uint16_t threshold_min = 0xFFFFu;
 	uint16_t threshold_max = 0u;
 
 	if (thresholds_out == NULL) {
 		return 0u;
 	}
+	memcpy(previous_thresholds, Flash.touch_threshold, sizeof(previous_thresholds));
 
 	workspace = (capsense_auto_threshold_workspace_t *) pvPortMalloc(sizeof(*workspace));
 	if (workspace == NULL) {
@@ -1705,13 +1716,17 @@ uint8_t capsense_auto_calibrate_thresholds(uint16_t *thresholds_out,
 
 		if (capsense_auto_calibrate_threshold_batch(logical_start, logical_count,
 				workspace, thresholds_out, &threshold_min, &threshold_max) == 0u) {
+			memcpy(Flash.touch_threshold, previous_thresholds, sizeof(previous_thresholds));
 			vPortFree(workspace);
 			return 0u;
 		}
 	}
 
 	vPortFree(workspace);
-	flash_write(Flash.raw_flash);
+	if (flash_write(Flash.raw_flash) == 0u) {
+		memcpy(Flash.touch_threshold, previous_thresholds, sizeof(previous_thresholds));
+		return 0u;
+	}
 
 	if (min_threshold_out != NULL) {
 		*min_threshold_out = threshold_min;

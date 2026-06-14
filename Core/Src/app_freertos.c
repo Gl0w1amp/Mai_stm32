@@ -94,6 +94,10 @@ typedef struct usb_cdc_tx_stats {
 #define DEBUG_EXIT_USB_DISCONNECT_HOLD_MS 500u
 #define RAW_DEBUG_SNAPSHOT_PARTS 2u
 #define RAW_DEBUG_SNAPSHOT_VALUES_PER_PART (34u / RAW_DEBUG_SNAPSHOT_PARTS)
+#define TOUCH_CHANNEL_COUNT 34u
+#define TOUCH_THRESHOLD_DEFAULT 2000u
+#define DELAY_SETTING_COUNT 2u
+#define DELAY_SETTING_MAX 9u
 const char VERSION[] = FIRMWARE_VERSION;
 
 // Firmware Header instance placed in specific section
@@ -182,6 +186,13 @@ volatile uint32_t debug_exit_reset_deadline_ms = 0u;
 static uint32_t benchmark_last_cycles = 0;
 static uint32_t benchmark_cycles_high = 0;
 static usb_cdc_tx_stats_t usb_cdc_tx_stats = {0};
+static const uint8_t touch_sheet_default[TOUCH_CHANNEL_COUNT] = {
+		0,16,2,3,4,5,6,7,8,
+		9,10,11,12,13,14,15,
+		1,17,
+		18,19,20,21,22,23,24,
+		25,26,27,28,29,30,31,32,33
+};
 /* USER CODE END Variables */
 osThreadId TouchTaskHandle;
 osThreadId ButtonTaskHandle;
@@ -217,6 +228,10 @@ static uint8_t serial_binary_frame_valid(const uint8_t *frame, uint8_t len);
 static void heart_beat_refresh(void);
 static uint8_t heart_beat_active(void);
 static uint8_t controller_role_normalize(uint8_t role);
+static void flash_load_defaults(void);
+static uint8_t flash_touch_sheet_valid(const uint8_t *sheet);
+static uint8_t flash_config_sanitize(void);
+static void serial_send_simple_status(uint8_t command, uint8_t ok);
 static void debug_exit_reset_now(void);
 /* USER CODE END FunctionPrototypes */
 
@@ -304,6 +319,71 @@ static uint8_t heart_beat_active(void)
 static uint8_t controller_role_normalize(uint8_t role)
 {
 	return (role == 2u) ? 2u : 1u;
+}
+
+static void flash_load_defaults(void)
+{
+	for(uint8_t i = 0;i<TOUCH_CHANNEL_COUNT;i++){
+		Flash.touch_threshold[i] = TOUCH_THRESHOLD_DEFAULT;
+	}
+	memcpy(Flash.touch_sheet, touch_sheet_default, TOUCH_CHANNEL_COUNT);
+	Flash.delay_setting[0] = 0u;
+	Flash.delay_setting[1] = 0u;
+	Flash.controller_role = 1u;
+	Flash.system_config = CONFIG_VERSION;
+}
+
+static uint8_t flash_touch_sheet_valid(const uint8_t *sheet)
+{
+	if (sheet == NULL) {
+		return 0u;
+	}
+	for(uint8_t i = 0;i<TOUCH_CHANNEL_COUNT;i++){
+		if (sheet[i] >= TOUCH_CHANNEL_COUNT) {
+			return 0u;
+		}
+	}
+	return 1u;
+}
+
+static uint8_t flash_config_sanitize(void)
+{
+	uint8_t changed = 0u;
+
+	if(Flash.system_config != CONFIG_VERSION){
+		flash_load_defaults();
+		return flash_write(Flash.raw_flash);
+	}
+
+	if (flash_touch_sheet_valid(Flash.touch_sheet) == 0u) {
+		memcpy(Flash.touch_sheet, touch_sheet_default, TOUCH_CHANNEL_COUNT);
+		changed = 1u;
+	}
+	for(uint8_t i = 0;i<DELAY_SETTING_COUNT;i++){
+		if(Flash.delay_setting[i] > DELAY_SETTING_MAX){
+			Flash.delay_setting[i] = DELAY_SETTING_MAX;
+			changed = 1u;
+		}
+	}
+	if ((Flash.controller_role != 1u) && (Flash.controller_role != 2u)) {
+		Flash.controller_role = 1u;
+		changed = 1u;
+	}
+
+	if (changed != 0u) {
+		return flash_write(Flash.raw_flash);
+	}
+	return 1u;
+}
+
+static void serial_send_simple_status(uint8_t command, uint8_t ok)
+{
+	uint8_t cmd_tmp[5] = {0xff, command, 1u, ok, 0u};
+
+	for(uint8_t i = 0;i<4u;i++){
+		cmd_tmp[4] += cmd_tmp[i];
+	}
+	(void) usb_tx_enqueue_high(cmd_tmp, sizeof(cmd_tmp));
 }
 
 static void debug_exit_reset_now(void)
@@ -726,36 +806,7 @@ void Touch_Task(void const * argument)
 	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, 0);
 	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, 1);
 	flash_read(Flash.raw_flash);
-	if(Flash.system_config != CONFIG_VERSION){
-		for(uint8_t i = 0;i<34;i++){
-			Flash.touch_threshold[i] = 2000;
-		}
-		uint8_t touch_sheet_default[34] ={
-				0,16,2,3,4,5,6,7,8,
-				9,10,11,12,13,14,15,
-				1,17,
-				18,19,20,21,22,23,24,
-				25,26,27,28,29,30,31,32,33
-		};
-		memcpy(Flash.touch_sheet,touch_sheet_default,34);
-		Flash.delay_setting[0] = 0;
-		Flash.delay_setting[1] = 0;
-		Flash.controller_role = 1;
-		Flash.system_config = CONFIG_VERSION;
-		flash_write(Flash.raw_flash);
-	}
-	if(Flash.delay_setting[0] > 9){
-		Flash.delay_setting[0] = 9;
-		flash_write(Flash.raw_flash);
-	}
-	if(Flash.delay_setting[1] > 9){
-		Flash.delay_setting[1] = 9;
-		flash_write(Flash.raw_flash);
-	}
-	if ((Flash.controller_role != 1u) && (Flash.controller_role != 2u)) {
-		Flash.controller_role = 1u;
-		flash_write(Flash.raw_flash);
-	}
+	(void) flash_config_sanitize();
 	player = Flash.controller_role;
 	osDelay(1000);
 	capsense_init();
@@ -1151,14 +1202,20 @@ void Command_Task(void const * argument)
 
 				requested_role = rxBuffer[3];
 				if ((requested_role == 1u) || (requested_role == 2u)) {
+					uint8_t previous_role = Flash.controller_role;
 					applied_role = controller_role_normalize(requested_role);
 					Flash.controller_role = applied_role;
-					player = applied_role;
-					USBD_SetControllerRole(applied_role);
-					flash_write(Flash.raw_flash);
-					ok = 1u;
-					cmd_tmp[3] = applied_role;
-					cmd_tmp[4] = ok;
+					if (flash_write(Flash.raw_flash) != 0u) {
+						player = applied_role;
+						USBD_SetControllerRole(applied_role);
+						ok = 1u;
+						cmd_tmp[3] = applied_role;
+						cmd_tmp[4] = ok;
+					} else {
+						Flash.controller_role = previous_role;
+						cmd_tmp[3] = requested_role;
+						cmd_tmp[4] = ok;
+					}
 				} else {
 					cmd_tmp[3] = requested_role;
 					cmd_tmp[4] = ok;
@@ -1190,6 +1247,10 @@ void Command_Task(void const * argument)
 				if(rxBuffer[2] != 1){
 					break;
 				}
+				if(rxBuffer[3] >= TOUCH_CHANNEL_COUNT){
+					serial_send_simple_status(SERIAL_CMD_READ_MONO_THRESHOLD, 0u);
+					break;
+				}
 				uint8_t cmd_tmp[7] = {0xff,5,3,0,0,0,0};
 				cmd_tmp[3] = rxBuffer[3];
 				memcpy(cmd_tmp + 4,&Flash.touch_threshold[cmd_tmp[3]],2);
@@ -1204,10 +1265,18 @@ void Command_Task(void const * argument)
 				if(rxBuffer[2] != 3){
 					break;
 				}
-				memcpy(&Flash.touch_threshold[rxBuffer[3]],&rxBuffer[4],2);
-				flash_write(Flash.raw_flash);
-				uint8_t cmd_tmp[5] = {0xff,6,1,1,7};
-				(void) usb_tx_enqueue_high(cmd_tmp, 5);
+				if(rxBuffer[3] >= TOUCH_CHANNEL_COUNT){
+					serial_send_simple_status(SERIAL_CMD_WRITE_MONO_THRESHOLD, 0u);
+					break;
+				}
+				uint8_t index = rxBuffer[3];
+				uint16_t previous_threshold = Flash.touch_threshold[index];
+				memcpy(&Flash.touch_threshold[index],&rxBuffer[4],2);
+				uint8_t ok = flash_write(Flash.raw_flash);
+				if (ok == 0u) {
+					Flash.touch_threshold[index] = previous_threshold;
+				}
+				serial_send_simple_status(SERIAL_CMD_WRITE_MONO_THRESHOLD, ok);
 				break;
 			}
 			case SERIAL_CMD_READ_TOUCH_SHEET:{
@@ -1215,7 +1284,7 @@ void Command_Task(void const * argument)
 					break;
 				}
 				uint8_t cmd_tmp[38] = {0xff,7,34};
-				for(uint8_t i = 0;i<34;i++){
+				for(uint8_t i = 0;i<TOUCH_CHANNEL_COUNT;i++){
 					cmd_tmp[i + 3] = Flash.touch_sheet[i];
 				}
 //				memcpy(cmd_tmp + 3,Flash.touch_sheet,34);
@@ -1229,13 +1298,21 @@ void Command_Task(void const * argument)
 				if(rxBuffer[2] != 34){
 					break;
 				}
+				if (flash_touch_sheet_valid(&rxBuffer[3]) == 0u) {
+					serial_send_simple_status(SERIAL_CMD_WRITE_TOUCH_SHEET, 0u);
+					break;
+				}
+				uint8_t previous_sheet[TOUCH_CHANNEL_COUNT];
+				memcpy(previous_sheet, Flash.touch_sheet, TOUCH_CHANNEL_COUNT);
 				//memcpy(Flash.touch_sheet,&rxBuffer[3],34);
-				for(uint8_t i = 0;i<34;i++){
+				for(uint8_t i = 0;i<TOUCH_CHANNEL_COUNT;i++){
 					Flash.touch_sheet[i] = rxBuffer[i+3];
 				}
-				flash_write(Flash.raw_flash);
-				uint8_t cmd_tmp[5] = {0xff,8,1,1,9};
-				(void) usb_tx_enqueue_high(cmd_tmp, 5);
+				uint8_t ok = flash_write(Flash.raw_flash);
+				if (ok == 0u) {
+					memcpy(Flash.touch_sheet, previous_sheet, TOUCH_CHANNEL_COUNT);
+				}
+				serial_send_simple_status(SERIAL_CMD_WRITE_TOUCH_SHEET, ok);
 				break;
 			}
 			case SERIAL_CMD_CALIBRATION_BEGIN:{
@@ -1348,6 +1425,10 @@ void Command_Task(void const * argument)
 				if(rxBuffer[2] != 1){
 					break;
 				}else{
+					if(rxBuffer[3] >= DELAY_SETTING_COUNT){
+						serial_send_simple_status(SERIAL_CMD_READ_DELAY_SETTING, 0u);
+						break;
+					}
 					uint8_t cmd_tmp[6] = {0xff,0x12,2};
 					cmd_tmp[3] = rxBuffer[3];
 					cmd_tmp[4] = Flash.delay_setting[rxBuffer[3]];
@@ -1362,14 +1443,33 @@ void Command_Task(void const * argument)
 				if(rxBuffer[2] != 2){
 					break;
 				}else{
-					Flash.delay_setting[rxBuffer[3]] = rxBuffer[4];
-					uint8_t cmd_tmp[5] = {0xff,0x13,1};
-					flash_write(Flash.raw_flash);
-					cmd_tmp[3] = rxBuffer[3];
-					for(uint8_t i = 0;i<4;i++){
-						cmd_tmp[4] += cmd_tmp[i];
+					if((rxBuffer[3] >= DELAY_SETTING_COUNT) ||
+							(rxBuffer[4] > DELAY_SETTING_MAX)){
+						uint8_t cmd_tmp[6] = {0xff,0x13,2,rxBuffer[3],0,0};
+						for(uint8_t i = 0;i<5;i++){
+							cmd_tmp[5] += cmd_tmp[i];
+						}
+						(void) usb_tx_enqueue_high(cmd_tmp, 6);
+						break;
 					}
-					(void) usb_tx_enqueue_high(cmd_tmp, 5);
+					uint8_t index = rxBuffer[3];
+					uint8_t previous_delay = Flash.delay_setting[index];
+					Flash.delay_setting[index] = rxBuffer[4];
+					if (flash_write(Flash.raw_flash) != 0u) {
+						uint8_t cmd_tmp[5] = {0xff,0x13,1};
+						cmd_tmp[3] = index;
+						for(uint8_t i = 0;i<4;i++){
+							cmd_tmp[4] += cmd_tmp[i];
+						}
+						(void) usb_tx_enqueue_high(cmd_tmp, 5);
+					} else {
+						Flash.delay_setting[index] = previous_delay;
+						uint8_t cmd_tmp[6] = {0xff,0x13,2,index,0,0};
+						for(uint8_t i = 0;i<5;i++){
+							cmd_tmp[5] += cmd_tmp[i];
+						}
+						(void) usb_tx_enqueue_high(cmd_tmp, 6);
+					}
 					break;
 				}
 				break;
