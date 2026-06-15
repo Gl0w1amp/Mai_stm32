@@ -166,7 +166,8 @@ jobs:
                    -I../Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/COMPOSITE/Inc \
                    -I../Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/CDC_ACM/Inc \
                    -I../Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/HID_KEYBOARD/Inc \
-                   -I../Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/HID_CUSTOM/Inc
+                   -I../Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/HID_CUSTOM/Inc \
+                   -I../Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/HID_TOUCH/Inc
         
         # Defines
         DEFINES = -DUSE_HAL_DRIVER -DSTM32G431xx -DSTM32_THREAD_SAFE_STRATEGY=4
@@ -189,7 +190,7 @@ jobs:
         LDFLAGS = -mcpu=cortex-m4 -T../STM32G431CBUX_BOOTLOADER_APP.ld --specs=nosys.specs \
                   -Wl,-Map=$(TARGET).map -Wl,--gc-sections -static --specs=nano.specs \
                   -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb \
-                  -Wl,--start-group -lc -lm -Wl,--end-group
+                  -u _printf_float -Wl,--start-group -lc -lm -Wl,--end-group
         
         # Object files
         COBJS = $(notdir $(ALL_CSRCS:.c=.o))
