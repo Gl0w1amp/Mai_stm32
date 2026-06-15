@@ -349,6 +349,9 @@ USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *pdev)
       HAL_PCDEx_SetTxFiFoInBytes(hpcd_USB_OTG_PTR, (CDC_CMD_EP[i] & 0x7F), 64);
     }
 #endif
+#if (USBD_USE_HID_TOUCH == 1)
+    HAL_PCDEx_SetTxFiFoInBytes(hpcd_USB_OTG_PTR, (TOUCH_HID_IN_EP & 0x7F), 64);
+#endif
   }
 #else
   /**FULL SPEED USB */
@@ -445,6 +448,10 @@ USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *pdev)
       pma_track += CDC_CMD_PACKET_SIZE;
     }
 #endif
+#if (USBD_USE_HID_TOUCH == 1)
+    HAL_PCDEx_PMAConfig((PCD_HandleTypeDef *)pdev->pData, TOUCH_HID_IN_EP, PCD_SNG_BUF, pma_track);
+    pma_track += TOUCH_HID_EPIN_SIZE;
+#endif
 #else /** if HAL_PCDEx_SetRxFiFo() is used by HAL driver */
 
     HAL_PCDEx_SetRxFiFoInBytes(hpcd_USB_OTG_PTR, 512); // ALL OUT EP Buffer
@@ -491,6 +498,9 @@ USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *pdev)
       HAL_PCDEx_SetTxFiFoInBytes(hpcd_USB_OTG_PTR, (CDC_IN_EP[i] & 0x7F), 128);
       HAL_PCDEx_SetTxFiFoInBytes(hpcd_USB_OTG_PTR, (CDC_CMD_EP[i] & 0x7F), 64);
     }
+#endif
+#if (USBD_USE_HID_TOUCH == 1)
+    HAL_PCDEx_SetTxFiFoInBytes(hpcd_USB_OTG_PTR, (TOUCH_HID_IN_EP & 0x7F), 64);
 #endif
 #endif
   }

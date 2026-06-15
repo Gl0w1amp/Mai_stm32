@@ -54,6 +54,9 @@
 /*---------- _USBD_USE_HID_CUSTOM  -----------*/
 #define _USBD_USE_HID_CUSTOM      true
 
+/*---------- _USBD_USE_HID_TOUCH  -----------*/
+#define _USBD_USE_HID_TOUCH      true
+
 /*---------- _USBD_USE_UAC_MIC  -----------*/
 #define _USBD_USE_UAC_MIC      false
 

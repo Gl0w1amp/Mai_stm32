@@ -7,6 +7,7 @@
 
 #include "usbd_hid_custom_if.h"
 #include "usbd_cdc_acm_if.h"
+#include "usb_reporter.h"
 #include <string.h>
 
 #define MAI2_HID_REPORT_SIZE 24u
@@ -63,31 +64,44 @@ static int8_t CUSTOM_HID_OutEvent(uint8_t event_idx, uint8_t state)
   return (int8_t)USBD_OK;
 }
 
-uint8_t mai2_hid_buttons_send_report(uint8_t buttons0, uint8_t io_status)
+uint8_t mai2_hid_custom_ready(void)
 {
-  static uint16_t sequence = 0;
-  uint8_t report[MAI2_HID_REPORT_SIZE] = {0};
-  uint8_t status;
+  return USBD_CUSTOM_HID_IsReady(&hUsbDevice);
+}
 
-  report[0] = buttons0;
-  report[1] = io_status;
-  report[2] = (uint8_t)(sequence & 0xFF);
-  report[3] = (uint8_t)((sequence >> 8) & 0xFF);
-  sequence++;
+uint8_t mai2_hid_custom_send_report(uint8_t *report, uint16_t len)
+{
+  uint8_t status;
 
   if (UsbTxGuard_Take(0u) == 0u) {
     return (uint8_t)USBD_BUSY;
   }
 
-  status = USBD_CUSTOM_HID_SendReport(&hUsbDevice, report, sizeof(report));
+  status = USBD_CUSTOM_HID_SendReport(&hUsbDevice, report, len);
   UsbTxGuard_Give();
   return status;
+}
+
+uint8_t mai2_hid_buttons_send_report(uint8_t buttons0, uint8_t io_status)
+{
+  static uint16_t sequence = 0;
+  uint8_t report[MAI2_HID_REPORT_SIZE] = {0};
+
+  report[0] = buttons0;
+  report[1] = io_status;
+  report[2] = (uint8_t)(sequence & 0xFF);
+  report[3] = (uint8_t)((sequence >> 8) & 0xFF);
+  if (usb_reporter_custom_hid_enqueue(report, sizeof(report)) == 0u) {
+    return (uint8_t)USBD_BUSY;
+  }
+
+  sequence++;
+  return (uint8_t)USBD_OK;
 }
 
 uint8_t mai2_hid_benchmark_send_report(uint16_t sequence, uint64_t event_cycles, uint64_t tx_cycles, uint32_t core_hz)
 {
   uint8_t report[MAI2_HID_REPORT_SIZE] = {0};
-  uint8_t status;
 
   report[0] = 0x00;
   report[1] = 0xFF;
@@ -102,13 +116,8 @@ uint8_t mai2_hid_benchmark_send_report(uint16_t sequence, uint64_t event_cycles,
   report[22] = (uint8_t)((core_hz >> 16) & 0xFF);
   report[23] = (uint8_t)((core_hz >> 24) & 0xFF);
 
-  if (UsbTxGuard_Take(0u) == 0u) {
-    return (uint8_t)USBD_BUSY;
-  }
-
-  status = USBD_CUSTOM_HID_SendReport(&hUsbDevice, report, sizeof(report));
-  UsbTxGuard_Give();
-  return status;
+  return (usb_reporter_custom_hid_enqueue(report, sizeof(report)) != 0u) ?
+      (uint8_t)USBD_OK : (uint8_t)USBD_BUSY;
 }
 
 void mai2_hid_raw_debug_reset(void)
@@ -125,7 +134,6 @@ uint8_t mai2_hid_raw_debug_stream(const uint16_t *raw_values, uint8_t value_coun
   uint8_t first_value;
   uint8_t report_value_count;
   uint8_t part_index = raw_debug_part_index;
-  uint8_t status;
 
   if ((raw_values == NULL) ||
       (value_count == 0u) ||
@@ -171,14 +179,8 @@ uint8_t mai2_hid_raw_debug_stream(const uint16_t *raw_values, uint8_t value_coun
     report[6u + (i * 2u)] = (uint8_t)((raw >> 8) & 0xFFu);
   }
 
-  if (UsbTxGuard_Take(0u) == 0u) {
+  if (usb_reporter_custom_hid_enqueue(report, sizeof(report)) == 0u) {
     return (uint8_t)USBD_BUSY;
-  }
-
-  status = USBD_CUSTOM_HID_SendReport(&hUsbDevice, report, sizeof(report));
-  UsbTxGuard_Give();
-  if (status != (uint8_t)USBD_OK) {
-    return status;
   }
 
   raw_debug_part_index++;
@@ -187,5 +189,5 @@ uint8_t mai2_hid_raw_debug_stream(const uint16_t *raw_values, uint8_t value_coun
     raw_debug_sequence++;
   }
 
-  return status;
+  return (uint8_t)USBD_OK;
 }

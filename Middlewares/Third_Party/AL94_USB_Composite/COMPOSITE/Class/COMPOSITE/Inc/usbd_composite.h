@@ -52,6 +52,7 @@ extern "C" {
 #define USBD_USE_HID_MOUSE           _USBD_USE_HID_MOUSE
 #define USBD_USE_HID_KEYBOARD        _USBD_USE_HID_KEYBOARD
 #define USBD_USE_HID_CUSTOM          _USBD_USE_HID_CUSTOM
+#define USBD_USE_HID_TOUCH           _USBD_USE_HID_TOUCH
 #define USBD_USE_UAC_MIC             _USBD_USE_UAC_MIC
 #define USBD_USE_UAC_SPKR            _USBD_USE_UAC_SPKR
 #define USBD_USE_UVC                 _USBD_USE_UVC
@@ -78,6 +79,9 @@ extern "C" {
 #endif
 #if(USBD_USE_HID_CUSTOM == 1)
 #include "usbd_hid_custom_if.h"
+#endif
+#if(USBD_USE_HID_TOUCH == 1)
+#include "../../HID_TOUCH/Inc/usbd_hid_touch.h"
 #endif
 #if(USBD_USE_UAC_MIC == 1)
 #include "usbd_audio_mic_if.h"

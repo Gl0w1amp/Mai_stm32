@@ -89,6 +89,15 @@ System management and information.
 - `Name Length` (1 byte) + `Name String` (e.g., "1020-050201")
 - `UID Length` (1 byte) + `UID Bytes` (12 bytes)
 
+### Diagnostics Commands
+
+| Cmd  | Name | Payload | Response | Description |
+|:-----|:-----|:--------|:---------|:------------|
+| `0x18` | `GET_CAPSENSE_UART_STATS` | Empty or `01` | `FF 18 23 [...] [CS]` | Read PSoC/capsense UART parser counters. Payload `01` resets counters before reading. |
+| `0x19` | `GET_USB_CDC_STATS` | Empty or `01` | `FF 19 38 [...] [CS]` | Read CDC TX queue and retry counters. Payload `01` resets counters before reading. |
+| `0x26` | `GET_CAPSENSE_DEBUG_STATS` | Empty or `01` | `FF 26 14 [...] [CS]` | Read debug stream enqueue counters. Payload `01` resets counters before reading. |
+| `0x29` | `GET_TOUCH_HID_STATS` | Empty or `01` | `FF 29 30 [...] [CS]` | Read dedicated Touch HID frame/part/drop counters. Payload `01` resets counters before reading. See [Touch HID Protocol](touch-hid-protocol.md). |
+
 ---
 
 ## Device Reports (Device -> Host)

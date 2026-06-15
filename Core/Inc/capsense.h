@@ -67,6 +67,7 @@ void Touch_UART_IDLE_Handler();
 void capsense_init();
 void capsense_check();
 void capsense_debug_service(void);
+void capsense_input_snapshot_publish(void);
 bool capsense_data_proc(uint8_t *uart_dma_buffer);
 bool capsense_data_proc_legacy(uint8_t *uart_dma_buffer);
 uint8_t capsense_take_latest_snapshot(void);

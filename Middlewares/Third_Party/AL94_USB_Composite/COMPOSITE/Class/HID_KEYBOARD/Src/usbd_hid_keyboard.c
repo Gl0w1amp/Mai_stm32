@@ -45,6 +45,7 @@ EndBSPDependencies */
 /* Includes ------------------------------------------------------------------*/
 #include "usbd_hid_keyboard.h"
 #include "usbd_ctlreq.h"
+#include "usb_reporter.h"
 
 #define _HID_KEYBOARD_IN_EP 0x81U
 #define _HID_KEYBOARD_ITF_NBR 0x00
@@ -533,7 +534,11 @@ static uint8_t USBD_HID_DataIn(USBD_HandleTypeDef *pdev, uint8_t epnum)
   UNUSED(epnum);
   /* Ensure that the FIFO is empty before a new transfer, this condition could
   be caused by  a new transfer before the end of the previous transfer */
-  ((USBD_HID_Keyboard_HandleTypeDef *)pdev->pClassData_HID_Keyboard)->state = KEYBOARD_HID_IDLE;
+  if (pdev->pClassData_HID_Keyboard != NULL)
+  {
+    ((USBD_HID_Keyboard_HandleTypeDef *)pdev->pClassData_HID_Keyboard)->state = KEYBOARD_HID_IDLE;
+  }
+  usb_reporter_notify_keyboard_hid_in_complete();
 
   return (uint8_t)USBD_OK;
 }
@@ -560,23 +565,49 @@ static uint8_t *USBD_HID_GetDeviceQualifierDesc(uint16_t *length)
   */
 uint8_t USBD_HID_Keybaord_SendReport(USBD_HandleTypeDef *pdev, uint8_t *report, uint16_t len)
 {
-  USBD_HID_Keyboard_HandleTypeDef *hhid = (USBD_HID_Keyboard_HandleTypeDef *)pdev->pClassData_HID_Keyboard;
+  USBD_HID_Keyboard_HandleTypeDef *hhid;
+  USBD_StatusTypeDef status;
 
-  if (hhid == NULL)
+  if ((pdev == NULL) || (report == NULL) || (len == 0u) ||
+      (pdev->pClassData_HID_Keyboard == NULL))
   {
     return (uint8_t)USBD_FAIL;
   }
 
-  if (pdev->dev_state == USBD_STATE_CONFIGURED)
+  hhid = (USBD_HID_Keyboard_HandleTypeDef *)pdev->pClassData_HID_Keyboard;
+
+  if (pdev->dev_state != USBD_STATE_CONFIGURED)
   {
-    if (hhid->state == KEYBOARD_HID_IDLE)
-    {
-      hhid->state = KEYBOARD_HID_BUSY;
-      (void)USBD_LL_Transmit(pdev, HID_KEYBOARD_IN_EP, report, len);
-    }
+    return (uint8_t)USBD_BUSY;
   }
 
-  return (uint8_t)USBD_OK;
+  if (hhid->state != KEYBOARD_HID_IDLE)
+  {
+    return (uint8_t)USBD_BUSY;
+  }
+
+  hhid->state = KEYBOARD_HID_BUSY;
+  status = USBD_LL_Transmit(pdev, HID_KEYBOARD_IN_EP, report, len);
+  if (status != USBD_OK)
+  {
+    hhid->state = KEYBOARD_HID_IDLE;
+  }
+
+  return (uint8_t)status;
+}
+
+uint8_t USBD_HID_Keyboard_IsReady(USBD_HandleTypeDef *pdev)
+{
+  USBD_HID_Keyboard_HandleTypeDef *hhid;
+
+  if ((pdev == NULL) || (pdev->pClassData_HID_Keyboard == NULL) ||
+      (pdev->dev_state != USBD_STATE_CONFIGURED))
+  {
+    return 0u;
+  }
+
+  hhid = (USBD_HID_Keyboard_HandleTypeDef *)pdev->pClassData_HID_Keyboard;
+  return (uint8_t)(hhid->state == KEYBOARD_HID_IDLE);
 }
 
 /**

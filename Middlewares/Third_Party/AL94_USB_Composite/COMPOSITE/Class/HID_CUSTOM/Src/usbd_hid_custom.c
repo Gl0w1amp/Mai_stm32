@@ -7,6 +7,7 @@
 
 #include "usbd_hid_custom.h"
 #include "usbd_ctlreq.h"
+#include "usb_reporter.h"
 
 #define _CUSTOM_HID_IN_EP 0x81U
 #define _CUSTOM_HID_OUT_EP 0x01U
@@ -404,31 +405,51 @@ static uint8_t USBD_CUSTOM_HID_Setup(USBD_HandleTypeDef *pdev, USBD_SetupReqType
   return (uint8_t)ret;
 }
 
-uint8_t USBD_CUSTOM_HID_SendReport(USBD_HandleTypeDef *pdev, uint8_t *report, uint16_t len)
+uint8_t USBD_CUSTOM_HID_IsReady(USBD_HandleTypeDef *pdev)
 {
   USBD_CUSTOM_HID_HandleTypeDef *hhid;
 
-  if (pdev->pClassData_HID_Custom == NULL)
+  if ((pdev == NULL) || (pdev->pClassData_HID_Custom == NULL) ||
+      (pdev->dev_state != USBD_STATE_CONFIGURED))
+  {
+    return 0u;
+  }
+
+  hhid = (USBD_CUSTOM_HID_HandleTypeDef *)pdev->pClassData_HID_Custom;
+  return (uint8_t)(hhid->state == CUSTOM_HID_IDLE);
+}
+
+uint8_t USBD_CUSTOM_HID_SendReport(USBD_HandleTypeDef *pdev, uint8_t *report, uint16_t len)
+{
+  USBD_CUSTOM_HID_HandleTypeDef *hhid;
+  USBD_StatusTypeDef status;
+
+  if ((pdev == NULL) || (report == NULL) || (len == 0u) ||
+      (pdev->pClassData_HID_Custom == NULL))
   {
     return (uint8_t)USBD_FAIL;
   }
 
   hhid = (USBD_CUSTOM_HID_HandleTypeDef *)pdev->pClassData_HID_Custom;
 
-  if (pdev->dev_state == USBD_STATE_CONFIGURED)
+  if (pdev->dev_state != USBD_STATE_CONFIGURED)
   {
-    if (hhid->state == CUSTOM_HID_IDLE)
-    {
-      hhid->state = CUSTOM_HID_BUSY;
-      (void)USBD_LL_Transmit(pdev, CUSTOM_HID_IN_EP, report, len);
-    }
-    else
-    {
-      return (uint8_t)USBD_BUSY;
-    }
+    return (uint8_t)USBD_BUSY;
   }
 
-  return (uint8_t)USBD_OK;
+  if (hhid->state != CUSTOM_HID_IDLE)
+  {
+    return (uint8_t)USBD_BUSY;
+  }
+
+  hhid->state = CUSTOM_HID_BUSY;
+  status = USBD_LL_Transmit(pdev, CUSTOM_HID_IN_EP, report, len);
+  if (status != USBD_OK)
+  {
+    hhid->state = CUSTOM_HID_IDLE;
+  }
+
+  return (uint8_t)status;
 }
 
 static uint8_t *USBD_CUSTOM_HID_GetFSCfgDesc(uint16_t *length)
@@ -452,7 +473,11 @@ static uint8_t *USBD_CUSTOM_HID_GetOtherSpeedCfgDesc(uint16_t *length)
 static uint8_t USBD_CUSTOM_HID_DataIn(USBD_HandleTypeDef *pdev, uint8_t epnum)
 {
   UNUSED(epnum);
-  ((USBD_CUSTOM_HID_HandleTypeDef *)pdev->pClassData_HID_Custom)->state = CUSTOM_HID_IDLE;
+  if (pdev->pClassData_HID_Custom != NULL)
+  {
+    ((USBD_CUSTOM_HID_HandleTypeDef *)pdev->pClassData_HID_Custom)->state = CUSTOM_HID_IDLE;
+  }
+  usb_reporter_notify_custom_hid_in_complete();
   return (uint8_t)USBD_OK;
 }
 

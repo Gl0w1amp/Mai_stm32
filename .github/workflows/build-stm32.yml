@@ -9,6 +9,12 @@ on:
   release:
     types: [ published ]
   workflow_dispatch:
+    inputs:
+      sim_touch:
+        description: 'Build the simulated capsense touch firmware'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -101,11 +107,20 @@ jobs:
                 ../Core/Src/app_freertos.c \
                 ../Core/Src/button.c \
                 ../Core/Src/capsense.c \
+                ../Core/Src/capsense_calibration.c \
+                ../Core/Src/capsense_core.c \
+                ../Core/Src/capsense_debug.c \
+                ../Core/Src/capsense_uart.c \
+                ../Core/Src/capsense_sim.c \
                 ../Core/Src/dfu_jump.c \
                 ../Core/Src/dma.c \
                 ../Core/Src/flash.c \
                 ../Core/Src/gpio.c \
+                ../Core/Src/input_snapshot.c \
                 ../Core/Src/LED.c \
+                ../Core/Src/serial_commands.c \
+                ../Core/Src/serial_protocol.c \
+                ../Core/Src/serial_reports.c \
                 ../Core/Src/slider.c \
                 ../Core/Src/stack.c \
                 ../Core/Src/stm32g4xx_hal_msp.c \
@@ -116,6 +131,7 @@ jobs:
                 ../Core/Src/system_stm32g4xx.c \
                 ../Core/Src/tim.c \
                 ../Core/Src/usart.c \
+                ../Core/Src/usb_reporter.c \
                 ../Core/Src/usb.c \
                 ../Core/ThreadSafe/newlib_lock_glue.c
                 
@@ -154,6 +170,11 @@ jobs:
         
         # Defines
         DEFINES = -DUSE_HAL_DRIVER -DSTM32G431xx -DSTM32_THREAD_SAFE_STRATEGY=4
+
+        SIM_TOUCH ?= 0
+        ifeq ($(SIM_TOUCH),1)
+        DEFINES += -DCAPSENSE_SIMULATED_TOUCH_ENABLE=1
+        endif
         
         # Compiler flags for Release build
         CFLAGS = -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard \
@@ -236,6 +257,16 @@ jobs:
       run: |
         cd Release
         echo "Starting clean build..."
+        SIM_TOUCH_INPUT="${{ github.event.inputs.sim_touch }}"
+        MAKE_ARGS=""
+        PATCHED_BIN="Curva_G431_Mai_Patched.bin"
+        TIMESTAMP_SUFFIX=""
+        if [ "$SIM_TOUCH_INPUT" = "true" ]; then
+          MAKE_ARGS="SIM_TOUCH=1"
+          PATCHED_BIN="Curva_G431_Mai_Sim_Patched.bin"
+          TIMESTAMP_SUFFIX="_sim"
+          echo "Building simulated capsense touch firmware"
+        fi
         
         make clean || echo "Nothing to clean"
         
@@ -243,18 +274,18 @@ jobs:
         make debug
         
         echo "Building firmware..."
-        make all -j$(nproc)
+        make all -j$(nproc) ${MAKE_ARGS}
         
         # --- Post-Build: Patch Firmware ---
         echo "Patching firmware..."
-        python3 ../scripts/patch_firmware.py "Curva_G431_Mai.bin" "Curva_G431_Mai_Patched.bin"
+        python3 ../scripts/patch_firmware.py "Curva_G431_Mai.bin" "$PATCHED_BIN"
         
         # Generate timestamped filename and rename the binary
         TIMESTAMP=$(TZ='Asia/Shanghai' date +%y%m%d%H%M)
-        TIMESTAMPED_BIN="Curva_G431_${TIMESTAMP}.bin"
+        TIMESTAMPED_BIN="Curva_G431_${TIMESTAMP}${TIMESTAMP_SUFFIX}.bin"
         
-        if [ -f "Curva_G431_Mai_Patched.bin" ]; then
-          mv "Curva_G431_Mai_Patched.bin" "$TIMESTAMPED_BIN"
+        if [ -f "$PATCHED_BIN" ]; then
+          mv "$PATCHED_BIN" "$TIMESTAMPED_BIN"
           echo "Created timestamped binary: $TIMESTAMPED_BIN"
           ls -lh "$TIMESTAMPED_BIN"
           # Save filename for later steps

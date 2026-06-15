@@ -28,6 +28,7 @@
 #include "task.h"
 #include "semphr.h"
 #include "slider.h"
+#include "usb_reporter.h"
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -459,6 +460,10 @@ static int8_t CDC_Receive(uint8_t cdc_ch, uint8_t *Buf, uint32_t *Len)
   */
 static int8_t CDC_TransmitCplt(uint8_t cdc_ch, uint8_t *Buf, uint32_t *Len, uint8_t epnum)
 {
+  UNUSED(Buf);
+  UNUSED(Len);
+  UNUSED(epnum);
+  usb_reporter_notify_cdc_in_complete(cdc_ch);
   return (USBD_OK);
 }
 

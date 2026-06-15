@@ -20,6 +20,7 @@ touch and buttons, drives LED outputs, and exposes USB CDC + HID interfaces.
 ## Documentation
 
 - [Communication Commands](communication-commands.md)
+- [Touch HID Protocol](touch-hid-protocol.md)
 
 ## Repository layout
 

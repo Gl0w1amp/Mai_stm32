@@ -157,6 +157,9 @@ typedef struct USBD_COMPOSITE_CFG_DESC_t
 #if (USBD_USE_CDC_ACM == 1)
   uint8_t USBD_CDC_ACM_DESC[USB_CDC_CONFIG_DESC_SIZ - 0x09];
 #endif
+#if (USBD_USE_HID_TOUCH == 1)
+  uint8_t USBD_HID_TOUCH_DESC[USB_TOUCH_HID_CONFIG_DESC_SIZ - 0x09];
+#endif
 
 } __PACKED USBD_COMPOSITE_CFG_DESC_t;
 
@@ -203,6 +206,9 @@ static uint8_t USBD_COMPOSITE_Init(USBD_HandleTypeDef *pdev, uint8_t cfgidx)
 {
 #if (USBD_USE_CDC_ACM == 1)
   USBD_CDC_ACM.Init(pdev, cfgidx);
+#endif
+#if (USBD_USE_HID_TOUCH == 1)
+  USBD_HID_TOUCH.Init(pdev, cfgidx);
 #endif
 #if (USBD_USE_CDC_ECM == 1)
   USBD_CDC_ECM.Init(pdev, cfgidx);
@@ -252,6 +258,9 @@ static uint8_t USBD_COMPOSITE_DeInit(USBD_HandleTypeDef *pdev, uint8_t cfgidx)
 {
 #if (USBD_USE_CDC_ACM == 1)
   USBD_CDC_ACM.DeInit(pdev, cfgidx);
+#endif
+#if (USBD_USE_HID_TOUCH == 1)
+  USBD_HID_TOUCH.DeInit(pdev, cfgidx);
 #endif
 #if (USBD_USE_CDC_ECM == 1)
   USBD_CDC_ECM.DeInit(pdev, cfgidx);
@@ -350,6 +359,12 @@ static uint8_t USBD_COMPOSITE_Setup(USBD_HandleTypeDef *pdev,
     return USBD_HID_CUSTOM.Setup(pdev, req);
   }
 #endif
+#if (USBD_USE_HID_TOUCH == 1)
+  if (LOBYTE(req->wIndex) == TOUCH_HID_ITF_NBR)
+  {
+    return USBD_HID_TOUCH.Setup(pdev, req);
+  }
+#endif
 #if (USBD_USE_UAC_MIC == 1)
   if (LOBYTE(req->wIndex) == AUDIO_MIC_AC_ITF_NBR || LOBYTE(req->wIndex) == AUDIO_MIC_AS_ITF_NBR)
   {
@@ -438,6 +453,12 @@ static uint8_t USBD_COMPOSITE_DataIn(USBD_HandleTypeDef *pdev, uint8_t epnum)
     return USBD_HID_CUSTOM.DataIn(pdev, epnum);
   }
 #endif
+#if (USBD_USE_HID_TOUCH == 1)
+  if (epnum == (TOUCH_HID_IN_EP & 0x7F))
+  {
+    return USBD_HID_TOUCH.DataIn(pdev, epnum);
+  }
+#endif
 #if (USBD_USE_UAC_MIC == 1)
   if (epnum == (AUDIO_MIC_EP & 0x7F))
   {
@@ -493,6 +514,9 @@ static uint8_t USBD_COMPOSITE_EP0_RxReady(USBD_HandleTypeDef *pdev)
 #endif
 #if (USBD_USE_HID_CUSTOM == 1)
   USBD_HID_CUSTOM.EP0_RxReady(pdev);
+#endif
+#if (USBD_USE_HID_TOUCH == 1)
+  USBD_HID_TOUCH.EP0_RxReady(pdev);
 #endif
 #if (USBD_USE_UAC_MIC == 1)
   USBD_AUDIO_MIC.EP0_RxReady(pdev);
@@ -855,6 +879,12 @@ static uint8_t *USBD_COMPOSITE_GetUsrStringDesc(USBD_HandleTypeDef *pdev, uint8_
       USBD_GetString((uint8_t *)CUSTOM_HID_STR_DESC, USBD_StrDesc, length);
     }
 #endif
+#if (USBD_USE_HID_TOUCH == 1)
+    if (index == TOUCH_HID_STR_DESC_IDX)
+    {
+      USBD_GetString((uint8_t *)TOUCH_HID_STR_DESC, USBD_StrDesc, length);
+    }
+#endif
 #if (USBD_USE_UAC_MIC == 1)
     if (index == AUDIO_MIC_STR_DESC_IDX)
     {
@@ -1125,6 +1155,20 @@ void USBD_COMPOSITE_Mount_Class(void)
   out_ep_track += 1 * USBD_CDC_ACM_COUNT;
   interface_no_track += 2 * USBD_CDC_ACM_COUNT;
   USBD_Track_String_Index += USBD_CDC_ACM_COUNT;
+#endif
+
+#if (USBD_USE_HID_TOUCH == 1)
+  ptr = USBD_HID_TOUCH.GetFSConfigDescriptor(&len);
+  USBD_Update_HID_Touch_DESC(ptr, interface_no_track, in_ep_track, USBD_Track_String_Index);
+  memcpy(USBD_COMPOSITE_FSCfgDesc.USBD_HID_TOUCH_DESC, ptr + 0x09, len - 0x09);
+
+  ptr = USBD_HID_TOUCH.GetHSConfigDescriptor(&len);
+  USBD_Update_HID_Touch_DESC(ptr, interface_no_track, in_ep_track, USBD_Track_String_Index);
+  memcpy(USBD_COMPOSITE_HSCfgDesc.USBD_HID_TOUCH_DESC, ptr + 0x09, len - 0x09);
+
+  in_ep_track += 1;
+  interface_no_track += 1;
+  USBD_Track_String_Index += 1;
 #endif
 
   uint16_t CFG_SIZE = sizeof(USBD_COMPOSITE_CFG_DESC_t);

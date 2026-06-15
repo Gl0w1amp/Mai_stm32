@@ -69,7 +69,14 @@ site/
 Core/Inc/app_version.h
 
 # Scripts
-scripts/
+scripts/*
+!scripts/
+!scripts/update_version.ps1
+!scripts/patch_firmware.py
+!scripts/verify_firmware.py
+!scripts/build_firmware.ps1
+!scripts/touch_hid_monitor.py
 
 # Generated
 artifacts/
+.analysis/

@@ -37,5 +37,5 @@ $headerContent = @"
 "@
 
 $headerPath = Join-Path $PSScriptRoot "..\Core\Inc\app_version.h"
-Set-Content -Path $headerPath -Value $headerContent
+Set-Content -Path $headerPath -Value $headerContent -Encoding ASCII
 Write-Host "Updated app_version.h with version: $version"
