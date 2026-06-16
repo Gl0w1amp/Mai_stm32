@@ -49,6 +49,7 @@ typedef struct {
 
 typedef struct {
 	uint8_t pending;
+	uint8_t live_packet;
 	uint16_t len;
 	uint32_t enqueue_tick;
 	uint32_t retry_count;
@@ -81,6 +82,8 @@ static QueueHandle_t custom_hid_queue = NULL;
 static usb_cdc_tx_stats_t cdc_stats = {0};
 static usb_touch_hid_stats_t touch_hid_stats = {0};
 static usb_reporter_cdc_endpoint_t cdc_ep = {0};
+static usb_reporter_cdc_packet_t cdc_live_latest = {0};
+static uint8_t cdc_live_latest_pending = 0u;
 static usb_reporter_custom_endpoint_t custom_ep = {0};
 static usb_reporter_touch_endpoint_t touch_ep = {0};
 static uint8_t last_keyboard_report[USB_REPORTER_KEYBOARD_REPORT_SIZE] = {0};
@@ -143,10 +146,66 @@ static uint8_t usb_reporter_cdc_dequeue(usb_reporter_cdc_endpoint_t *ep)
 	}
 
 	ep->pending = 1u;
+	ep->live_packet = 0u;
 	ep->len = packet.len;
 	ep->enqueue_tick = packet.enqueue_tick;
 	ep->retry_count = 0u;
 	memcpy(ep->data, packet.data, packet.len);
+	return 1u;
+}
+
+static uint8_t usb_reporter_cdc_dequeue_live_latest(
+		usb_reporter_cdc_endpoint_t *ep)
+{
+	if ((ep == NULL) || (cdc_live_latest_pending == 0u)) {
+		return 0u;
+	}
+
+	ep->pending = 1u;
+	ep->live_packet = 1u;
+	ep->len = cdc_live_latest.len;
+	ep->enqueue_tick = cdc_live_latest.enqueue_tick;
+	ep->retry_count = 0u;
+	memcpy(ep->data, cdc_live_latest.data, cdc_live_latest.len);
+	cdc_live_latest_pending = 0u;
+	return 1u;
+}
+
+static uint8_t usb_reporter_cdc_high_waiting(void)
+{
+	return ((cdc_high_queue != NULL) &&
+			(uxQueueMessagesWaiting(cdc_high_queue) > 0u)) ? 1u : 0u;
+}
+
+static uint8_t usb_reporter_cdc_update_live_latest(const uint8_t *buf,
+		uint16_t len)
+{
+	uint32_t now;
+
+	if ((buf == NULL) || (len == 0u) ||
+			(len > sizeof(cdc_live_latest.data))) {
+		return 0u;
+	}
+
+	now = HAL_GetTick();
+	cdc_stats.low_enqueued_count++;
+
+	if ((cdc_ep.pending != 0u) && (cdc_ep.live_packet != 0u)) {
+		cdc_stats.low_drop_count++;
+		cdc_ep.len = len;
+		cdc_ep.enqueue_tick = now;
+		cdc_ep.retry_count = 0u;
+		memcpy(cdc_ep.data, buf, len);
+		return 1u;
+	}
+
+	if (cdc_live_latest_pending != 0u) {
+		cdc_stats.low_drop_count++;
+	}
+	cdc_live_latest.len = len;
+	cdc_live_latest.enqueue_tick = now;
+	memcpy(cdc_live_latest.data, buf, len);
+	cdc_live_latest_pending = 1u;
 	return 1u;
 }
 
@@ -155,8 +214,16 @@ static void usb_reporter_cdc_service_endpoint(void)
 	uint8_t tx_result;
 	uint32_t tx_latency_ms;
 
+	if ((cdc_ep.pending != 0u) && (cdc_ep.live_packet != 0u) &&
+			(usb_reporter_cdc_high_waiting() != 0u)) {
+		cdc_stats.low_drop_count++;
+		memset(&cdc_ep, 0, sizeof(cdc_ep));
+	}
 	if (cdc_ep.pending == 0u) {
 		(void)usb_reporter_cdc_dequeue(&cdc_ep);
+	}
+	if (cdc_ep.pending == 0u) {
+		(void)usb_reporter_cdc_dequeue_live_latest(&cdc_ep);
 	}
 	if (cdc_ep.pending == 0u) {
 		return;
@@ -225,14 +292,15 @@ static void usb_reporter_maybe_enqueue_cdc_live(uint8_t debug_flag,
 	if (heartbeat_active != 0u) {
 		if (serial_reports_build_live_state_frame(SERIAL_CMD_AUTO_SCAN,
 				&snapshot, report, &report_len) != 0u) {
-			(void)usb_reporter_cdc_enqueue_low(report, report_len);
+			(void)usb_reporter_cdc_update_live_latest(report, report_len);
 		}
 	} else if ((touch_scan_enabled != 0u) &&
 			(debug_stream_mode != SERIAL_DEBUG_STREAM_MODE_RAW_34)) {
 		uint8_t touch_report[9] = {0};
 		if (serial_reports_build_touch_scan_frame(&snapshot,
 				touch_report, &report_len) != 0u) {
-			(void)usb_reporter_cdc_enqueue_low(touch_report, report_len);
+			(void)usb_reporter_cdc_update_live_latest(touch_report,
+					report_len);
 		}
 	}
 }
@@ -507,6 +575,8 @@ void usb_reporter_reset(void)
 	memset(&cdc_stats, 0, sizeof(cdc_stats));
 	memset(&touch_hid_stats, 0, sizeof(touch_hid_stats));
 	memset(&cdc_ep, 0, sizeof(cdc_ep));
+	memset(&cdc_live_latest, 0, sizeof(cdc_live_latest));
+	cdc_live_latest_pending = 0u;
 	memset(&custom_ep, 0, sizeof(custom_ep));
 	memset(&touch_ep, 0, sizeof(touch_ep));
 	memset(last_keyboard_report, 0, sizeof(last_keyboard_report));
@@ -599,6 +669,9 @@ void usb_reporter_cdc_stats_snapshot(usb_cdc_tx_stats_t *stats_out,
 	if (low_depth_out != NULL) {
 		*low_depth_out = (cdc_low_queue != NULL) ?
 				(uint32_t)uxQueueMessagesWaiting(cdc_low_queue) : 0u;
+		if (cdc_live_latest_pending != 0u) {
+			(*low_depth_out)++;
+		}
 	}
 }
 
