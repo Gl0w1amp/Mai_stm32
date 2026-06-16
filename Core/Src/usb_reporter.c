@@ -24,6 +24,7 @@
 #define USB_REPORTER_CUSTOM_QUEUE_LENGTH 8u
 #define USB_REPORTER_CUSTOM_REPORT_SIZE 24u
 #define USB_REPORTER_KEYBOARD_REPORT_SIZE 14u
+#define USB_REPORTER_CDC_LIVE_INTERVAL_MS 2u
 #define USB_REPORTER_CDC_RETRY_GIVEUP_MS 50u
 
 #define USB_TOUCH_REPORT_INTERVAL_MS 5u
@@ -93,6 +94,8 @@ static uint8_t cdc_in_ready = 1u;
 static uint8_t custom_hid_in_ready = 1u;
 static uint8_t keyboard_hid_in_ready = 1u;
 static uint8_t touch_hid_in_ready = 1u;
+static uint32_t cdc_in_flight_start_tick = 0u;
+static uint32_t cdc_live_last_enqueue_tick = 0u;
 
 static uint8_t usb_reporter_cdc_enqueue(QueueHandle_t queue,
 		const uint8_t *buf, uint16_t len)
@@ -209,10 +212,57 @@ static uint8_t usb_reporter_cdc_update_live_latest(const uint8_t *buf,
 	return 1u;
 }
 
+static void usb_reporter_cdc_record_giveup(uint32_t now)
+{
+	uint32_t tx_latency_ms = now - cdc_ep.enqueue_tick;
+
+	cdc_stats.tx_giveup_count++;
+	cdc_stats.last_tx_latency_ms = tx_latency_ms;
+	cdc_stats.last_retry_count = cdc_ep.retry_count;
+	if (tx_latency_ms > cdc_stats.max_tx_latency_ms) {
+		cdc_stats.max_tx_latency_ms = tx_latency_ms;
+	}
+	if (cdc_ep.retry_count > cdc_stats.max_retry_count) {
+		cdc_stats.max_retry_count = cdc_ep.retry_count;
+	}
+}
+
+static void usb_reporter_cdc_recover_in_stall(uint32_t now)
+{
+	extern USBD_CDC_ACM_HandleTypeDef CDC_ACM_Class_Data[];
+	uint32_t tx_latency_ms = now - cdc_in_flight_start_tick;
+
+	cdc_stats.tx_giveup_count++;
+	cdc_stats.last_tx_latency_ms = tx_latency_ms;
+	cdc_stats.last_retry_count = cdc_ep.retry_count;
+	if (tx_latency_ms > cdc_stats.max_tx_latency_ms) {
+		cdc_stats.max_tx_latency_ms = tx_latency_ms;
+	}
+	if (cdc_ep.retry_count > cdc_stats.max_retry_count) {
+		cdc_stats.max_retry_count = cdc_ep.retry_count;
+	}
+	CDC_ACM_Class_Data[0].TxState = 0U;
+	if (hUsbDevice.dev_state == USBD_STATE_CONFIGURED) {
+		(void)USBD_LL_FlushEP(&hUsbDevice, CDC_IN_EP[0]);
+	}
+	cdc_in_ready = 1u;
+	cdc_in_flight_start_tick = 0u;
+	cdc_ep.retry_count = 0u;
+}
+
 static void usb_reporter_cdc_service_endpoint(void)
 {
 	uint8_t tx_result;
+	uint32_t now;
 	uint32_t tx_latency_ms;
+
+	now = HAL_GetTick();
+	if (((cdc_in_ready == 0u) || (CDC_TransmitReady(0u) == 0u)) &&
+			(cdc_in_flight_start_tick != 0u) &&
+			((uint32_t)(now - cdc_in_flight_start_tick) >=
+			USB_REPORTER_CDC_RETRY_GIVEUP_MS)) {
+		usb_reporter_cdc_recover_in_stall(now);
+	}
 
 	if ((cdc_ep.pending != 0u) && (cdc_ep.live_packet != 0u) &&
 			(usb_reporter_cdc_high_waiting() != 0u)) {
@@ -231,13 +281,20 @@ static void usb_reporter_cdc_service_endpoint(void)
 	if ((cdc_in_ready == 0u) || (CDC_TransmitReady(0u) == 0u)) {
 		cdc_stats.tx_busy_retry_count++;
 		cdc_ep.retry_count++;
+		if ((cdc_in_flight_start_tick != 0u) &&
+				((uint32_t)(now - cdc_in_flight_start_tick) >=
+				USB_REPORTER_CDC_RETRY_GIVEUP_MS)) {
+			usb_reporter_cdc_recover_in_stall(now);
+		}
 		return;
 	}
 
 	tx_result = CDC_Transmit(0u, cdc_ep.data, cdc_ep.len);
 	if (tx_result == (uint8_t)USBD_OK) {
-		tx_latency_ms = HAL_GetTick() - cdc_ep.enqueue_tick;
+		now = HAL_GetTick();
+		tx_latency_ms = now - cdc_ep.enqueue_tick;
 		cdc_in_ready = 0u;
+		cdc_in_flight_start_tick = now;
 		cdc_stats.tx_ok_count++;
 		cdc_stats.last_tx_latency_ms = tx_latency_ms;
 		cdc_stats.last_retry_count = cdc_ep.retry_count;
@@ -258,18 +315,10 @@ static void usb_reporter_cdc_service_endpoint(void)
 		cdc_stats.tx_fail_retry_count++;
 	}
 
-	if ((uint32_t)(HAL_GetTick() - cdc_ep.enqueue_tick) >=
+	now = HAL_GetTick();
+	if ((uint32_t)(now - cdc_ep.enqueue_tick) >=
 			USB_REPORTER_CDC_RETRY_GIVEUP_MS) {
-		tx_latency_ms = HAL_GetTick() - cdc_ep.enqueue_tick;
-		cdc_stats.tx_giveup_count++;
-		cdc_stats.last_tx_latency_ms = tx_latency_ms;
-		cdc_stats.last_retry_count = cdc_ep.retry_count;
-		if (tx_latency_ms > cdc_stats.max_tx_latency_ms) {
-			cdc_stats.max_tx_latency_ms = tx_latency_ms;
-		}
-		if (cdc_ep.retry_count > cdc_stats.max_retry_count) {
-			cdc_stats.max_retry_count = cdc_ep.retry_count;
-		}
+		usb_reporter_cdc_record_giveup(now);
 		memset(&cdc_ep, 0, sizeof(cdc_ep));
 	}
 }
@@ -281,8 +330,19 @@ static void usb_reporter_maybe_enqueue_cdc_live(uint8_t debug_flag,
 	input_snapshot_t snapshot;
 	uint8_t report[14] = {0};
 	uint8_t report_len = 0u;
+	uint32_t now;
 
 	if ((debug_flag != 0u) || (benchmark_quiet != 0u)) {
+		return;
+	}
+	if ((heartbeat_active == 0u) &&
+			((touch_scan_enabled == 0u) ||
+			(debug_stream_mode == SERIAL_DEBUG_STREAM_MODE_RAW_34))) {
+		return;
+	}
+	now = HAL_GetTick();
+	if ((uint32_t)(now - cdc_live_last_enqueue_tick) <
+			USB_REPORTER_CDC_LIVE_INTERVAL_MS) {
 		return;
 	}
 	if (input_snapshot_get_latest(&snapshot) == 0u) {
@@ -292,15 +352,19 @@ static void usb_reporter_maybe_enqueue_cdc_live(uint8_t debug_flag,
 	if (heartbeat_active != 0u) {
 		if (serial_reports_build_live_state_frame(SERIAL_CMD_AUTO_SCAN,
 				&snapshot, report, &report_len) != 0u) {
-			(void)usb_reporter_cdc_update_live_latest(report, report_len);
+			if (usb_reporter_cdc_update_live_latest(report, report_len) != 0u) {
+				cdc_live_last_enqueue_tick = now;
+			}
 		}
 	} else if ((touch_scan_enabled != 0u) &&
 			(debug_stream_mode != SERIAL_DEBUG_STREAM_MODE_RAW_34)) {
 		uint8_t touch_report[9] = {0};
 		if (serial_reports_build_touch_scan_frame(&snapshot,
 				touch_report, &report_len) != 0u) {
-			(void)usb_reporter_cdc_update_live_latest(touch_report,
-					report_len);
+			if (usb_reporter_cdc_update_live_latest(touch_report,
+					report_len) != 0u) {
+				cdc_live_last_enqueue_tick = now;
+			}
 		}
 	}
 }
@@ -583,6 +647,8 @@ void usb_reporter_reset(void)
 	last_custom_buttons0 = 0xFFu;
 	last_custom_io_status = 0xFFu;
 	cdc_in_ready = 1u;
+	cdc_in_flight_start_tick = 0u;
+	cdc_live_last_enqueue_tick = 0u;
 	custom_hid_in_ready = 1u;
 	keyboard_hid_in_ready = 1u;
 	touch_hid_in_ready = 1u;
@@ -711,6 +777,7 @@ void usb_reporter_notify_cdc_in_complete(uint8_t cdc_ch)
 {
 	if (cdc_ch == 0u) {
 		cdc_in_ready = 1u;
+		cdc_in_flight_start_tick = 0u;
 	}
 }
 
