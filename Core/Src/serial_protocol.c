@@ -159,6 +159,20 @@ uint8_t serial_command_feed(const uint8_t *data, uint16_t len)
 			uint16_t frame_len;
 			uint16_t start = 0u;
 
+			if ((serial_command_stream_len > 0u) &&
+					(serial_command_stream[0] == 0x7Bu)) {
+				if (serial_command_stream_len < 6u) {
+					break;
+				}
+				if (serial_command_queue_push(serial_command_stream, 6u) != 0u) {
+					pushed_any = 1u;
+				}
+				memmove(serial_command_stream, serial_command_stream + 6u,
+						serial_command_stream_len - 6u);
+				serial_command_stream_len = (uint16_t)(serial_command_stream_len - 6u);
+				continue;
+			}
+
 			while ((start < serial_command_stream_len) &&
 					(serial_command_stream[start] != 0xFFu)) {
 				start++;
