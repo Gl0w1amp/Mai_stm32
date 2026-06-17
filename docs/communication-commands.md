@@ -70,7 +70,7 @@ Control the on-board LEDs and external lighting.
 - **Boot effect**: smooth blue-white sweep across the 8 logical button LED groups for about `1600 ms`, then returns to idle.
 - **Input reactive**: idle-blue background plus cyan-white highlight on pressed button groups; released buttons stay lit for about `50 ms`.
 - **Diagnostic**: yellow blink while the capsense link is not online, or green pulse while debug/calibration owns the button LEDs and the link is online.
-- **Error**: red fast blink while a recent capsense UART/link error is reported.
+- **Error**: two quick red fade flashes while a recent capsense UART/link error is reported.
 - **Idle effects**: `0` = breathe, `1` = static. `idle_brightness` is the maximum channel level used by the idle effect.
 - **Host timeout**: default is `10000 ms`; `0` disables automatic return. When the timeout expires without another host LED command, the firmware returns to idle mode.
 

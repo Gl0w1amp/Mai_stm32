@@ -22,7 +22,9 @@
 #define LED_IDLE_EFFECT_COUNT 2u
 #define LED_LOCAL_DEFAULT_MODE LED_MODE_INPUT_REACTIVE
 #define LED_INPUT_RELEASE_HOLD_MS 50u
-#define LED_ERROR_BLINK_HALF_PERIOD_MS 160u
+#define LED_ERROR_FLASH_MS 110u
+#define LED_ERROR_FLASH_GAP_MS 60u
+#define LED_ERROR_REPEAT_MS 520u
 #define LED_DIAGNOSTIC_BLINK_HALF_PERIOD_MS 350u
 
 extern UART_HandleTypeDef huart1;
@@ -100,6 +102,7 @@ static volatile uint16_t led_host_timeout_ms = LED_HOST_TIMEOUT_MS_DEFAULT;
 static volatile uint32_t led_host_deadline_ms = 0u;
 static uint32_t led_boot_start_ms = 0u;
 static uint32_t led_effect_last_ms = 0u;
+static uint32_t led_error_start_ms = 0u;
 static uint8_t led_last_button_bits = 0u;
 static uint32_t led_input_pulse_deadline[BUTTON_LED_COUNT];
 
@@ -458,15 +461,25 @@ static void led_render_diagnostic(uint32_t now, const input_snapshot_t *snapshot
 
 static void led_render_error(uint32_t now)
 {
-	uint8_t phase = (uint8_t)(((now / LED_ERROR_BLINK_HALF_PERIOD_MS) &
-			0x01u) != 0u);
+	uint32_t phase = (now - led_error_start_ms) % LED_ERROR_REPEAT_MS;
+	uint8_t level = 0u;
+
+	if (phase < LED_ERROR_FLASH_MS) {
+		level = led_triangle8(phase, LED_ERROR_FLASH_MS);
+	} else {
+		uint32_t second_flash_start = LED_ERROR_FLASH_MS +
+				LED_ERROR_FLASH_GAP_MS;
+		if ((phase >= second_flash_start) &&
+				(phase < (second_flash_start + LED_ERROR_FLASH_MS))) {
+			level = led_triangle8(phase - second_flash_start,
+					LED_ERROR_FLASH_MS);
+		}
+	}
 
 	for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
-		if (phase != 0u) {
-			set_led_immediate(i, 180u, 0u, 0u);
-		} else {
-			set_led_immediate(i, 18u, 0u, 0u);
-		}
+		uint8_t red = (level == 0u) ? 0u :
+				(uint8_t)(16u + (((uint16_t)level * 220u) / 255u));
+		set_led_immediate(i, red, 0u, 0u);
 	}
 	LED_refresh();
 }
@@ -519,6 +532,10 @@ void LED_ServiceStateMachine(uint32_t now)
 	if (((uint32_t)(now - led_effect_last_ms) < LED_EFFECT_STEP_MS) &&
 			(effective_mode == led_effective_mode)) {
 		return;
+	}
+	if ((effective_mode == LED_MODE_ERROR) &&
+			(led_effective_mode != LED_MODE_ERROR)) {
+		led_error_start_ms = now;
 	}
 	led_effect_last_ms = now;
 	led_effective_mode = effective_mode;
@@ -601,6 +618,7 @@ uint8_t LED_SetMode(uint8_t mode, uint32_t now)
 		led_mode = LED_MODE_ERROR;
 		led_effective_mode = LED_MODE_ERROR;
 		led_effect_last_ms = now;
+		led_error_start_ms = now;
 		led_clear_fades();
 		led_render_error(now);
 		break;
