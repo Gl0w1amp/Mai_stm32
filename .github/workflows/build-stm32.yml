@@ -167,6 +167,7 @@ jobs:
                    -I../Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/CDC_ACM/Inc \
                    -I../Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/HID_KEYBOARD/Inc \
                    -I../Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/HID_CUSTOM/Inc \
+                   -I../Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/HID_VENDOR/Inc \
                    -I../Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/HID_TOUCH/Inc
         
         # Defines

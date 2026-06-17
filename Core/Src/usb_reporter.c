@@ -16,6 +16,7 @@
 #include "usbd_hid_custom_if.h"
 #include "usbd_hid_keyboard.h"
 #include "usbd_hid_touch_if.h"
+#include "usbd_hid_vendor_if.h"
 #include <string.h>
 
 #define USB_REPORTER_CDC_HIGH_QUEUE_LENGTH 8u
@@ -23,6 +24,8 @@
 #define USB_REPORTER_CDC_PACKET_SIZE 64u
 #define USB_REPORTER_CUSTOM_QUEUE_LENGTH 8u
 #define USB_REPORTER_CUSTOM_REPORT_SIZE 24u
+#define USB_REPORTER_VENDOR_QUEUE_LENGTH 8u
+#define USB_REPORTER_VENDOR_REPORT_SIZE 64u
 #define USB_REPORTER_KEYBOARD_REPORT_SIZE 14u
 #define USB_REPORTER_CDC_LIVE_INTERVAL_MS 2u
 #define USB_REPORTER_CDC_RETRY_GIVEUP_MS 50u
@@ -49,6 +52,11 @@ typedef struct {
 } usb_reporter_custom_packet_t;
 
 typedef struct {
+	uint16_t len;
+	uint8_t data[USB_REPORTER_VENDOR_REPORT_SIZE];
+} usb_reporter_vendor_packet_t;
+
+typedef struct {
 	uint8_t pending;
 	uint8_t live_packet;
 	uint16_t len;
@@ -62,6 +70,12 @@ typedef struct {
 	uint16_t len;
 	uint8_t data[USB_REPORTER_CUSTOM_REPORT_SIZE];
 } usb_reporter_custom_endpoint_t;
+
+typedef struct {
+	uint8_t pending;
+	uint16_t len;
+	uint8_t data[USB_REPORTER_VENDOR_REPORT_SIZE];
+} usb_reporter_vendor_endpoint_t;
 
 typedef struct {
 	input_snapshot_t active_snapshot;
@@ -80,18 +94,21 @@ extern uint8_t keyboard_sheet[14];
 static QueueHandle_t cdc_high_queue = NULL;
 static QueueHandle_t cdc_low_queue = NULL;
 static QueueHandle_t custom_hid_queue = NULL;
+static QueueHandle_t vendor_hid_queue = NULL;
 static usb_cdc_tx_stats_t cdc_stats = {0};
 static usb_touch_hid_stats_t touch_hid_stats = {0};
 static usb_reporter_cdc_endpoint_t cdc_ep = {0};
 static usb_reporter_cdc_packet_t cdc_live_latest = {0};
 static uint8_t cdc_live_latest_pending = 0u;
 static usb_reporter_custom_endpoint_t custom_ep = {0};
+static usb_reporter_vendor_endpoint_t vendor_ep = {0};
 static usb_reporter_touch_endpoint_t touch_ep = {0};
 static uint8_t last_keyboard_report[USB_REPORTER_KEYBOARD_REPORT_SIZE] = {0};
 static uint8_t last_custom_buttons0 = 0xFFu;
 static uint8_t last_custom_io_status = 0xFFu;
 static uint8_t cdc_in_ready = 1u;
 static uint8_t custom_hid_in_ready = 1u;
+static uint8_t vendor_hid_in_ready = 1u;
 static uint8_t keyboard_hid_in_ready = 1u;
 static uint8_t touch_hid_in_ready = 1u;
 static uint32_t cdc_in_flight_start_tick = 0u;
@@ -394,6 +411,31 @@ static void usb_reporter_custom_service_endpoint(void)
 	}
 }
 
+static void usb_reporter_vendor_service_endpoint(void)
+{
+	usb_reporter_vendor_packet_t packet;
+	uint8_t status;
+
+	if (vendor_ep.pending == 0u) {
+		if ((vendor_hid_queue == NULL) ||
+				(xQueueReceive(vendor_hid_queue, &packet, 0) != pdPASS)) {
+			return;
+		}
+		vendor_ep.pending = 1u;
+		vendor_ep.len = packet.len;
+		memcpy(vendor_ep.data, packet.data, packet.len);
+	}
+	if ((vendor_hid_in_ready == 0u) || (mai2_hid_vendor_ready() == 0u)) {
+		return;
+	}
+
+	status = mai2_hid_vendor_send_report(vendor_ep.data, vendor_ep.len);
+	if (status == (uint8_t)USBD_OK) {
+		vendor_hid_in_ready = 0u;
+		memset(&vendor_ep, 0, sizeof(vendor_ep));
+	}
+}
+
 static void usb_reporter_maybe_enqueue_custom_buttons(uint8_t debug_flag,
 		uint8_t debug_stream_mode)
 {
@@ -628,10 +670,15 @@ uint8_t usb_reporter_init(void)
 		custom_hid_queue = xQueueCreate(USB_REPORTER_CUSTOM_QUEUE_LENGTH,
 				sizeof(usb_reporter_custom_packet_t));
 	}
+	if (vendor_hid_queue == NULL) {
+		vendor_hid_queue = xQueueCreate(USB_REPORTER_VENDOR_QUEUE_LENGTH,
+				sizeof(usb_reporter_vendor_packet_t));
+	}
 
 	return (uint8_t)((cdc_high_queue != NULL) &&
 			(cdc_low_queue != NULL) &&
-			(custom_hid_queue != NULL));
+			(custom_hid_queue != NULL) &&
+			(vendor_hid_queue != NULL));
 }
 
 void usb_reporter_reset(void)
@@ -642,6 +689,7 @@ void usb_reporter_reset(void)
 	memset(&cdc_live_latest, 0, sizeof(cdc_live_latest));
 	cdc_live_latest_pending = 0u;
 	memset(&custom_ep, 0, sizeof(custom_ep));
+	memset(&vendor_ep, 0, sizeof(vendor_ep));
 	memset(&touch_ep, 0, sizeof(touch_ep));
 	memset(last_keyboard_report, 0, sizeof(last_keyboard_report));
 	last_custom_buttons0 = 0xFFu;
@@ -650,6 +698,7 @@ void usb_reporter_reset(void)
 	cdc_in_flight_start_tick = 0u;
 	cdc_live_last_enqueue_tick = 0u;
 	custom_hid_in_ready = 1u;
+	vendor_hid_in_ready = 1u;
 	keyboard_hid_in_ready = 1u;
 	touch_hid_in_ready = 1u;
 	if (cdc_high_queue != NULL) {
@@ -660,6 +709,9 @@ void usb_reporter_reset(void)
 	}
 	if (custom_hid_queue != NULL) {
 		(void)xQueueReset(custom_hid_queue);
+	}
+	if (vendor_hid_queue != NULL) {
+		(void)xQueueReset(vendor_hid_queue);
 	}
 }
 
@@ -673,6 +725,7 @@ void usb_reporter_service(uint8_t debug_flag, uint8_t debug_stream_mode,
 	usb_reporter_keyboard_service(heartbeat_active);
 	usb_reporter_touch_service();
 	usb_reporter_custom_service_endpoint();
+	usb_reporter_vendor_service_endpoint();
 	usb_reporter_cdc_service_endpoint();
 }
 
@@ -773,6 +826,21 @@ uint8_t usb_reporter_custom_hid_enqueue(const uint8_t *report, uint16_t len)
 	return (uint8_t)(xQueueSend(custom_hid_queue, &packet, 0) == pdPASS);
 }
 
+uint8_t usb_reporter_vendor_hid_enqueue(const uint8_t *report, uint16_t len)
+{
+	usb_reporter_vendor_packet_t packet;
+
+	if ((vendor_hid_queue == NULL) || (report == NULL) ||
+			(len == 0u) || (len > sizeof(packet.data))) {
+		return 0u;
+	}
+
+	packet.len = sizeof(packet.data);
+	memset(packet.data, 0, sizeof(packet.data));
+	memcpy(packet.data, report, len);
+	return (uint8_t)(xQueueSend(vendor_hid_queue, &packet, 0) == pdPASS);
+}
+
 void usb_reporter_notify_cdc_in_complete(uint8_t cdc_ch)
 {
 	if (cdc_ch == 0u) {
@@ -784,6 +852,11 @@ void usb_reporter_notify_cdc_in_complete(uint8_t cdc_ch)
 void usb_reporter_notify_custom_hid_in_complete(void)
 {
 	custom_hid_in_ready = 1u;
+}
+
+void usb_reporter_notify_vendor_hid_in_complete(void)
+{
+	vendor_hid_in_ready = 1u;
 }
 
 void usb_reporter_notify_keyboard_hid_in_complete(void)

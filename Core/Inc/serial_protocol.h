@@ -13,8 +13,15 @@
 #define SERIAL_DEBUG_STREAM_MODE_FOCUS 0u
 #define SERIAL_DEBUG_STREAM_MODE_RAW_34 1u
 
+typedef enum serial_command_transport {
+	SERIAL_COMMAND_TRANSPORT_CDC = 0u,
+	SERIAL_COMMAND_TRANSPORT_VENDOR_HID = 1u,
+	SERIAL_COMMAND_TRANSPORT_COUNT
+} serial_command_transport_t;
+
 typedef struct serial_frame {
 	uint8_t len;
+	uint8_t transport;
 	uint8_t data[SERIAL_FRAME_MAX_LEN];
 } serial_frame_t;
 
@@ -61,9 +68,22 @@ typedef enum serial_cmd {
 
 void serial_command_init(void);
 uint8_t serial_command_feed(const uint8_t *data, uint16_t len);
+uint8_t serial_command_feed_isr(const uint8_t *data, uint16_t len);
+uint8_t serial_command_feed_transport(const uint8_t *data, uint16_t len,
+		serial_command_transport_t transport);
+uint8_t serial_command_feed_isr_transport(const uint8_t *data, uint16_t len,
+		serial_command_transport_t transport);
+uint8_t serial_command_drain_rx_stream(void);
 uint8_t serial_command_push(const uint8_t *data, uint16_t len);
+uint8_t serial_command_push_transport(const uint8_t *data, uint16_t len,
+		serial_command_transport_t transport);
 uint8_t serial_command_pop(serial_frame_t *frame);
 uint8_t serial_command_stream_pending(void);
+uint8_t serial_command_stream_pending_transport(
+		serial_command_transport_t transport);
+serial_command_transport_t serial_command_response_transport(void);
+void serial_command_set_response_transport(
+		serial_command_transport_t transport);
 uint8_t serial_protocol_frame_valid(const uint8_t *frame, uint8_t len);
 
 #endif /* INC_SERIAL_PROTOCOL_H_ */

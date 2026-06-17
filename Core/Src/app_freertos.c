@@ -354,7 +354,7 @@ void serial_send_simple_status(uint8_t command, uint8_t ok)
 	for(uint8_t i = 0;i<4u;i++){
 		cmd_tmp[4] += cmd_tmp[i];
 	}
-	(void) usb_tx_enqueue_high(cmd_tmp, sizeof(cmd_tmp));
+	(void) serial_cdc_tx_enqueue_high(cmd_tmp, sizeof(cmd_tmp));
 }
 
 static void debug_exit_reset_now(void)
@@ -418,7 +418,8 @@ static uint8_t usb_tx_enqueue_low(const uint8_t *buf, uint16_t len)
 
 uint8_t serial_cdc_tx_enqueue_high(const uint8_t *buf, uint16_t len)
 {
-	return usb_tx_enqueue_high(buf, len);
+	/* Keep command replies off CDC IN; CDC IN is reserved for legacy/live output. */
+	return usb_reporter_vendor_hid_enqueue(buf, len);
 }
 
 uint8_t serial_cdc_tx_enqueue_high_isr(const uint8_t *buf, uint16_t len)
@@ -466,7 +467,7 @@ uint8_t serial_send_raw_debug_snapshot(uint8_t sequence, uint8_t part_index)
 		cmd_tmp[idx] += cmd_tmp[checksum_index];
 	}
 
-	return usb_tx_enqueue_high(cmd_tmp, (uint16_t) (idx + 1u));
+	return serial_cdc_tx_enqueue_high(cmd_tmp, (uint16_t) (idx + 1u));
 }
 
 /* Echoes the benchmark payload and attaches device-side cycle timestamps. */
@@ -495,7 +496,7 @@ void serial_send_benchmark_reply(uint8_t cmd, const uint8_t *payload, uint8_t pa
 	for (uint8_t i = 0; i < idx; i++) {
 		cmd_tmp[idx] += cmd_tmp[i];
 	}
-	(void) usb_tx_enqueue_high(cmd_tmp, idx + 1);
+	(void) serial_cdc_tx_enqueue_high(cmd_tmp, idx + 1);
 }
 
 static void serial_send_benchmark_event(uint32_t sequence, uint64_t event_cycles)
@@ -715,15 +716,21 @@ void Command_Task(void const * argument)
 	for(;;)
   {
 	(void) ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5));
+	(void) serial_command_drain_rx_stream();
 	while (serial_command_pop(&rx_frame)) {
+		serial_command_set_response_transport(
+				(serial_command_transport_t)rx_frame.transport);
 		if ((rx_frame.len != 0u) && (rx_frame.data[0] == 0xFFu)) {
 			if (serial_protocol_frame_valid(rx_frame.data, rx_frame.len) == 0u) {
+				serial_command_set_response_transport(
+						SERIAL_COMMAND_TRANSPORT_CDC);
 				continue;
 			}
 			serial_commands_process_frame(&rx_frame, benchmark_cycles64());
 		} else {
 			serial_commands_process_legacy_ascii(rx_frame.data, rx_frame.len);
 		}
+		serial_command_set_response_transport(SERIAL_COMMAND_TRANSPORT_CDC);
 	}
 	if ((debug_exit_reset_pending != 0u) &&
 			((int32_t)(HAL_GetTick() - debug_exit_reset_deadline_ms) >= 0)) {

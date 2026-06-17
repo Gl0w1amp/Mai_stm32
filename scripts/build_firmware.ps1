@@ -116,6 +116,7 @@ if ($SimTouch) {
         "-I$RootSlash/Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/COMPOSITE/Inc",
         "-I$RootSlash/Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/HID_KEYBOARD/Inc",
         "-I$RootSlash/Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/HID_CUSTOM/Inc",
+        "-I$RootSlash/Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Class/HID_VENDOR/Inc",
         "-I$RootSlash/Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Core/Inc",
         "-I$RootSlash/Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/App",
         "-I$RootSlash/Middlewares/Third_Party/AL94_USB_Composite/COMPOSITE/Target",

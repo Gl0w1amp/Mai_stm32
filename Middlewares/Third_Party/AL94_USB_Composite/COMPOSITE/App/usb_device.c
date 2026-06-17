@@ -111,6 +111,12 @@ void MX_USB_DEVICE_Init(void)
     Error_Handler();
   }
 #endif
+#if (USBD_USE_HID_VENDOR == 1)
+  if (USBD_VENDOR_HID_RegisterInterface(&hUsbDevice, &USBD_VendorHID_fops) != USBD_OK)
+  {
+    Error_Handler();
+  }
+#endif
 #if (USBD_USE_UAC_MIC == 1)
   if (USBD_AUDIO_MIC_RegisterInterface(&hUsbDevice, &USBD_AUDIO_MIC_fops_FS) != USBD_OK)
   {

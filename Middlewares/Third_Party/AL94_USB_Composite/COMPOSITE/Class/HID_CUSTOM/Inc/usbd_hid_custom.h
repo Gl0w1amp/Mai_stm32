@@ -19,7 +19,7 @@ extern "C" {
 #define CUSTOM_HID_EPIN_SIZE                         0x18U
 #define CUSTOM_HID_EPOUT_SIZE                        0x18U
 
-#define USB_CUSTOM_HID_CONFIG_DESC_SIZ               41U
+#define USB_CUSTOM_HID_CONFIG_DESC_SIZ               34U
 #define USB_CUSTOM_HID_DESC_SIZ                      9U
 
 #ifndef CUSTOM_HID_HS_BINTERVAL

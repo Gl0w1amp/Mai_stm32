@@ -54,6 +54,9 @@
 /*---------- _USBD_USE_HID_CUSTOM  -----------*/
 #define _USBD_USE_HID_CUSTOM      true
 
+/*---------- _USBD_USE_HID_VENDOR  -----------*/
+#define _USBD_USE_HID_VENDOR      true
+
 /*---------- _USBD_USE_HID_TOUCH  -----------*/
 #define _USBD_USE_HID_TOUCH      true
 

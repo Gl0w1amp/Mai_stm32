@@ -313,6 +313,8 @@ typedef struct _USBD_HandleTypeDef
   void                    *pClassData_HID_Keyboard;
   void                    *pClassData_HID_Custom;
   void                    *pUserData_HID_Custom;
+  void                    *pClassData_HID_Vendor;
+  void                    *pUserData_HID_Vendor;
   void                    *pClassData_UAC_MIC;
   void                    *pUserData_UAC_MIC;
   void                    *pClassData_UAC_SPKR;

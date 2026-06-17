@@ -59,9 +59,11 @@ void usb_reporter_touch_hid_stats_reset(void);
 void usb_reporter_touch_hid_stats_snapshot(usb_touch_hid_stats_t *stats_out);
 
 uint8_t usb_reporter_custom_hid_enqueue(const uint8_t *report, uint16_t len);
+uint8_t usb_reporter_vendor_hid_enqueue(const uint8_t *report, uint16_t len);
 
 void usb_reporter_notify_cdc_in_complete(uint8_t cdc_ch);
 void usb_reporter_notify_custom_hid_in_complete(void);
+void usb_reporter_notify_vendor_hid_in_complete(void);
 void usb_reporter_notify_keyboard_hid_in_complete(void);
 void usb_reporter_notify_touch_hid_in_complete(void);
 

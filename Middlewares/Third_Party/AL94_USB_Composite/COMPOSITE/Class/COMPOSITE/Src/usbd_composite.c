@@ -136,6 +136,9 @@ typedef struct USBD_COMPOSITE_CFG_DESC_t
 #if (USBD_USE_HID_CUSTOM == 1)
   uint8_t USBD_HID_CUSTOM_DESC[USB_CUSTOM_HID_CONFIG_DESC_SIZ - 0x09];
 #endif
+#if (USBD_USE_HID_VENDOR == 1)
+  uint8_t USBD_HID_VENDOR_DESC[USB_VENDOR_HID_CONFIG_DESC_SIZ - 0x09];
+#endif
 #if (USBD_USE_UAC_MIC == 1)
   uint8_t USBD_UAC_MIC_DESC[USBD_AUDIO_MIC_CONFIG_DESC_SIZE - 0x09];
 #endif
@@ -225,6 +228,9 @@ static uint8_t USBD_COMPOSITE_Init(USBD_HandleTypeDef *pdev, uint8_t cfgidx)
 #if (USBD_USE_HID_CUSTOM == 1)
   USBD_HID_CUSTOM.Init(pdev, cfgidx);
 #endif
+#if (USBD_USE_HID_VENDOR == 1)
+  USBD_HID_VENDOR.Init(pdev, cfgidx);
+#endif
 #if (USBD_USE_UAC_MIC == 1)
   USBD_AUDIO_MIC.Init(pdev, cfgidx);
 #endif
@@ -276,6 +282,9 @@ static uint8_t USBD_COMPOSITE_DeInit(USBD_HandleTypeDef *pdev, uint8_t cfgidx)
 #endif
 #if (USBD_USE_HID_CUSTOM == 1)
   USBD_HID_CUSTOM.DeInit(pdev, cfgidx);
+#endif
+#if (USBD_USE_HID_VENDOR == 1)
+  USBD_HID_VENDOR.DeInit(pdev, cfgidx);
 #endif
 #if (USBD_USE_UAC_MIC == 1)
   USBD_AUDIO_MIC.DeInit(pdev, cfgidx);
@@ -357,6 +366,12 @@ static uint8_t USBD_COMPOSITE_Setup(USBD_HandleTypeDef *pdev,
   if (LOBYTE(req->wIndex) == CUSTOM_HID_ITF_NBR)
   {
     return USBD_HID_CUSTOM.Setup(pdev, req);
+  }
+#endif
+#if (USBD_USE_HID_VENDOR == 1)
+  if (LOBYTE(req->wIndex) == VENDOR_HID_ITF_NBR)
+  {
+    return USBD_HID_VENDOR.Setup(pdev, req);
   }
 #endif
 #if (USBD_USE_HID_TOUCH == 1)
@@ -453,6 +468,12 @@ static uint8_t USBD_COMPOSITE_DataIn(USBD_HandleTypeDef *pdev, uint8_t epnum)
     return USBD_HID_CUSTOM.DataIn(pdev, epnum);
   }
 #endif
+#if (USBD_USE_HID_VENDOR == 1)
+  if (epnum == (VENDOR_HID_IN_EP & 0x7F))
+  {
+    return USBD_HID_VENDOR.DataIn(pdev, epnum);
+  }
+#endif
 #if (USBD_USE_HID_TOUCH == 1)
   if (epnum == (TOUCH_HID_IN_EP & 0x7F))
   {
@@ -515,6 +536,9 @@ static uint8_t USBD_COMPOSITE_EP0_RxReady(USBD_HandleTypeDef *pdev)
 #if (USBD_USE_HID_CUSTOM == 1)
   USBD_HID_CUSTOM.EP0_RxReady(pdev);
 #endif
+#if (USBD_USE_HID_VENDOR == 1)
+  USBD_HID_VENDOR.EP0_RxReady(pdev);
+#endif
 #if (USBD_USE_HID_TOUCH == 1)
   USBD_HID_TOUCH.EP0_RxReady(pdev);
 #endif
@@ -557,6 +581,8 @@ static uint8_t USBD_COMPOSITE_EP0_TxReady(USBD_HandleTypeDef *pdev)
 #endif
 #if (USBD_USE_HID_CUSTOM == 1)
 #endif
+#if (USBD_USE_HID_VENDOR == 1)
+#endif
 #if (USBD_USE_UAC_MIC == 1)
   USBD_AUDIO_MIC.EP0_TxSent(pdev);
 #endif
@@ -595,6 +621,8 @@ static uint8_t USBD_COMPOSITE_SOF(USBD_HandleTypeDef *pdev)
 #if (USBD_USE_HID_KEYBOARD == 1)
 #endif
 #if (USBD_USE_HID_CUSTOM == 1)
+#endif
+#if (USBD_USE_HID_VENDOR == 1)
 #endif
 #if (USBD_USE_UAC_MIC == 1)
   USBD_AUDIO_MIC.SOF(pdev);
@@ -636,6 +664,8 @@ static uint8_t USBD_COMPOSITE_IsoINIncomplete(USBD_HandleTypeDef *pdev, uint8_t 
 #if (USBD_USE_HID_KEYBOARD == 1)
 #endif
 #if (USBD_USE_HID_CUSTOM == 1)
+#endif
+#if (USBD_USE_HID_VENDOR == 1)
 #endif
 #if (USBD_USE_UAC_MIC == 1)
   if (epnum == (AUDIO_MIC_EP & 0x7F))
@@ -681,6 +711,8 @@ static uint8_t USBD_COMPOSITE_IsoOutIncomplete(USBD_HandleTypeDef *pdev, uint8_t
 #if (USBD_USE_HID_KEYBOARD == 1)
 #endif
 #if (USBD_USE_HID_CUSTOM == 1)
+#endif
+#if (USBD_USE_HID_VENDOR == 1)
 #endif
 #if (USBD_USE_UAC_MIC == 1)
 #endif
@@ -739,6 +771,12 @@ static uint8_t USBD_COMPOSITE_DataOut(USBD_HandleTypeDef *pdev, uint8_t epnum)
   if (epnum == CUSTOM_HID_OUT_EP)
   {
     return USBD_HID_CUSTOM.DataOut(pdev, epnum);
+  }
+#endif
+#if (USBD_USE_HID_VENDOR == 1)
+  if (epnum == VENDOR_HID_OUT_EP)
+  {
+    return USBD_HID_VENDOR.DataOut(pdev, epnum);
   }
 #endif
 #if (USBD_USE_UAC_MIC == 1)
@@ -877,6 +915,12 @@ static uint8_t *USBD_COMPOSITE_GetUsrStringDesc(USBD_HandleTypeDef *pdev, uint8_
     if (index == CUSTOM_HID_STR_DESC_IDX)
     {
       USBD_GetString((uint8_t *)CUSTOM_HID_STR_DESC, USBD_StrDesc, length);
+    }
+#endif
+#if (USBD_USE_HID_VENDOR == 1)
+    if (index == VENDOR_HID_STR_DESC_IDX)
+    {
+      USBD_GetString((uint8_t *)VENDOR_HID_STR_DESC, USBD_StrDesc, length);
     }
 #endif
 #if (USBD_USE_HID_TOUCH == 1)
@@ -1030,6 +1074,20 @@ void USBD_COMPOSITE_Mount_Class(void)
   ptr = USBD_HID_CUSTOM.GetHSConfigDescriptor(&len);
   USBD_Update_HID_Custom_DESC(ptr, interface_no_track, in_ep_track, out_ep_track, USBD_Track_String_Index);
   memcpy(USBD_COMPOSITE_HSCfgDesc.USBD_HID_CUSTOM_DESC, ptr + 0x09, len - 0x09);
+
+  in_ep_track += 1;
+  interface_no_track += 1;
+  USBD_Track_String_Index += 1;
+#endif
+
+#if (USBD_USE_HID_VENDOR == 1)
+  ptr = USBD_HID_VENDOR.GetFSConfigDescriptor(&len);
+  USBD_Update_HID_Vendor_DESC(ptr, interface_no_track, in_ep_track, out_ep_track, USBD_Track_String_Index);
+  memcpy(USBD_COMPOSITE_FSCfgDesc.USBD_HID_VENDOR_DESC, ptr + 0x09, len - 0x09);
+
+  ptr = USBD_HID_VENDOR.GetHSConfigDescriptor(&len);
+  USBD_Update_HID_Vendor_DESC(ptr, interface_no_track, in_ep_track, out_ep_track, USBD_Track_String_Index);
+  memcpy(USBD_COMPOSITE_HSCfgDesc.USBD_HID_VENDOR_DESC, ptr + 0x09, len - 0x09);
 
   in_ep_track += 1;
   out_ep_track += 1;

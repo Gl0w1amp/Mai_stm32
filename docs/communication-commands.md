@@ -1,16 +1,26 @@
 # Communication Commands
 
-This page documents the USB CDC command protocol implemented by the firmware.
-The device exposes a USB CDC ACM interface (Virtual COM Port). Commands are sent to the device, and the device replies with responses or streams data.
+This page documents the command protocol implemented by the firmware. The binary
+and legacy frame formats are shared across transports, but the primary command
+transport is now the Vendor HID Command interface.
+
+The device still exposes a USB CDC ACM interface for compatibility and legacy
+live output. CDC OUT accepts older command senders and app-jump requests, but
+command responses are routed to Vendor HID IN so CDC IN can remain dedicated to
+legacy/live touch output.
 
 ## Protocol Overview
 
-- **Interface**: USB CDC ACM (Channel 0)
-- **Baud Rate**: Any (USB virtual serial port)
+- **Primary interface**: Vendor HID Command, usage page `0xFFCA`, usage `0x0002`
+- **Vendor HID report size**: 64-byte firmware reports
+- **Windows HID buffer size**: 65 bytes, with `report[0] = 0`
+- **Compatibility interface**: USB CDC ACM OUT for old command senders and app-jump
+- **CDC IN policy**: Legacy/live output only; command responses are not sent on CDC IN
 - **Endianness**: Little-endian for multi-byte values
 - **Direction**:
-    - Host -> Device: Commands
-    - Device -> Host: Responses, Touch Reports
+    - Host -> Device: Vendor HID OUT commands, or CDC OUT compatibility commands
+    - Device -> Host: Vendor HID IN command responses
+    - Device -> Host: CDC IN legacy/live touch and status streams
 
 The firmware supports two command formats:
 1.  **Binary Protocol**: Frames starting with `0xFF`. Used for all modern features.
@@ -31,6 +41,11 @@ All binary commands follow this structure:
 | 2      | Len      | 1    | Length of the Payload                            |
 | 3      | Payload  | Len  | Command-specific data                            |
 | 3+Len  | Checksum | 1    | Sum of bytes `0` to `2+Len` (modulo 256)         |
+
+For Vendor HID, the firmware frame starts at byte `0` of the 64-byte report. On
+Windows HID APIs, hosts usually read/write a 65-byte buffer with a leading report
+ID byte. Because this collection uses report ID `0`, the command frame starts at
+host buffer offset `1` and the remaining bytes are zero padding.
 
 ### LED Commands
 
@@ -127,6 +142,20 @@ Sent when `Heartbeat == 0` and `Touch Scan Flag` is enabled (via `{STAT}`).
 - **Touch Data**: 7 bytes (same packing as Auto Scan)
 - **End**: `0x29` (`)`)
 
+### Vendor HID Command Notes
+
+The Vendor HID Command interface is the preferred transport for commands and
+responses.
+
+- Usage page: `0xFFCA`
+- Usage: `0x0002`
+- OUT report: 64-byte command input
+- IN report: 64-byte command response
+- Windows HID report buffers: 65 bytes with a leading report ID byte
+
+Each command response uses the same binary frame format as CDC-era responses. A
+host should parse the first valid `0xFF` frame and ignore trailing zero padding.
+
 ### Custom HID Notes
 
 The Custom HID interface remains available for button and benchmark reports. Controller role is distinguished by USB PID:
@@ -154,7 +183,7 @@ These commands start with `{` (`0x7B`) and are 6 bytes long. They are primarily 
 
 ## LED Controller Protocol (UART)
 
-In addition to the USB CDC commands, the firmware implements a dedicated LED control protocol on the UART interface (typically for internal communication or specific LED controllers).
+In addition to the USB command protocol, the firmware implements a dedicated LED control protocol on the UART interface (typically for internal communication or specific LED controllers).
 
 ### Frame Format
 

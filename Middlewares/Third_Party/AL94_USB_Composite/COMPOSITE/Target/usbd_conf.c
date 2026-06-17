@@ -326,6 +326,9 @@ USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *pdev)
 #if (USBD_USE_HID_CUSTOM == 1)
     HAL_PCDEx_SetTxFiFoInBytes(hpcd_USB_OTG_PTR, (CUSTOM_HID_IN_EP & 0x7F), 64);
 #endif
+#if (USBD_USE_HID_VENDOR == 1)
+    HAL_PCDEx_SetTxFiFoInBytes(hpcd_USB_OTG_PTR, (VENDOR_HID_IN_EP & 0x7F), 64);
+#endif
 #if (USBD_USE_UAC_MIC == 1)
     HAL_PCDEx_SetTxFiFoInBytes(hpcd_USB_OTG_PTR, (AUDIO_MIC_EP & 0x7F), 128);
 #endif
@@ -406,8 +409,12 @@ USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *pdev)
 #if (USBD_USE_HID_CUSTOM == 1)
     HAL_PCDEx_PMAConfig((PCD_HandleTypeDef *)pdev->pData, CUSTOM_HID_IN_EP, PCD_SNG_BUF, pma_track);
     pma_track += CUSTOM_HID_EPIN_SIZE;
-    HAL_PCDEx_PMAConfig((PCD_HandleTypeDef *)pdev->pData, CUSTOM_HID_OUT_EP, PCD_SNG_BUF, pma_track);
-    pma_track += CUSTOM_HID_EPOUT_SIZE;
+#endif
+#if (USBD_USE_HID_VENDOR == 1)
+    HAL_PCDEx_PMAConfig((PCD_HandleTypeDef *)pdev->pData, VENDOR_HID_IN_EP, PCD_SNG_BUF, pma_track);
+    pma_track += VENDOR_HID_EPIN_SIZE;
+    HAL_PCDEx_PMAConfig((PCD_HandleTypeDef *)pdev->pData, VENDOR_HID_OUT_EP, PCD_SNG_BUF, pma_track);
+    pma_track += VENDOR_HID_EPOUT_SIZE;
 #endif
 #if (USBD_USE_UAC_MIC == 1)
     HAL_PCDEx_PMAConfig((PCD_HandleTypeDef *)pdev->pData, AUDIO_MIC_EP, PCD_SNG_BUF, pma_track);
@@ -475,6 +482,9 @@ USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *pdev)
 #endif
 #if (USBD_USE_HID_CUSTOM == 1)
     HAL_PCDEx_SetTxFiFoInBytes(hpcd_USB_OTG_PTR, (CUSTOM_HID_IN_EP & 0x7F), 64);
+#endif
+#if (USBD_USE_HID_VENDOR == 1)
+    HAL_PCDEx_SetTxFiFoInBytes(hpcd_USB_OTG_PTR, (VENDOR_HID_IN_EP & 0x7F), 64);
 #endif
 #if (USBD_USE_UAC_MIC == 1)
     HAL_PCDEx_SetTxFiFoInBytes(hpcd_USB_OTG_PTR, (AUDIO_MIC_EP & 0x7F), 128);

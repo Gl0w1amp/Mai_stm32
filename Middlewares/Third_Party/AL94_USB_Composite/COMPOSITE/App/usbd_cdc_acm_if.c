@@ -437,7 +437,8 @@ static int8_t CDC_Receive(uint8_t cdc_ch, uint8_t *Buf, uint32_t *Len)
 			(Buf[0] != 0xFFu) &&
 			(serial_command_stream_pending() == 0u)){
 		debug_channel = Buf[0] <= 33 ? Buf[0] : 33;
-	} else if (serial_command_feed(Buf, (uint16_t) *Len) != 0u) {
+	} else if (serial_command_feed_isr_transport(Buf, (uint16_t) *Len,
+			SERIAL_COMMAND_TRANSPORT_CDC) != 0u) {
 		slider_notify_command_ready_from_isr();
 	}
 	USBD_CDC_SetRxBuffer(cdc_ch, &hUsbDevice, &Buf[0]);

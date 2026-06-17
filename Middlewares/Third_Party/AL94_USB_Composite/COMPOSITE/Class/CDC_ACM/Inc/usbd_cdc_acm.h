@@ -64,7 +64,7 @@ extern "C" {
 #define CDC_DATA_HS_OUT_PACKET_SIZE                 CDC_DATA_HS_MAX_PACKET_SIZE
 
 #define CDC_DATA_FS_IN_PACKET_SIZE                  CDC_DATA_FS_MAX_PACKET_SIZE
-#define CDC_DATA_FS_OUT_PACKET_SIZE                 CDC_DATA_FS_MAX_PACKET_SIZE
+#define CDC_DATA_FS_OUT_PACKET_SIZE                 16U
 
 #define CDC_REQ_MAX_DATA_SIZE                       0x7U
 /*---------------------------------------------------------------------*/

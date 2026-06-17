@@ -50,10 +50,12 @@ All multi-byte values are little-endian.
 | 61 | 2 | `frame_interval_ms` | Last firmware frame interval |
 | 63 | 1 | reserved | Reserved, currently `0` |
 
-## CDC Diagnostics
+## Command Diagnostics
 
-The normal CDC frame format is documented in
-[Communication Commands](communication-commands.md).
+The normal command frame format is documented in
+[Communication Commands](communication-commands.md). Send diagnostics commands
+through the Vendor HID Command interface. CDC OUT remains available for older
+tools, but command responses are returned through Vendor HID IN.
 
 `GET_TOUCH_HID_STATS` uses command `0x29`.
 
@@ -87,13 +89,16 @@ Response payload length is 48 bytes:
 On Windows:
 
 ```powershell
-py scripts\touch_hid_monitor.py --list --cdc COM8 --duration 3 --reset-stats
+py scripts\touch_hid_monitor.py --list --duration 3
 ```
 
-Expected healthy simulated-firmware result:
+Expected healthy firmware result:
 
 - `frame_hz` near `200`
 - `packet_hz` near `400`
 - `part0` and `part1` counts almost equal
 - `nonzero_packets` greater than `0`
 - `dropped_frames` stable
+
+Use the Vendor HID Command interface to query or reset `GET_TOUCH_HID_STATS`
+(`0x29`) when validating endpoint-level retry and drop counters.

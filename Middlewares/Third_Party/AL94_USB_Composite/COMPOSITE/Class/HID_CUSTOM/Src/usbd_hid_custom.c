@@ -69,7 +69,7 @@ __ALIGN_BEGIN static uint8_t USBD_CUSTOM_HID_CfgFSDesc[USB_CUSTOM_HID_CONFIG_DES
         USB_DESC_TYPE_INTERFACE,
         _CUSTOM_HID_ITF_NBR,
         0x00,
-        0x02,
+        0x01,
         0x03,
         0x00,
         0x00,
@@ -88,13 +88,6 @@ __ALIGN_BEGIN static uint8_t USBD_CUSTOM_HID_CfgFSDesc[USB_CUSTOM_HID_CONFIG_DES
         _CUSTOM_HID_IN_EP,
         0x03,
         CUSTOM_HID_EPIN_SIZE,
-        0x00,
-        CUSTOM_HID_FS_BINTERVAL,
-        0x07,
-        USB_DESC_TYPE_ENDPOINT,
-        _CUSTOM_HID_OUT_EP,
-        0x03,
-        CUSTOM_HID_EPOUT_SIZE,
         0x00,
         CUSTOM_HID_FS_BINTERVAL,
 };
@@ -118,7 +111,7 @@ __ALIGN_BEGIN static uint8_t USBD_CUSTOM_HID_CfgHSDesc[USB_CUSTOM_HID_CONFIG_DES
         USB_DESC_TYPE_INTERFACE,
         _CUSTOM_HID_ITF_NBR,
         0x00,
-        0x02,
+        0x01,
         0x03,
         0x00,
         0x00,
@@ -137,13 +130,6 @@ __ALIGN_BEGIN static uint8_t USBD_CUSTOM_HID_CfgHSDesc[USB_CUSTOM_HID_CONFIG_DES
         _CUSTOM_HID_IN_EP,
         0x03,
         CUSTOM_HID_EPIN_SIZE,
-        0x00,
-        CUSTOM_HID_HS_BINTERVAL,
-        0x07,
-        USB_DESC_TYPE_ENDPOINT,
-        _CUSTOM_HID_OUT_EP,
-        0x03,
-        CUSTOM_HID_EPOUT_SIZE,
         0x00,
         CUSTOM_HID_HS_BINTERVAL,
 };
@@ -167,7 +153,7 @@ __ALIGN_BEGIN static uint8_t USBD_CUSTOM_HID_OtherSpeedCfgDesc[USB_CUSTOM_HID_CO
         USB_DESC_TYPE_INTERFACE,
         _CUSTOM_HID_ITF_NBR,
         0x00,
-        0x02,
+        0x01,
         0x03,
         0x00,
         0x00,
@@ -186,13 +172,6 @@ __ALIGN_BEGIN static uint8_t USBD_CUSTOM_HID_OtherSpeedCfgDesc[USB_CUSTOM_HID_CO
         _CUSTOM_HID_IN_EP,
         0x03,
         CUSTOM_HID_EPIN_SIZE,
-        0x00,
-        CUSTOM_HID_FS_BINTERVAL,
-        0x07,
-        USB_DESC_TYPE_ENDPOINT,
-        _CUSTOM_HID_OUT_EP,
-        0x03,
-        CUSTOM_HID_EPOUT_SIZE,
         0x00,
         CUSTOM_HID_FS_BINTERVAL,
 };
@@ -240,24 +219,18 @@ static uint8_t USBD_CUSTOM_HID_Init(USBD_HandleTypeDef *pdev, uint8_t cfgidx)
   if (pdev->dev_speed == USBD_SPEED_HIGH)
   {
     pdev->ep_in[CUSTOM_HID_IN_EP & 0xFU].bInterval = CUSTOM_HID_HS_BINTERVAL;
-    pdev->ep_out[CUSTOM_HID_OUT_EP & 0xFU].bInterval = CUSTOM_HID_HS_BINTERVAL;
   }
   else
   {
     pdev->ep_in[CUSTOM_HID_IN_EP & 0xFU].bInterval = CUSTOM_HID_FS_BINTERVAL;
-    pdev->ep_out[CUSTOM_HID_OUT_EP & 0xFU].bInterval = CUSTOM_HID_FS_BINTERVAL;
   }
 
   (void)USBD_LL_OpenEP(pdev, CUSTOM_HID_IN_EP, USBD_EP_TYPE_INTR, CUSTOM_HID_EPIN_SIZE);
   pdev->ep_in[CUSTOM_HID_IN_EP & 0xFU].is_used = 1U;
 
-  (void)USBD_LL_OpenEP(pdev, CUSTOM_HID_OUT_EP, USBD_EP_TYPE_INTR, CUSTOM_HID_EPOUT_SIZE);
-  pdev->ep_out[CUSTOM_HID_OUT_EP & 0xFU].is_used = 1U;
-
   hhid->state = CUSTOM_HID_IDLE;
 
   ((USBD_CUSTOM_HID_ItfTypeDef *)pdev->pUserData_HID_Custom)->Init();
-  (void)USBD_LL_PrepareReceive(pdev, CUSTOM_HID_OUT_EP, hhid->Report_buf, USBD_CUSTOMHID_OUTREPORT_BUF_SIZE);
 
   return (uint8_t)USBD_OK;
 }
@@ -269,10 +242,6 @@ static uint8_t USBD_CUSTOM_HID_DeInit(USBD_HandleTypeDef *pdev, uint8_t cfgidx)
   (void)USBD_LL_CloseEP(pdev, CUSTOM_HID_IN_EP);
   pdev->ep_in[CUSTOM_HID_IN_EP & 0xFU].is_used = 0U;
   pdev->ep_in[CUSTOM_HID_IN_EP & 0xFU].bInterval = 0U;
-
-  (void)USBD_LL_CloseEP(pdev, CUSTOM_HID_OUT_EP);
-  pdev->ep_out[CUSTOM_HID_OUT_EP & 0xFU].is_used = 0U;
-  pdev->ep_out[CUSTOM_HID_OUT_EP & 0xFU].bInterval = 0U;
 
   if (pdev->pClassData_HID_Custom != NULL)
   {
@@ -483,34 +452,15 @@ static uint8_t USBD_CUSTOM_HID_DataIn(USBD_HandleTypeDef *pdev, uint8_t epnum)
 
 static uint8_t USBD_CUSTOM_HID_DataOut(USBD_HandleTypeDef *pdev, uint8_t epnum)
 {
+  UNUSED(pdev);
   UNUSED(epnum);
-
-  if (pdev->pClassData_HID_Custom == NULL)
-  {
-    return (uint8_t)USBD_FAIL;
-  }
-
-  (void)USBD_LL_PrepareReceive(
-      pdev,
-      CUSTOM_HID_OUT_EP,
-      ((USBD_CUSTOM_HID_HandleTypeDef *)pdev->pClassData_HID_Custom)->Report_buf,
-      USBD_CUSTOMHID_OUTREPORT_BUF_SIZE);
-
-  return (uint8_t)USBD_OK;
+  return (uint8_t)USBD_FAIL;
 }
 
 uint8_t USBD_CUSTOM_HID_ReceivePacket(USBD_HandleTypeDef *pdev)
 {
-  USBD_CUSTOM_HID_HandleTypeDef *hhid;
-
-  if (pdev->pClassData_HID_Custom == NULL)
-  {
-    return (uint8_t)USBD_FAIL;
-  }
-
-  hhid = (USBD_CUSTOM_HID_HandleTypeDef *)pdev->pClassData_HID_Custom;
-  (void)USBD_LL_PrepareReceive(pdev, CUSTOM_HID_OUT_EP, hhid->Report_buf, USBD_CUSTOMHID_OUTREPORT_BUF_SIZE);
-  return (uint8_t)USBD_OK;
+  UNUSED(pdev);
+  return (uint8_t)USBD_FAIL;
 }
 
 static uint8_t USBD_CUSTOM_HID_EP0_RxReady(USBD_HandleTypeDef *pdev)
@@ -550,13 +500,13 @@ uint8_t USBD_CUSTOM_HID_RegisterInterface(USBD_HandleTypeDef *pdev, USBD_CUSTOM_
 
 void USBD_Update_HID_Custom_DESC(uint8_t *desc, uint8_t itf_no, uint8_t in_ep, uint8_t out_ep, uint8_t str_idx)
 {
+  UNUSED(out_ep);
   desc[11] = itf_no;
   desc[17] = str_idx;
   desc[29] = in_ep;
-  desc[36] = out_ep;
 
   CUSTOM_HID_IN_EP = in_ep;
-  CUSTOM_HID_OUT_EP = out_ep;
+  CUSTOM_HID_OUT_EP = 0u;
   CUSTOM_HID_ITF_NBR = itf_no;
   CUSTOM_HID_STR_DESC_IDX = str_idx;
 }

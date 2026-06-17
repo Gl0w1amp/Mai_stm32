@@ -1001,8 +1001,8 @@ __ALIGN_BEGIN static uint8_t USBD_CDC_CfgFSDesc[USB_CDC_CONFIG_DESC_SIZ] __ALIGN
         USB_DESC_TYPE_ENDPOINT,              /* bDescriptorType: Endpoint */
         _CDC_OUT_EP,                         /* bEndpointAddress */
         0x02,                                /* bmAttributes: Bulk */
-        LOBYTE(CDC_DATA_FS_MAX_PACKET_SIZE), /* wMaxPacketSize: */
-        HIBYTE(CDC_DATA_FS_MAX_PACKET_SIZE),
+        LOBYTE(CDC_DATA_FS_OUT_PACKET_SIZE), /* wMaxPacketSize: */
+        HIBYTE(CDC_DATA_FS_OUT_PACKET_SIZE),
         0x00, /* bInterval: ignore for Bulk transfer */
 
         /* Endpoint IN Descriptor */
@@ -1010,8 +1010,8 @@ __ALIGN_BEGIN static uint8_t USBD_CDC_CfgFSDesc[USB_CDC_CONFIG_DESC_SIZ] __ALIGN
         USB_DESC_TYPE_ENDPOINT,              /* bDescriptorType: Endpoint */
         _CDC_IN_EP,                          /* bEndpointAddress */
         0x02,                                /* bmAttributes: Bulk */
-        LOBYTE(CDC_DATA_FS_MAX_PACKET_SIZE), /* wMaxPacketSize: */
-        HIBYTE(CDC_DATA_FS_MAX_PACKET_SIZE),
+        LOBYTE(CDC_DATA_FS_IN_PACKET_SIZE), /* wMaxPacketSize: */
+        HIBYTE(CDC_DATA_FS_IN_PACKET_SIZE),
         0x00, /* bInterval: ignore for Bulk transfer */
 
 #if (NUMBER_OF_CDC > 1)
@@ -1091,8 +1091,8 @@ __ALIGN_BEGIN static uint8_t USBD_CDC_CfgFSDesc[USB_CDC_CONFIG_DESC_SIZ] __ALIGN
         USB_DESC_TYPE_ENDPOINT,              /* bDescriptorType: Endpoint */
         _CDC_OUT_EP,                         /* bEndpointAddress */
         0x02,                                /* bmAttributes: Bulk */
-        LOBYTE(CDC_DATA_FS_MAX_PACKET_SIZE), /* wMaxPacketSize: */
-        HIBYTE(CDC_DATA_FS_MAX_PACKET_SIZE),
+        LOBYTE(CDC_DATA_FS_OUT_PACKET_SIZE), /* wMaxPacketSize: */
+        HIBYTE(CDC_DATA_FS_OUT_PACKET_SIZE),
         0x00, /* bInterval: ignore for Bulk transfer */
 
         /* Endpoint IN Descriptor */
@@ -1100,8 +1100,8 @@ __ALIGN_BEGIN static uint8_t USBD_CDC_CfgFSDesc[USB_CDC_CONFIG_DESC_SIZ] __ALIGN
         USB_DESC_TYPE_ENDPOINT,              /* bDescriptorType: Endpoint */
         _CDC_IN_EP,                          /* bEndpointAddress */
         0x02,                                /* bmAttributes: Bulk */
-        LOBYTE(CDC_DATA_FS_MAX_PACKET_SIZE), /* wMaxPacketSize: */
-        HIBYTE(CDC_DATA_FS_MAX_PACKET_SIZE),
+        LOBYTE(CDC_DATA_FS_IN_PACKET_SIZE), /* wMaxPacketSize: */
+        HIBYTE(CDC_DATA_FS_IN_PACKET_SIZE),
         0x00, /* bInterval: ignore for Bulk transfer */
 #endif
 
@@ -1182,8 +1182,8 @@ __ALIGN_BEGIN static uint8_t USBD_CDC_CfgFSDesc[USB_CDC_CONFIG_DESC_SIZ] __ALIGN
         USB_DESC_TYPE_ENDPOINT,              /* bDescriptorType: Endpoint */
         _CDC_OUT_EP,                         /* bEndpointAddress */
         0x02,                                /* bmAttributes: Bulk */
-        LOBYTE(CDC_DATA_FS_MAX_PACKET_SIZE), /* wMaxPacketSize: */
-        HIBYTE(CDC_DATA_FS_MAX_PACKET_SIZE),
+        LOBYTE(CDC_DATA_FS_OUT_PACKET_SIZE), /* wMaxPacketSize: */
+        HIBYTE(CDC_DATA_FS_OUT_PACKET_SIZE),
         0x00, /* bInterval: ignore for Bulk transfer */
 
         /* Endpoint IN Descriptor */
@@ -1191,8 +1191,8 @@ __ALIGN_BEGIN static uint8_t USBD_CDC_CfgFSDesc[USB_CDC_CONFIG_DESC_SIZ] __ALIGN
         USB_DESC_TYPE_ENDPOINT,              /* bDescriptorType: Endpoint */
         _CDC_IN_EP,                          /* bEndpointAddress */
         0x02,                                /* bmAttributes: Bulk */
-        LOBYTE(CDC_DATA_FS_MAX_PACKET_SIZE), /* wMaxPacketSize: */
-        HIBYTE(CDC_DATA_FS_MAX_PACKET_SIZE),
+        LOBYTE(CDC_DATA_FS_IN_PACKET_SIZE), /* wMaxPacketSize: */
+        HIBYTE(CDC_DATA_FS_IN_PACKET_SIZE),
         0x00, /* bInterval: ignore for Bulk transfer */
 #endif
 
@@ -1273,8 +1273,8 @@ __ALIGN_BEGIN static uint8_t USBD_CDC_CfgFSDesc[USB_CDC_CONFIG_DESC_SIZ] __ALIGN
         USB_DESC_TYPE_ENDPOINT,              /* bDescriptorType: Endpoint */
         _CDC_OUT_EP,                         /* bEndpointAddress */
         0x02,                                /* bmAttributes: Bulk */
-        LOBYTE(CDC_DATA_FS_MAX_PACKET_SIZE), /* wMaxPacketSize: */
-        HIBYTE(CDC_DATA_FS_MAX_PACKET_SIZE),
+        LOBYTE(CDC_DATA_FS_OUT_PACKET_SIZE), /* wMaxPacketSize: */
+        HIBYTE(CDC_DATA_FS_OUT_PACKET_SIZE),
         0x00, /* bInterval: ignore for Bulk transfer */
 
         /* Endpoint IN Descriptor */
@@ -1282,8 +1282,8 @@ __ALIGN_BEGIN static uint8_t USBD_CDC_CfgFSDesc[USB_CDC_CONFIG_DESC_SIZ] __ALIGN
         USB_DESC_TYPE_ENDPOINT,              /* bDescriptorType: Endpoint */
         _CDC_IN_EP,                          /* bEndpointAddress */
         0x02,                                /* bmAttributes: Bulk */
-        LOBYTE(CDC_DATA_FS_MAX_PACKET_SIZE), /* wMaxPacketSize: */
-        HIBYTE(CDC_DATA_FS_MAX_PACKET_SIZE),
+        LOBYTE(CDC_DATA_FS_IN_PACKET_SIZE), /* wMaxPacketSize: */
+        HIBYTE(CDC_DATA_FS_IN_PACKET_SIZE),
         0x00, /* bInterval: ignore for Bulk transfer */
 #endif
 
@@ -1364,8 +1364,8 @@ __ALIGN_BEGIN static uint8_t USBD_CDC_CfgFSDesc[USB_CDC_CONFIG_DESC_SIZ] __ALIGN
         USB_DESC_TYPE_ENDPOINT,              /* bDescriptorType: Endpoint */
         _CDC_OUT_EP,                         /* bEndpointAddress */
         0x02,                                /* bmAttributes: Bulk */
-        LOBYTE(CDC_DATA_FS_MAX_PACKET_SIZE), /* wMaxPacketSize: */
-        HIBYTE(CDC_DATA_FS_MAX_PACKET_SIZE),
+        LOBYTE(CDC_DATA_FS_OUT_PACKET_SIZE), /* wMaxPacketSize: */
+        HIBYTE(CDC_DATA_FS_OUT_PACKET_SIZE),
         0x00, /* bInterval: ignore for Bulk transfer */
 
         /* Endpoint IN Descriptor */
@@ -1373,8 +1373,8 @@ __ALIGN_BEGIN static uint8_t USBD_CDC_CfgFSDesc[USB_CDC_CONFIG_DESC_SIZ] __ALIGN
         USB_DESC_TYPE_ENDPOINT,              /* bDescriptorType: Endpoint */
         _CDC_IN_EP,                          /* bEndpointAddress */
         0x02,                                /* bmAttributes: Bulk */
-        LOBYTE(CDC_DATA_FS_MAX_PACKET_SIZE), /* wMaxPacketSize: */
-        HIBYTE(CDC_DATA_FS_MAX_PACKET_SIZE),
+        LOBYTE(CDC_DATA_FS_IN_PACKET_SIZE), /* wMaxPacketSize: */
+        HIBYTE(CDC_DATA_FS_IN_PACKET_SIZE),
         0x00, /* bInterval: ignore for Bulk transfer */
 #endif
 
@@ -1455,8 +1455,8 @@ __ALIGN_BEGIN static uint8_t USBD_CDC_CfgFSDesc[USB_CDC_CONFIG_DESC_SIZ] __ALIGN
         USB_DESC_TYPE_ENDPOINT,              /* bDescriptorType: Endpoint */
         _CDC_OUT_EP,                         /* bEndpointAddress */
         0x02,                                /* bmAttributes: Bulk */
-        LOBYTE(CDC_DATA_FS_MAX_PACKET_SIZE), /* wMaxPacketSize: */
-        HIBYTE(CDC_DATA_FS_MAX_PACKET_SIZE),
+        LOBYTE(CDC_DATA_FS_OUT_PACKET_SIZE), /* wMaxPacketSize: */
+        HIBYTE(CDC_DATA_FS_OUT_PACKET_SIZE),
         0x00, /* bInterval: ignore for Bulk transfer */
 
         /* Endpoint IN Descriptor */
@@ -1464,8 +1464,8 @@ __ALIGN_BEGIN static uint8_t USBD_CDC_CfgFSDesc[USB_CDC_CONFIG_DESC_SIZ] __ALIGN
         USB_DESC_TYPE_ENDPOINT,              /* bDescriptorType: Endpoint */
         _CDC_IN_EP,                          /* bEndpointAddress */
         0x02,                                /* bmAttributes: Bulk */
-        LOBYTE(CDC_DATA_FS_MAX_PACKET_SIZE), /* wMaxPacketSize: */
-        HIBYTE(CDC_DATA_FS_MAX_PACKET_SIZE),
+        LOBYTE(CDC_DATA_FS_IN_PACKET_SIZE), /* wMaxPacketSize: */
+        HIBYTE(CDC_DATA_FS_IN_PACKET_SIZE),
         0x00, /* bInterval: ignore for Bulk transfer */
 #endif
 
@@ -1546,8 +1546,8 @@ __ALIGN_BEGIN static uint8_t USBD_CDC_CfgFSDesc[USB_CDC_CONFIG_DESC_SIZ] __ALIGN
         USB_DESC_TYPE_ENDPOINT,              /* bDescriptorType: Endpoint */
         _CDC_OUT_EP,                         /* bEndpointAddress */
         0x02,                                /* bmAttributes: Bulk */
-        LOBYTE(CDC_DATA_FS_MAX_PACKET_SIZE), /* wMaxPacketSize: */
-        HIBYTE(CDC_DATA_FS_MAX_PACKET_SIZE),
+        LOBYTE(CDC_DATA_FS_OUT_PACKET_SIZE), /* wMaxPacketSize: */
+        HIBYTE(CDC_DATA_FS_OUT_PACKET_SIZE),
         0x00, /* bInterval: ignore for Bulk transfer */
 
         /* Endpoint IN Descriptor */
@@ -1555,8 +1555,8 @@ __ALIGN_BEGIN static uint8_t USBD_CDC_CfgFSDesc[USB_CDC_CONFIG_DESC_SIZ] __ALIGN
         USB_DESC_TYPE_ENDPOINT,              /* bDescriptorType: Endpoint */
         _CDC_IN_EP,                          /* bEndpointAddress */
         0x02,                                /* bmAttributes: Bulk */
-        LOBYTE(CDC_DATA_FS_MAX_PACKET_SIZE), /* wMaxPacketSize: */
-        HIBYTE(CDC_DATA_FS_MAX_PACKET_SIZE),
+        LOBYTE(CDC_DATA_FS_IN_PACKET_SIZE), /* wMaxPacketSize: */
+        HIBYTE(CDC_DATA_FS_IN_PACKET_SIZE),
         0x00, /* bInterval: ignore for Bulk transfer */
 #endif
 
@@ -1637,8 +1637,8 @@ __ALIGN_BEGIN static uint8_t USBD_CDC_CfgFSDesc[USB_CDC_CONFIG_DESC_SIZ] __ALIGN
         USB_DESC_TYPE_ENDPOINT,              /* bDescriptorType: Endpoint */
         _CDC_OUT_EP,                         /* bEndpointAddress */
         0x02,                                /* bmAttributes: Bulk */
-        LOBYTE(CDC_DATA_FS_MAX_PACKET_SIZE), /* wMaxPacketSize: */
-        HIBYTE(CDC_DATA_FS_MAX_PACKET_SIZE),
+        LOBYTE(CDC_DATA_FS_OUT_PACKET_SIZE), /* wMaxPacketSize: */
+        HIBYTE(CDC_DATA_FS_OUT_PACKET_SIZE),
         0x00, /* bInterval: ignore for Bulk transfer */
 
         /* Endpoint IN Descriptor */
@@ -1646,8 +1646,8 @@ __ALIGN_BEGIN static uint8_t USBD_CDC_CfgFSDesc[USB_CDC_CONFIG_DESC_SIZ] __ALIGN
         USB_DESC_TYPE_ENDPOINT,              /* bDescriptorType: Endpoint */
         _CDC_IN_EP,                          /* bEndpointAddress */
         0x02,                                /* bmAttributes: Bulk */
-        LOBYTE(CDC_DATA_FS_MAX_PACKET_SIZE), /* wMaxPacketSize: */
-        HIBYTE(CDC_DATA_FS_MAX_PACKET_SIZE),
+        LOBYTE(CDC_DATA_FS_IN_PACKET_SIZE), /* wMaxPacketSize: */
+        HIBYTE(CDC_DATA_FS_IN_PACKET_SIZE),
         0x00 /* bInterval: ignore for Bulk transfer */
 #endif
 };
