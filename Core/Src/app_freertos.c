@@ -37,6 +37,7 @@
 #include "usbd_hid_custom_if.h"
 #include "usbd_hid_keyboard.h"
 #include "capsense.h"
+#include "capsense_sim.h"
 #include "flash.h"
 #include "stack.h"
 #include "dfu_jump.h"
@@ -694,6 +695,7 @@ void Button_Task(void const * argument)
 	while(1){
 		osDelay(3);
 		button_scan();
+		capsense_sim_maybe_generate_buttons(button, HAL_GetTick());
 		stack_flow_button(current_button_status);
 		input_snapshot_publish_buttons(current_button_status, HAL_GetTick());
 	}

@@ -28,5 +28,7 @@ typedef struct {
 void capsense_sim_reset(uint32_t now);
 void capsense_sim_maybe_generate(const capsense_sim_context_t *ctx,
 		uint32_t now);
+void capsense_sim_maybe_generate_buttons(uint8_t *button_bits, uint32_t now);
+uint8_t capsense_sim_is_enabled(void);
 
 #endif /* INC_CAPSENSE_SIM_H_ */

@@ -7,6 +7,7 @@
 #include "usb_reporter.h"
 
 #include "FreeRTOS.h"
+#include "capsense_sim.h"
 #include "input_snapshot.h"
 #include "queue.h"
 #include "serial_reports.h"
@@ -494,6 +495,12 @@ static void usb_reporter_keyboard_service(uint8_t heartbeat_active)
 	input_snapshot_t snapshot;
 	uint8_t report[USB_REPORTER_KEYBOARD_REPORT_SIZE] = {0};
 	uint8_t status;
+
+	if (capsense_sim_is_enabled() != 0u) {
+		memset(last_keyboard_report, 0, sizeof(last_keyboard_report));
+		keyboard_hid_in_ready = 1u;
+		return;
+	}
 
 	if (input_snapshot_get_latest(&snapshot) == 0u) {
 		return;

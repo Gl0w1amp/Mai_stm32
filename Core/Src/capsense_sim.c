@@ -15,16 +15,43 @@
 #define CAPSENSE_SIMULATED_WAVE_DELTA 120u
 #define CAPSENSE_SIMULATED_TOUCH_DELTA_MIN 2300u
 #define CAPSENSE_SIMULATED_TOUCH_DELTA_SPAN 1800u
-#define CAPSENSE_SIMULATED_NEIGHBOR_DELTA 760u
+#define CAPSENSE_SIMULATED_SECONDARY_DELTA 2600u
+#define CAPSENSE_SIMULATED_EDGE_DELTA 2300u
 #define CAPSENSE_SIMULATED_WARMUP_MS 500u
-#define CAPSENSE_SIMULATED_TOUCH_STEP_MS 220u
-#define CAPSENSE_SIMULATED_WAVE_STEP_MS 6u
+#define CAPSENSE_SIMULATED_TOUCH_STEP_MS 1200u
+#define CAPSENSE_SIMULATED_WAVE_STEP_MS 18u
+#define CAPSENSE_SIMULATED_BUTTON_STEP_MS 900u
+#define CAPSENSE_SIMULATED_BUTTON_HOLD_MS 560u
+
+typedef struct {
+	uint8_t buttons0;
+	uint8_t buttons1;
+} capsense_sim_button_pattern_t;
 
 static uint32_t capsense_sim_boot_tick = 0u;
 static uint32_t capsense_sim_last_emit_tick = 0u;
 static uint32_t capsense_sim_rng = 0x51A7C0DEu;
 
 #if CAPSENSE_SIMULATED_TOUCH_ENABLE
+static const capsense_sim_button_pattern_t capsense_sim_button_patterns[] = {
+	{0x01u, 0x00u},
+	{0x02u, 0x00u},
+	{0x04u, 0x00u},
+	{0x08u, 0x00u},
+	{0x10u, 0x00u},
+	{0x20u, 0x00u},
+	{0x40u, 0x00u},
+	{0x80u, 0x00u},
+	{0x03u, 0x00u},
+	{0x00u, 0x01u},
+	{0x00u, 0x02u},
+	{0x00u, 0x04u},
+	{0x00u, 0x08u},
+	{0x00u, 0x10u},
+	{0x00u, 0x20u},
+	{0x00u, 0x09u},
+};
+
 static uint16_t capsense_sim_triangle(uint32_t phase, uint16_t amplitude)
 {
 	uint32_t period = 64u;
@@ -56,6 +83,18 @@ static uint8_t capsense_sim_channel_for_logical(
 	return ctx->logical_to_channel[logical];
 }
 
+static void capsense_sim_add_logical_touch(const capsense_sim_context_t *ctx,
+		uint8_t logical, uint16_t delta)
+{
+	uint8_t channel = capsense_sim_channel_for_logical(ctx, logical);
+
+	if (channel < 34u) {
+		uint32_t raw = (uint32_t)ctx->rx_touch->channel_raw[channel] + delta;
+		ctx->rx_touch->channel_raw[channel] =
+				raw > 0xFE00u ? 0xFE00u : (uint16_t)raw;
+	}
+}
+
 static void capsense_sim_generate_frame(const capsense_sim_context_t *ctx,
 		uint32_t now)
 {
@@ -77,11 +116,9 @@ static void capsense_sim_generate_frame(const capsense_sim_context_t *ctx,
 	if (warmup_complete != 0u) {
 		uint32_t active_elapsed = elapsed - CAPSENSE_SIMULATED_START_DELAY_MS -
 				CAPSENSE_SIMULATED_WARMUP_MS;
-		uint8_t active_logical = (uint8_t)((active_elapsed /
-				CAPSENSE_SIMULATED_TOUCH_STEP_MS) % 34u);
-		uint8_t neighbor_logical = (uint8_t)((active_logical + 1u +
-				((active_elapsed / CAPSENSE_SIMULATED_TOUCH_STEP_MS) % 3u)) %
-				34u);
+		uint32_t step = active_elapsed / CAPSENSE_SIMULATED_TOUCH_STEP_MS;
+		uint8_t ring = (uint8_t)(step % 8u);
+		uint8_t ring_next = (uint8_t)((ring + 1u) % 8u);
 		uint32_t pulse_phase = ((active_elapsed %
 				CAPSENSE_SIMULATED_TOUCH_STEP_MS) * 64u) /
 				CAPSENSE_SIMULATED_TOUCH_STEP_MS;
@@ -89,24 +126,25 @@ static void capsense_sim_generate_frame(const capsense_sim_context_t *ctx,
 				capsense_sim_triangle(pulse_phase,
 						CAPSENSE_SIMULATED_TOUCH_DELTA_SPAN) +
 				capsense_sim_next_noise(220u));
-		uint8_t active_channel = capsense_sim_channel_for_logical(ctx,
-				active_logical);
-		uint8_t neighbor_channel = capsense_sim_channel_for_logical(ctx,
-				neighbor_logical);
 
-		if (active_channel < 34u) {
-			uint32_t raw = (uint32_t)ctx->rx_touch->channel_raw[active_channel] +
-					pulse;
-			ctx->rx_touch->channel_raw[active_channel] =
-					raw > 0xFE00u ? 0xFE00u : (uint16_t)raw;
-		}
-		if ((neighbor_channel < 34u) && (neighbor_channel != active_channel)) {
-			uint32_t raw = (uint32_t)ctx->rx_touch->channel_raw[neighbor_channel] +
-					CAPSENSE_SIMULATED_NEIGHBOR_DELTA +
-					capsense_sim_next_noise(180u);
-			ctx->rx_touch->channel_raw[neighbor_channel] =
-					raw > 0xFE00u ? 0xFE00u : (uint16_t)raw;
-		}
+		capsense_sim_add_logical_touch(ctx, ring, pulse);
+		capsense_sim_add_logical_touch(ctx, ring_next,
+				(uint16_t)(CAPSENSE_SIMULATED_SECONDARY_DELTA +
+						capsense_sim_next_noise(180u)));
+		capsense_sim_add_logical_touch(ctx, (uint8_t)(8u + ring),
+				(uint16_t)(CAPSENSE_SIMULATED_SECONDARY_DELTA +
+						capsense_sim_next_noise(160u)));
+		capsense_sim_add_logical_touch(ctx, (uint8_t)(16u + (step & 1u)),
+				(uint16_t)(CAPSENSE_SIMULATED_EDGE_DELTA +
+						capsense_sim_next_noise(120u)));
+		capsense_sim_add_logical_touch(ctx, (uint8_t)(18u + ring),
+				(uint16_t)(pulse - 240u));
+		capsense_sim_add_logical_touch(ctx, (uint8_t)(18u + ring_next),
+				(uint16_t)(CAPSENSE_SIMULATED_SECONDARY_DELTA +
+						capsense_sim_next_noise(180u)));
+		capsense_sim_add_logical_touch(ctx, (uint8_t)(26u + ((ring + 4u) % 8u)),
+				(uint16_t)(CAPSENSE_SIMULATED_EDGE_DELTA +
+						capsense_sim_next_noise(120u)));
 	}
 }
 #endif
@@ -161,5 +199,46 @@ void capsense_sim_maybe_generate(const capsense_sim_context_t *ctx,
 #else
 	(void)ctx;
 	(void)now;
+#endif
+}
+
+void capsense_sim_maybe_generate_buttons(uint8_t *button_bits, uint32_t now)
+{
+#if CAPSENSE_SIMULATED_TOUCH_ENABLE
+	uint32_t elapsed;
+	uint32_t step;
+	uint32_t within_step;
+	const capsense_sim_button_pattern_t *pattern;
+
+	if ((button_bits == NULL) || (capsense_sim_boot_tick == 0u) ||
+			((uint32_t)(now - capsense_sim_boot_tick) <
+					CAPSENSE_SIMULATED_START_DELAY_MS)) {
+		return;
+	}
+
+	elapsed = now - capsense_sim_boot_tick - CAPSENSE_SIMULATED_START_DELAY_MS;
+	step = elapsed / CAPSENSE_SIMULATED_BUTTON_STEP_MS;
+	within_step = elapsed % CAPSENSE_SIMULATED_BUTTON_STEP_MS;
+	if (within_step >= CAPSENSE_SIMULATED_BUTTON_HOLD_MS) {
+		return;
+	}
+
+	pattern = &capsense_sim_button_patterns[step %
+			(sizeof(capsense_sim_button_patterns) /
+					sizeof(capsense_sim_button_patterns[0]))];
+	button_bits[0] |= pattern->buttons0;
+	button_bits[1] |= pattern->buttons1;
+#else
+	(void)button_bits;
+	(void)now;
+#endif
+}
+
+uint8_t capsense_sim_is_enabled(void)
+{
+#if CAPSENSE_SIMULATED_TOUCH_ENABLE
+	return 1u;
+#else
+	return 0u;
 #endif
 }
