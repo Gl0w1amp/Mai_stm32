@@ -54,7 +54,7 @@ Control the on-board LEDs and external lighting.
 | Cmd  | Name | Payload | Description |
 |:-----|:-----|:--------|:------------|
 | `0x02` | `LED` | *Reserved* | Reserved for future use. |
-| `0x14` | `LED_BUTTON` | 24 bytes + 1 byte optional, or 32 bytes | Update Button LEDs (8 LEDs).<br>**Legacy payload**: 24 bytes RGB data (8 x 3 bytes) + 1 byte global Speed (optional).<br>**Extended payload**: 32 bytes RGBS data (8 x 4 bytes), one Speed per button.<br>If Speed is non-zero, LEDs fade to target color. |
+| `0x14` | `LED_BUTTON` | 24 bytes + 1 byte optional, 32 bytes, or 56 bytes | Update Button LEDs (8 LEDs).<br>**Legacy payload**: 24 bytes RGB data (8 x 3 bytes) + 1 byte global Speed (optional).<br>**RGBS payload**: 32 bytes RGBS data (8 x 4 bytes), one Speed per button; fade starts from current firmware color.<br>**Explicit fade payload**: 56 bytes start RGB + target RGB + Speed (8 x 7 bytes), matching the official start-color then fade-target semantics.<br>If Speed is non-zero, LEDs fade to target color. |
 | `0x15` | `LED_BILLBOARD` | 24 bytes | Update Billboard LEDs.<br>**Payload**: 24 bytes RGB data. |
 | `0x16` | `LED_PWM` | 3 bytes | Control PWM channels (FETs).<br>**Payload**: `[BodyLed, ExtLed, SideLed]` (0-255). |
 | `0x2A` | `LED_MODE` | None or 1 byte | Query or set the local button LED mode.<br>**Payload**: omitted = query, `[mode]` = set mode.<br>**Response**: `FF 2A 09 [ok] [mode] [host_active] [idle_effect] [idle_brightness] [timeout_L] [timeout_H] [remaining_L] [remaining_H] [CS]`. |

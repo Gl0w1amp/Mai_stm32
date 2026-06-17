@@ -160,6 +160,7 @@ void LED_refresh();
 void LED_ServiceRefresh(void);
 void LED_update_button(uint8_t speed);
 void LED_update_button_rgb_speed(const uint8_t *rgb_speed, uint8_t count);
+void LED_update_button_rgb_fade(const uint8_t *rgb_fade, uint8_t count);
 void LED_StateMachineInit(uint32_t now);
 void LED_ServiceStateMachine(uint32_t now);
 void LED_NotifyHostControl(uint32_t now);

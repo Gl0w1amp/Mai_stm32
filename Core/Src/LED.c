@@ -733,6 +733,65 @@ void set_led_fade(uint8_t index, uint8_t r, uint8_t g, uint8_t b, uint8_t speed)
     fade_pending_active[index] = 0;
 }
 
+static void set_led_fade_explicit(uint8_t index,
+		uint8_t start_r, uint8_t start_g, uint8_t start_b,
+		uint8_t target_r, uint8_t target_g, uint8_t target_b,
+		uint8_t speed)
+{
+    if (index >= BUTTON_LED_COUNT) return;
+    if (speed == 0) {
+        set_led_immediate(index, target_r, target_g, target_b);
+        return;
+    }
+
+    fade_ctx[index].start[0] = start_r;
+    fade_ctx[index].start[1] = start_g;
+    fade_ctx[index].start[2] = start_b;
+    fade_ctx[index].current[0] = start_r;
+    fade_ctx[index].current[1] = start_g;
+    fade_ctx[index].current[2] = start_b;
+    fade_ctx[index].target[0] = target_r;
+    fade_ctx[index].target[1] = target_g;
+    fade_ctx[index].target[2] = target_b;
+    fade_ctx[index].duration = (4095 / speed * 8);
+    fade_ctx[index].elapsed = 0;
+    fade_pending_active[index] = 0;
+    LED_set(index, start_r, start_g, start_b);
+}
+
+void LED_update_button_rgb_fade(const uint8_t *rgb_fade, uint8_t count)
+{
+	if (rgb_fade == NULL) {
+		return;
+	}
+
+	if (count > BUTTON_LED_COUNT) {
+		count = BUTTON_LED_COUNT;
+	}
+
+	LED_NotifyHostControl(HAL_GetTick());
+	for (uint8_t i = 0; i < count; i++) {
+		uint8_t offset = i * 7u;
+		uint8_t start_r = rgb_fade[offset];
+		uint8_t start_g = rgb_fade[offset + 1u];
+		uint8_t start_b = rgb_fade[offset + 2u];
+		uint8_t target_r = rgb_fade[offset + 3u];
+		uint8_t target_g = rgb_fade[offset + 4u];
+		uint8_t target_b = rgb_fade[offset + 5u];
+		uint8_t speed = rgb_fade[offset + 6u];
+
+		WS2812_data_button[i * 3u] = target_r;
+		WS2812_data_button[i * 3u + 1u] = target_g;
+		WS2812_data_button[i * 3u + 2u] = target_b;
+		set_led_fade_explicit(i, start_r, start_g, start_b,
+				target_r, target_g, target_b, speed);
+	}
+
+	if (count != 0u) {
+		LED_refresh();
+	}
+}
+
 static uint8_t resolve_multi_len(uint8_t start, uint8_t end_field) {
     uint8_t count = end_field;
     if (count == 0x20) {

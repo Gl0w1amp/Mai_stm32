@@ -82,6 +82,11 @@ static void handle_serial_cmd_led_button(const serial_command_context_t *ctx)
 	(void)rxLen;
 	(void)dispatch_cycles;
 
+	if (rxBuffer[2] == 56u) {
+		LED_update_button_rgb_fade(rxBuffer + 3, 8u);
+		return;
+	}
+
 	if (rxBuffer[2] == 32u) {
 		LED_update_button_rgb_speed(rxBuffer + 3, 8u);
 		return;
