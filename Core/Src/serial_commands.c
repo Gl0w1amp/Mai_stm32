@@ -81,18 +81,22 @@ static void handle_serial_cmd_led_button(const serial_command_context_t *ctx)
 	(void)rxBuffer;
 	(void)rxLen;
 	(void)dispatch_cycles;
-{
-				uint8_t speed = 0;
-				if(rxBuffer[2] < 24){
-					return;
-				}
-				memcpy(WS2812_data_button,rxBuffer+3,24);
-				if (rxBuffer[2] >= 25) {
-					speed = rxBuffer[27];
-				}
-				LED_update_button(speed);
-				return;
-			}
+
+	if (rxBuffer[2] == 32u) {
+		LED_update_button_rgb_speed(rxBuffer + 3, 8u);
+		return;
+	}
+
+	uint8_t speed = 0u;
+	if(rxBuffer[2] < 24u){
+		return;
+	}
+	memcpy(WS2812_data_button,rxBuffer+3,24);
+	if (rxBuffer[2] >= 25u) {
+		speed = rxBuffer[27];
+	}
+	LED_update_button(speed);
+	return;
 }
 
 static void handle_serial_cmd_led_billboard(const serial_command_context_t *ctx)

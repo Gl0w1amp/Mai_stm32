@@ -637,6 +637,39 @@ void LED_update_button(uint8_t speed){
 	}
 }
 
+void LED_update_button_rgb_speed(const uint8_t *rgb_speed, uint8_t count)
+{
+	uint8_t immediate_refresh = 0u;
+
+	if (rgb_speed == NULL) {
+		return;
+	}
+
+	if (count > BUTTON_LED_COUNT) {
+		count = BUTTON_LED_COUNT;
+	}
+
+	LED_NotifyHostControl(HAL_GetTick());
+	for (uint8_t i = 0; i < count; i++) {
+		uint8_t r = rgb_speed[i * 4u];
+		uint8_t g = rgb_speed[i * 4u + 1u];
+		uint8_t b = rgb_speed[i * 4u + 2u];
+		uint8_t speed = rgb_speed[i * 4u + 3u];
+
+		WS2812_data_button[i * 3u] = r;
+		WS2812_data_button[i * 3u + 1u] = g;
+		WS2812_data_button[i * 3u + 2u] = b;
+		set_led_fade(i, r, g, b, speed);
+		if (speed == 0u) {
+			immediate_refresh = 1u;
+		}
+	}
+
+	if (immediate_refresh != 0u) {
+		LED_refresh();
+	}
+}
+
 void FET_LED_Init(){
 	HAL_TIM_PWM_Start(&htim4,TIM_CHANNEL_1);
 	HAL_TIM_PWM_Start(&htim4,TIM_CHANNEL_2);
@@ -697,6 +730,7 @@ void set_led_fade(uint8_t index, uint8_t r, uint8_t g, uint8_t b, uint8_t speed)
     fade_ctx[index].target[2] = b;
     fade_ctx[index].duration = (4095 / speed * 8);
     fade_ctx[index].elapsed = 0;
+    fade_pending_active[index] = 0;
 }
 
 static uint8_t resolve_multi_len(uint8_t start, uint8_t end_field) {
