@@ -68,7 +68,7 @@ Control the on-board LEDs and external lighting.
 - **Default local mode**: boot completion, host timeout, and `LED_MODE` value `0` enter input-reactive idle mode.
 - **Mode priority**: recent capsense/link errors render the `error` effect first, diagnostic/waiting renders next, host control renders next, then input-reactive and idle/boot/off local modes.
 - **Boot effect**: smooth blue-white sweep across the 8 logical button LED groups for about `1600 ms`, then returns to idle.
-- **Input reactive**: idle-blue background plus cyan-white highlight on pressed button groups; released buttons stay lit for about `50 ms`.
+- **Input reactive**: idle-blue background plus cyan-white highlight while button groups are pressed.
 - **Diagnostic**: yellow blink while the capsense link is not online, or green pulse while debug/calibration owns the button LEDs and the link is online.
 - **Error**: two quick red fade flashes while a recent capsense UART/link error is reported.
 - **Idle effects**: `0` = breathe, `1` = static. `idle_brightness` is the maximum channel level used by the idle effect.

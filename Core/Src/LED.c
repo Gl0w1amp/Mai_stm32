@@ -21,7 +21,6 @@
 #define LED_IDLE_EFFECT_STATIC 1u
 #define LED_IDLE_EFFECT_COUNT 2u
 #define LED_LOCAL_DEFAULT_MODE LED_MODE_INPUT_REACTIVE
-#define LED_INPUT_RELEASE_HOLD_MS 50u
 #define LED_ERROR_FLASH_MS 110u
 #define LED_ERROR_FLASH_GAP_MS 60u
 #define LED_ERROR_REPEAT_MS 520u
@@ -104,7 +103,6 @@ static uint32_t led_boot_start_ms = 0u;
 static uint32_t led_effect_last_ms = 0u;
 static uint32_t led_error_start_ms = 0u;
 static uint8_t led_last_button_bits = 0u;
-static uint32_t led_input_pulse_deadline[BUTTON_LED_COUNT];
 
 volatile uint32_t timer7_count = 0;
 volatile uint32_t timer7_target = 0;
@@ -331,11 +329,6 @@ static uint8_t led_effective_mode_for(uint32_t now, input_snapshot_t *snapshot)
 		if (buttons != 0u) {
 			return LED_MODE_INPUT_REACTIVE;
 		}
-		for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
-			if (led_time_reached(now, led_input_pulse_deadline[i]) == 0u) {
-				return LED_MODE_INPUT_REACTIVE;
-			}
-		}
 		return LED_MODE_IDLE;
 	}
 	if (mode == LED_MODE_AUTO) {
@@ -406,14 +399,8 @@ static void led_render_input_reactive(uint32_t now,
 		const input_snapshot_t *snapshot)
 {
 	uint8_t buttons = led_snapshot_button_bits(snapshot);
-	uint8_t released = (uint8_t)((uint8_t)~buttons & led_last_button_bits);
 	uint8_t level = led_idle_brightness;
 
-	for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
-		if ((released & (uint8_t)(1u << i)) != 0u) {
-			led_input_pulse_deadline[i] = now + LED_INPUT_RELEASE_HOLD_MS;
-		}
-	}
 	led_last_button_bits = buttons;
 
 	if (led_idle_effect == LED_IDLE_EFFECT_BREATHE) {
@@ -425,10 +412,6 @@ static void led_render_input_reactive(uint32_t now,
 
 	for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
 		uint8_t active = (uint8_t)((buttons & (uint8_t)(1u << i)) != 0u);
-		if ((active == 0u) &&
-				(led_time_reached(now, led_input_pulse_deadline[i]) == 0u)) {
-			active = 1u;
-		}
 
 		if (active != 0u) {
 			set_led_immediate(i, 180u, 230u, 255u);
@@ -501,9 +484,6 @@ void LED_StateMachineInit(uint32_t now)
 	led_effect_last_ms = now;
 	led_last_button_bits = 0u;
 	led_clear_fades();
-	for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
-		led_input_pulse_deadline[i] = now;
-	}
 	led_render_boot(now);
 }
 
@@ -585,9 +565,6 @@ uint8_t LED_SetMode(uint8_t mode, uint32_t now)
 		led_effect_last_ms = now;
 		led_last_button_bits = 0u;
 		led_clear_fades();
-		for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
-			led_input_pulse_deadline[i] = now;
-		}
 		led_render_idle(now);
 		break;
 	case LED_MODE_HOST_CONTROLLED:
