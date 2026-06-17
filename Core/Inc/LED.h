@@ -138,7 +138,10 @@ typedef enum {
   LED_MODE_HOST_CONTROLLED = 1,
   LED_MODE_OFF = 2,
   LED_MODE_BOOT = 3,
-  LED_MODE_IDLE = 4
+  LED_MODE_IDLE = 4,
+  LED_MODE_INPUT_REACTIVE = 5,
+  LED_MODE_DIAGNOSTIC = 6,
+  LED_MODE_ERROR = 7
 } LED_Mode;
 
 typedef struct {

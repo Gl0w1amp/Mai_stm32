@@ -1,4 +1,5 @@
 #include "LED.h"
+#include "input_snapshot.h"
 #include "stdio.h"
 #include "usart.h"
 #include "stdbool.h"
@@ -19,6 +20,10 @@
 #define LED_IDLE_EFFECT_BREATHE 0u
 #define LED_IDLE_EFFECT_STATIC 1u
 #define LED_IDLE_EFFECT_COUNT 2u
+#define LED_LOCAL_DEFAULT_MODE LED_MODE_INPUT_REACTIVE
+#define LED_INPUT_PULSE_MS 180u
+#define LED_ERROR_BLINK_HALF_PERIOD_MS 160u
+#define LED_DIAGNOSTIC_BLINK_HALF_PERIOD_MS 350u
 
 extern UART_HandleTypeDef huart1;
 extern DMA_HandleTypeDef hdma_usart1_rx;
@@ -88,12 +93,15 @@ static volatile uint8_t led_uart_rx_restart_pending = 0u;
 static volatile uint8_t led_refresh_pending = 0u;
 static volatile uint8_t led_dma_active = 0u;
 static volatile uint8_t led_mode = LED_MODE_BOOT;
+static volatile uint8_t led_effective_mode = LED_MODE_BOOT;
 static volatile uint8_t led_idle_effect = LED_IDLE_EFFECT_BREATHE;
 static volatile uint8_t led_idle_brightness = LED_IDLE_BRIGHTNESS_DEFAULT;
 static volatile uint16_t led_host_timeout_ms = LED_HOST_TIMEOUT_MS_DEFAULT;
 static volatile uint32_t led_host_deadline_ms = 0u;
 static uint32_t led_boot_start_ms = 0u;
 static uint32_t led_effect_last_ms = 0u;
+static uint8_t led_last_button_bits = 0u;
+static uint32_t led_input_pulse_deadline[BUTTON_LED_COUNT];
 
 volatile uint32_t timer7_count = 0;
 volatile uint32_t timer7_target = 0;
@@ -102,8 +110,13 @@ volatile uint8_t timer7_active = 0;
 void set_led_immediate(uint8_t index, uint8_t r, uint8_t g, uint8_t b);
 void set_led_fade(uint8_t index, uint8_t r, uint8_t g, uint8_t b, uint8_t speed);
 static void led_clear_fades(void);
+static uint8_t led_effective_mode_for(uint32_t now, input_snapshot_t *snapshot);
 static void led_render_boot(uint32_t now);
 static void led_render_idle(uint32_t now);
+static void led_render_input_reactive(uint32_t now,
+		const input_snapshot_t *snapshot);
+static void led_render_diagnostic(uint32_t now, const input_snapshot_t *snapshot);
+static void led_render_error(uint32_t now);
 static void led_render_off(void);
 
 static uint8_t led_uart_start_receive_to_idle(void)
@@ -264,13 +277,78 @@ static void led_clear_fades(void)
 	}
 }
 
+static uint8_t led_snapshot_button_bits(const input_snapshot_t *snapshot)
+{
+	if (snapshot == NULL) {
+		return 0u;
+	}
+
+	return snapshot->button_bits[0];
+}
+
+static uint8_t led_snapshot_online(const input_snapshot_t *snapshot)
+{
+	return (uint8_t)((snapshot != NULL) &&
+			((snapshot->link.flags & INPUT_LINK_FLAG_ONLINE) != 0u));
+}
+
+static uint8_t led_snapshot_error_recent(const input_snapshot_t *snapshot)
+{
+	return (uint8_t)((snapshot != NULL) &&
+			((snapshot->link.flags & INPUT_LINK_FLAG_ERROR_RECENT) != 0u));
+}
+
+static uint8_t led_effective_mode_for(uint32_t now, input_snapshot_t *snapshot)
+{
+	uint8_t has_snapshot;
+	uint8_t mode = led_mode;
+
+	if (snapshot != NULL) {
+		memset(snapshot, 0, sizeof(*snapshot));
+	}
+	has_snapshot = input_snapshot_get_latest(snapshot);
+
+	if ((has_snapshot != 0u) && (led_snapshot_error_recent(snapshot) != 0u)) {
+		return LED_MODE_ERROR;
+	}
+	if (mode == LED_MODE_ERROR) {
+		return LED_MODE_ERROR;
+	}
+	if ((mode != LED_MODE_BOOT) && (mode != LED_MODE_OFF) &&
+			((mode == LED_MODE_DIAGNOSTIC) ||
+			((has_snapshot != 0u) && (led_snapshot_online(snapshot) == 0u)))) {
+		return LED_MODE_DIAGNOSTIC;
+	}
+	if (mode == LED_MODE_HOST_CONTROLLED) {
+		return LED_MODE_HOST_CONTROLLED;
+	}
+	if (mode == LED_MODE_INPUT_REACTIVE) {
+		uint8_t buttons = (has_snapshot != 0u) ?
+				led_snapshot_button_bits(snapshot) : 0u;
+		if (buttons != 0u) {
+			return LED_MODE_INPUT_REACTIVE;
+		}
+		for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
+			if (led_time_reached(now, led_input_pulse_deadline[i]) == 0u) {
+				return LED_MODE_INPUT_REACTIVE;
+			}
+		}
+		return LED_MODE_IDLE;
+	}
+	if (mode == LED_MODE_AUTO) {
+		return LED_MODE_IDLE;
+	}
+
+	return mode;
+}
+
 static void led_render_boot(uint32_t now)
 {
 	uint32_t elapsed = now - led_boot_start_ms;
 	uint8_t head;
 
 	if (elapsed >= LED_BOOT_DURATION_MS) {
-		(void)LED_SetMode(LED_MODE_IDLE, now);
+		(void)LED_SetMode(LED_LOCAL_DEFAULT_MODE, now);
 		return;
 	}
 
@@ -317,6 +395,78 @@ static void led_render_idle(uint32_t now)
 	LED_refresh();
 }
 
+static void led_render_input_reactive(uint32_t now,
+		const input_snapshot_t *snapshot)
+{
+	uint8_t buttons = led_snapshot_button_bits(snapshot);
+	uint8_t rising = (uint8_t)(buttons & (uint8_t)~led_last_button_bits);
+	uint8_t level = led_idle_brightness;
+
+	led_last_button_bits = buttons;
+	for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
+		if ((rising & (uint8_t)(1u << i)) != 0u) {
+			led_input_pulse_deadline[i] = now + LED_INPUT_PULSE_MS;
+		}
+	}
+
+	if (led_idle_effect == LED_IDLE_EFFECT_BREATHE) {
+		uint8_t wave = led_triangle8(now, 2400u);
+		uint8_t floor = (led_idle_brightness > 12u) ? 6u : 0u;
+		level = (uint8_t)(floor +
+				((uint16_t)wave * (uint16_t)(led_idle_brightness - floor)) / 255u);
+	}
+
+	for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
+		uint8_t active = (uint8_t)((buttons & (uint8_t)(1u << i)) != 0u);
+		if ((active == 0u) &&
+				(led_time_reached(now, led_input_pulse_deadline[i]) == 0u)) {
+			active = 1u;
+		}
+
+		if (active != 0u) {
+			set_led_immediate(i, 180u, 230u, 255u);
+		} else {
+			set_led_immediate(i, (uint8_t)(level / 6u),
+					(uint8_t)(level / 3u), level);
+		}
+	}
+	LED_refresh();
+}
+
+static void led_render_diagnostic(uint32_t now, const input_snapshot_t *snapshot)
+{
+	uint8_t online = led_snapshot_online(snapshot);
+	uint8_t phase = (uint8_t)(((now / LED_DIAGNOSTIC_BLINK_HALF_PERIOD_MS) &
+			0x01u) != 0u);
+
+	for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
+		if (online != 0u) {
+			uint8_t pulse = led_triangle8((uint32_t)(now + (i * 120u)), 1200u);
+			set_led_immediate(i, 0u, (uint8_t)(24u + (pulse / 4u)), 12u);
+		} else if (phase != 0u) {
+			set_led_immediate(i, 90u, 52u, 0u);
+		} else {
+			set_led_immediate(i, 8u, 4u, 0u);
+		}
+	}
+	LED_refresh();
+}
+
+static void led_render_error(uint32_t now)
+{
+	uint8_t phase = (uint8_t)(((now / LED_ERROR_BLINK_HALF_PERIOD_MS) &
+			0x01u) != 0u);
+
+	for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
+		if (phase != 0u) {
+			set_led_immediate(i, 180u, 0u, 0u);
+		} else {
+			set_led_immediate(i, 18u, 0u, 0u);
+		}
+	}
+	LED_refresh();
+}
+
 static void led_render_off(void)
 {
 	for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
@@ -328,35 +478,54 @@ static void led_render_off(void)
 void LED_StateMachineInit(uint32_t now)
 {
 	led_mode = LED_MODE_BOOT;
+	led_effective_mode = LED_MODE_BOOT;
 	led_host_deadline_ms = 0u;
 	led_boot_start_ms = now;
 	led_effect_last_ms = now;
+	led_last_button_bits = 0u;
 	led_clear_fades();
+	for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
+		led_input_pulse_deadline[i] = now;
+	}
 	led_render_boot(now);
 }
 
 void LED_ServiceStateMachine(uint32_t now)
 {
 	uint8_t mode = led_mode;
+	uint8_t effective_mode;
+	input_snapshot_t snapshot;
 
 	if (mode == LED_MODE_HOST_CONTROLLED) {
 		if ((led_host_timeout_ms != 0u) &&
 				(led_time_reached(now, led_host_deadline_ms) != 0u)) {
-			(void)LED_SetMode(LED_MODE_IDLE, now);
+			(void)LED_SetMode(LED_LOCAL_DEFAULT_MODE, now);
+			mode = led_mode;
 		}
+	}
+
+	effective_mode = led_effective_mode_for(now, &snapshot);
+
+	if ((effective_mode == LED_MODE_HOST_CONTROLLED) ||
+			(effective_mode == LED_MODE_OFF)) {
+		led_effective_mode = effective_mode;
 		return;
 	}
 
-	if (mode == LED_MODE_OFF) {
-		return;
-	}
-
-	if ((uint32_t)(now - led_effect_last_ms) < LED_EFFECT_STEP_MS) {
+	if (((uint32_t)(now - led_effect_last_ms) < LED_EFFECT_STEP_MS) &&
+			(effective_mode == led_effective_mode)) {
 		return;
 	}
 	led_effect_last_ms = now;
+	led_effective_mode = effective_mode;
 
-	if (mode == LED_MODE_BOOT) {
+	if (effective_mode == LED_MODE_ERROR) {
+		led_render_error(now);
+	} else if (effective_mode == LED_MODE_DIAGNOSTIC) {
+		led_render_diagnostic(now, &snapshot);
+	} else if (effective_mode == LED_MODE_INPUT_REACTIVE) {
+		led_render_input_reactive(now, &snapshot);
+	} else if (effective_mode == LED_MODE_BOOT) {
 		led_render_boot(now);
 	} else {
 		if (mode == LED_MODE_AUTO) {
@@ -369,6 +538,7 @@ void LED_ServiceStateMachine(uint32_t now)
 void LED_NotifyHostControl(uint32_t now)
 {
 	led_mode = LED_MODE_HOST_CONTROLLED;
+	led_effective_mode = LED_MODE_HOST_CONTROLLED;
 	if (led_host_timeout_ms != 0u) {
 		led_host_deadline_ms = now + led_host_timeout_ms;
 	} else {
@@ -380,10 +550,23 @@ uint8_t LED_SetMode(uint8_t mode, uint32_t now)
 {
 	switch (mode) {
 	case LED_MODE_AUTO:
+		return LED_SetMode(LED_LOCAL_DEFAULT_MODE, now);
 	case LED_MODE_IDLE:
 		led_mode = LED_MODE_IDLE;
+		led_effective_mode = LED_MODE_IDLE;
 		led_effect_last_ms = now;
 		led_clear_fades();
+		led_render_idle(now);
+		break;
+	case LED_MODE_INPUT_REACTIVE:
+		led_mode = LED_MODE_INPUT_REACTIVE;
+		led_effective_mode = LED_MODE_IDLE;
+		led_effect_last_ms = now;
+		led_last_button_bits = 0u;
+		led_clear_fades();
+		for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
+			led_input_pulse_deadline[i] = now;
+		}
 		led_render_idle(now);
 		break;
 	case LED_MODE_HOST_CONTROLLED:
@@ -391,16 +574,31 @@ uint8_t LED_SetMode(uint8_t mode, uint32_t now)
 		break;
 	case LED_MODE_OFF:
 		led_mode = LED_MODE_OFF;
+		led_effective_mode = LED_MODE_OFF;
 		led_host_deadline_ms = 0u;
 		led_clear_fades();
 		led_render_off();
 		break;
 	case LED_MODE_BOOT:
 		led_mode = LED_MODE_BOOT;
+		led_effective_mode = LED_MODE_BOOT;
 		led_boot_start_ms = now;
 		led_effect_last_ms = now;
 		led_clear_fades();
 		led_render_boot(now);
+		break;
+	case LED_MODE_DIAGNOSTIC:
+		led_mode = LED_MODE_DIAGNOSTIC;
+		led_effective_mode = LED_MODE_DIAGNOSTIC;
+		led_effect_last_ms = now;
+		led_clear_fades();
+		break;
+	case LED_MODE_ERROR:
+		led_mode = LED_MODE_ERROR;
+		led_effective_mode = LED_MODE_ERROR;
+		led_effect_last_ms = now;
+		led_clear_fades();
+		led_render_error(now);
 		break;
 	default:
 		return 0u;
@@ -426,7 +624,7 @@ uint8_t LED_ConfigSet(uint8_t idle_effect, uint8_t idle_brightness,
 void LED_StatusSnapshot(LED_Status *status, uint32_t now)
 {
 	uint16_t remaining = 0u;
-	uint8_t mode = led_mode;
+	uint8_t mode = led_effective_mode;
 
 	if (status == NULL) {
 		return;

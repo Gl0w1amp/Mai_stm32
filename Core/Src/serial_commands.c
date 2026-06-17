@@ -206,7 +206,9 @@ static void handle_serial_cmd_auto_calibrate_threshold(const serial_command_cont
 					return;
 				}
 
+				(void)LED_SetMode(LED_MODE_DIAGNOSTIC, HAL_GetTick());
 				success = capsense_auto_calibrate_thresholds(calibrated_thresholds, &threshold_min, &threshold_max);
+				(void)LED_SetMode(LED_MODE_AUTO, HAL_GetTick());
 				summary_cmd[3] = success;
 				memcpy(&summary_cmd[5], &threshold_min, 2);
 				memcpy(&summary_cmd[7], &threshold_max, 2);
@@ -700,6 +702,7 @@ static void handle_serial_cmd_calibration_begin(const serial_command_context_t *
 					return;
 				}
 				capsense_calibration_begin();
+				(void)LED_SetMode(LED_MODE_DIAGNOSTIC, HAL_GetTick());
 				{
 					uint8_t cmd_tmp[5] = {0xff, SERIAL_CMD_CALIBRATION_BEGIN, 1, 1, 0};
 					for(uint8_t i = 0; i < 4; i++){
@@ -783,6 +786,9 @@ static void handle_serial_cmd_calibration_commit(const serial_command_context_t 
 				}
 
 				ok = capsense_calibration_commit();
+				if (ok != 0u) {
+					(void)LED_SetMode(LED_MODE_AUTO, HAL_GetTick());
+				}
 				{
 					uint8_t cmd_tmp[5] = {0xff, SERIAL_CMD_CALIBRATION_COMMIT, 1, ok, 0};
 					for(uint8_t i = 0; i < 4; i++){
@@ -808,6 +814,7 @@ static void handle_serial_cmd_calibration_abort(const serial_command_context_t *
 				}
 
 				capsense_calibration_abort();
+				(void)LED_SetMode(LED_MODE_AUTO, HAL_GetTick());
 				{
 					uint8_t cmd_tmp[5] = {0xff, SERIAL_CMD_CALIBRATION_ABORT, 1, 1, 0};
 					for(uint8_t i = 0; i < 4; i++){
@@ -1099,12 +1106,13 @@ static void handle_serial_cmd_to_debug_mode(const serial_command_context_t *ctx)
 						ok = 1u;
 					}
 
-					if (ok != 0u) {
-						mai2_hid_raw_debug_reset();
-						debug_stream_mode = requested_mode;
-						debug_flag = 1;
-					}
-					ack_cmd[3] = ok;
+				if (ok != 0u) {
+					mai2_hid_raw_debug_reset();
+					debug_stream_mode = requested_mode;
+					debug_flag = 1;
+					(void)LED_SetMode(LED_MODE_DIAGNOSTIC, HAL_GetTick());
+				}
+				ack_cmd[3] = ok;
 					for(uint8_t i = 0; i < 4; i++){
 						ack_cmd[4] += ack_cmd[i];
 					}
@@ -1161,6 +1169,7 @@ static void handle_serial_cmd_exit_debug_mode(const serial_command_context_t *ct
 				debug_flag = 0u;
 				debug_stream_mode = SERIAL_DEBUG_STREAM_MODE_FOCUS;
 				mai2_hid_raw_debug_reset();
+				(void)LED_SetMode(LED_MODE_AUTO, HAL_GetTick());
 				{
 					uint8_t ack_cmd[5] = {0xff, SERIAL_CMD_EXIT_DEBUG_MODE, 1, 1, 0};
 					for(uint8_t i = 0; i < 4; i++){
