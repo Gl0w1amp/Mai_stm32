@@ -379,18 +379,10 @@ static void led_render_boot(uint32_t now)
 
 static void led_render_idle(uint32_t now)
 {
-	uint8_t level = led_idle_brightness;
-
-	if (led_idle_effect == LED_IDLE_EFFECT_BREATHE) {
-		uint8_t wave = led_triangle8(now, 2400u);
-		uint8_t floor = (led_idle_brightness > 12u) ? 6u : 0u;
-		level = (uint8_t)(floor +
-				((uint16_t)wave * (uint16_t)(led_idle_brightness - floor)) / 255u);
-	}
+	(void)now;
 
 	for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
-		set_led_immediate(i, (uint8_t)(level / 5u),
-				(uint8_t)(level / 2u), level);
+		set_led_immediate(i, 0u, 0u, 0u);
 	}
 	LED_refresh();
 }
@@ -399,16 +391,9 @@ static void led_render_input_reactive(uint32_t now,
 		const input_snapshot_t *snapshot)
 {
 	uint8_t buttons = led_snapshot_button_bits(snapshot);
-	uint8_t level = led_idle_brightness;
+	(void)now;
 
 	led_last_button_bits = buttons;
-
-	if (led_idle_effect == LED_IDLE_EFFECT_BREATHE) {
-		uint8_t wave = led_triangle8(now, 2400u);
-		uint8_t floor = (led_idle_brightness > 12u) ? 6u : 0u;
-		level = (uint8_t)(floor +
-				((uint16_t)wave * (uint16_t)(led_idle_brightness - floor)) / 255u);
-	}
 
 	for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
 		uint8_t active = (uint8_t)((buttons & (uint8_t)(1u << i)) != 0u);
@@ -416,8 +401,7 @@ static void led_render_input_reactive(uint32_t now,
 		if (active != 0u) {
 			set_led_immediate(i, 180u, 230u, 255u);
 		} else {
-			set_led_immediate(i, (uint8_t)(level / 6u),
-					(uint8_t)(level / 3u), level);
+			set_led_immediate(i, 0u, 0u, 0u);
 		}
 	}
 	LED_refresh();
