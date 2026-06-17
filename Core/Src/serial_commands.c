@@ -125,6 +125,68 @@ static void handle_serial_cmd_led_pwm(const serial_command_context_t *ctx)
 				return;
 }
 
+static void serial_send_led_status_response(uint8_t command, uint8_t ok)
+{
+	LED_Status status;
+	uint8_t cmd_tmp[13] = {0};
+
+	LED_StatusSnapshot(&status, HAL_GetTick());
+	cmd_tmp[0] = 0xff;
+	cmd_tmp[1] = command;
+	cmd_tmp[2] = 9u;
+	cmd_tmp[3] = ok;
+	cmd_tmp[4] = status.mode;
+	cmd_tmp[5] = status.host_active;
+	cmd_tmp[6] = status.idle_effect;
+	cmd_tmp[7] = status.idle_brightness;
+	cmd_tmp[8] = (uint8_t)(status.host_timeout_ms & 0xffu);
+	cmd_tmp[9] = (uint8_t)(status.host_timeout_ms >> 8);
+	cmd_tmp[10] = (uint8_t)(status.host_remaining_ms & 0xffu);
+	cmd_tmp[11] = (uint8_t)(status.host_remaining_ms >> 8);
+	cmd_tmp[12] = serial_reports_checksum(cmd_tmp, 12u);
+	(void) serial_cdc_tx_enqueue_high(cmd_tmp, sizeof(cmd_tmp));
+}
+
+static void handle_serial_cmd_led_mode(const serial_command_context_t *ctx)
+{
+	const uint8_t *rxBuffer = ctx->data;
+	uint8_t payload_len = rxBuffer[2];
+	uint8_t ok = 1u;
+	uint8_t rxLen = ctx->len;
+	uint64_t dispatch_cycles = ctx->dispatch_cycles;
+	(void)rxLen;
+	(void)dispatch_cycles;
+
+	if (payload_len == 1u) {
+		ok = LED_SetMode(rxBuffer[3], HAL_GetTick());
+	} else if (payload_len != 0u) {
+		ok = 0u;
+	}
+
+	serial_send_led_status_response(SERIAL_CMD_LED_MODE, ok);
+}
+
+static void handle_serial_cmd_led_config(const serial_command_context_t *ctx)
+{
+	const uint8_t *rxBuffer = ctx->data;
+	uint8_t payload_len = rxBuffer[2];
+	uint8_t ok = 1u;
+	uint8_t rxLen = ctx->len;
+	uint64_t dispatch_cycles = ctx->dispatch_cycles;
+	(void)rxLen;
+	(void)dispatch_cycles;
+
+	if (payload_len == 4u) {
+		uint16_t timeout_ms = (uint16_t)rxBuffer[5] |
+				(uint16_t)((uint16_t)rxBuffer[6] << 8);
+		ok = LED_ConfigSet(rxBuffer[3], rxBuffer[4], timeout_ms);
+	} else if (payload_len != 0u) {
+		ok = 0u;
+	}
+
+	serial_send_led_status_response(SERIAL_CMD_LED_CONFIG, ok);
+}
+
 static void handle_serial_cmd_auto_calibrate_threshold(const serial_command_context_t *ctx)
 {
 	const uint8_t *rxBuffer = ctx->data;
@@ -1222,6 +1284,8 @@ static const serial_command_entry_t serial_command_table[] = {
 	{ SERIAL_CMD_LED_BUTTON, handle_serial_cmd_led_button },
 	{ SERIAL_CMD_LED_BILLBOARD, handle_serial_cmd_led_billboard },
 	{ SERIAL_CMD_LED_PWM, handle_serial_cmd_led_pwm },
+	{ SERIAL_CMD_LED_MODE, handle_serial_cmd_led_mode },
+	{ SERIAL_CMD_LED_CONFIG, handle_serial_cmd_led_config },
 	{ SERIAL_CMD_AUTO_CALIBRATE_THRESHOLD, handle_serial_cmd_auto_calibrate_threshold },
 	{ SERIAL_CMD_GET_CAPSENSE_UART_STATS, handle_serial_cmd_get_capsense_uart_stats },
 	{ SERIAL_CMD_GET_USB_CDC_STATS, handle_serial_cmd_get_usb_cdc_stats },

@@ -57,10 +57,16 @@ Control the on-board LEDs and external lighting.
 | `0x14` | `LED_BUTTON` | 24 bytes + 1 byte (optional) | Update Button LEDs (8 LEDs).<br>**Payload**: 24 bytes RGB data (8 x 3 bytes) + 1 byte Speed (optional).<br>If Speed is provided, LEDs fade to target color. |
 | `0x15` | `LED_BILLBOARD` | 24 bytes | Update Billboard LEDs.<br>**Payload**: 24 bytes RGB data. |
 | `0x16` | `LED_PWM` | 3 bytes | Control PWM channels (FETs).<br>**Payload**: `[BodyLed, ExtLed, SideLed]` (0-255). |
+| `0x2A` | `LED_MODE` | None or 1 byte | Query or set the local button LED mode.<br>**Payload**: omitted = query, `[mode]` = set mode.<br>**Response**: `FF 2A 09 [ok] [mode] [host_active] [idle_effect] [idle_brightness] [timeout_L] [timeout_H] [remaining_L] [remaining_H] [CS]`. |
+| `0x2B` | `LED_CONFIG` | None or 4 bytes | Query or set the local idle effect configuration.<br>**Payload**: omitted = query, or `[idle_effect] [idle_brightness] [timeout_L] [timeout_H]`.<br>**Response**: `FF 2B 09 [ok] [mode] [host_active] [idle_effect] [idle_brightness] [timeout_L] [timeout_H] [remaining_L] [remaining_H] [CS]`. |
 
 **Notes:**
 - **RGB Data**: 3 bytes per LED in R, G, B order.
 - **Speed**: 0 = Immediate, >0 = Fade duration (lower is slower, calculation: `4095 / speed * 8` ticks).
+- **Button LED state machine**: boot uses a local startup sweep, idle uses the configured local effect, and any `LED_BUTTON` command or UART LED board GS command switches the button LEDs to host-controlled mode.
+- **Mode values**: `0` = auto/idle, `1` = host controlled, `2` = off, `3` = boot effect, `4` = idle effect.
+- **Idle effects**: `0` = breathe, `1` = static. `idle_brightness` is the maximum channel level used by the idle effect.
+- **Host timeout**: default is `1000 ms`; `0` disables automatic return. When the timeout expires without another host LED command, the firmware returns to idle mode.
 
 ### Touch & Settings Commands
 
@@ -211,3 +217,7 @@ If any byte in the frame (except Sync) is `0xE0` or `0xD0`, it is escaped:
 | `0x33` | `SetLedGs8BitMultiFade` | `[Start] [Count] [Skip] [R] [G] [B] [Speed]` | Fade a range of LEDs to color.<br>**Speed**: `4095 / speed * 8` ticks. |
 | `0x39` | `SetLedFet` | `[Body] [Ext] [Side]` | Control PWM FETs (0-255). |
 | `0x3C` | `SetLedGsUpdate` | None | Apply pending fades and refresh LEDs. |
+
+`SetLedGs8Bit`, `SetLedGs8BitMulti`, `SetLedGs8BitMultiFade`, and
+`SetLedGsUpdate` enter the button LED `host controlled` state. Read-only board
+information and EEPROM commands do not change the local button LED state.

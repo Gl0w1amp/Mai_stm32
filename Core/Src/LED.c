@@ -11,6 +11,14 @@
 #define WS2812_LOW 67
 #define LED_RX_QUEUE_LENGTH 4u
 #define LED_WS2812_DMA_LENGTH (64u + NUM_LED * 24u + 64u)
+#define LED_BOOT_DURATION_MS 1600u
+#define LED_EFFECT_STEP_MS 20u
+#define LED_HOST_TIMEOUT_MS_DEFAULT 1000u
+#define LED_HOST_TIMEOUT_MS_MAX 10000u
+#define LED_IDLE_BRIGHTNESS_DEFAULT 32u
+#define LED_IDLE_EFFECT_BREATHE 0u
+#define LED_IDLE_EFFECT_STATIC 1u
+#define LED_IDLE_EFFECT_COUNT 2u
 
 extern UART_HandleTypeDef huart1;
 extern DMA_HandleTypeDef hdma_usart1_rx;
@@ -79,6 +87,13 @@ static volatile uint8_t led_rx_count = 0;
 static volatile uint8_t led_uart_rx_restart_pending = 0u;
 static volatile uint8_t led_refresh_pending = 0u;
 static volatile uint8_t led_dma_active = 0u;
+static volatile uint8_t led_mode = LED_MODE_BOOT;
+static volatile uint8_t led_idle_effect = LED_IDLE_EFFECT_BREATHE;
+static volatile uint8_t led_idle_brightness = LED_IDLE_BRIGHTNESS_DEFAULT;
+static volatile uint16_t led_host_timeout_ms = LED_HOST_TIMEOUT_MS_DEFAULT;
+static volatile uint32_t led_host_deadline_ms = 0u;
+static uint32_t led_boot_start_ms = 0u;
+static uint32_t led_effect_last_ms = 0u;
 
 volatile uint32_t timer7_count = 0;
 volatile uint32_t timer7_target = 0;
@@ -86,6 +101,10 @@ volatile uint8_t timer7_active = 0;
 
 void set_led_immediate(uint8_t index, uint8_t r, uint8_t g, uint8_t b);
 void set_led_fade(uint8_t index, uint8_t r, uint8_t g, uint8_t b, uint8_t speed);
+static void led_clear_fades(void);
+static void led_render_boot(uint32_t now);
+static void led_render_idle(uint32_t now);
+static void led_render_off(void);
 
 static uint8_t led_uart_start_receive_to_idle(void)
 {
@@ -209,7 +228,226 @@ void LED_ServiceRefresh(void)
 	led_try_start_refresh();
 }
 
+static uint8_t led_time_reached(uint32_t now, uint32_t deadline)
+{
+	return (uint8_t)(((int32_t)(now - deadline)) >= 0);
+}
+
+static uint8_t led_triangle8(uint32_t phase, uint32_t period)
+{
+	uint32_t half;
+	uint32_t pos;
+
+	if (period == 0u) {
+		return 0u;
+	}
+
+	pos = phase % period;
+	half = period / 2u;
+	if (half == 0u) {
+		return 0u;
+	}
+	if (pos >= half) {
+		pos = period - pos;
+	}
+
+	return (uint8_t)((pos * 255u) / half);
+}
+
+static void led_clear_fades(void)
+{
+	for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
+		fade_ctx[i].duration = 0u;
+		fade_ctx[i].elapsed = 0u;
+		fade_pending_duration[i] = 0u;
+		fade_pending_active[i] = 0u;
+	}
+}
+
+static void led_render_boot(uint32_t now)
+{
+	uint32_t elapsed = now - led_boot_start_ms;
+	uint8_t head;
+
+	if (elapsed >= LED_BOOT_DURATION_MS) {
+		(void)LED_SetMode(LED_MODE_IDLE, now);
+		return;
+	}
+
+	head = (uint8_t)((elapsed * BUTTON_LED_COUNT) / LED_BOOT_DURATION_MS);
+	if (head >= BUTTON_LED_COUNT) {
+		head = (uint8_t)(BUTTON_LED_COUNT - 1u);
+	}
+
+	for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
+		uint8_t r = 4u;
+		uint8_t g = 10u;
+		uint8_t b = 20u;
+
+		if (i == head) {
+			r = 120u;
+			g = 180u;
+			b = 255u;
+		} else if ((i + 1u == head) || ((head == 0u) && (i == BUTTON_LED_COUNT - 1u))) {
+			r = 20u;
+			g = 55u;
+			b = 90u;
+		}
+
+		set_led_immediate(i, r, g, b);
+	}
+	LED_refresh();
+}
+
+static void led_render_idle(uint32_t now)
+{
+	uint8_t level = led_idle_brightness;
+
+	if (led_idle_effect == LED_IDLE_EFFECT_BREATHE) {
+		uint8_t wave = led_triangle8(now, 2400u);
+		uint8_t floor = (led_idle_brightness > 12u) ? 6u : 0u;
+		level = (uint8_t)(floor +
+				((uint16_t)wave * (uint16_t)(led_idle_brightness - floor)) / 255u);
+	}
+
+	for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
+		set_led_immediate(i, (uint8_t)(level / 5u),
+				(uint8_t)(level / 2u), level);
+	}
+	LED_refresh();
+}
+
+static void led_render_off(void)
+{
+	for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
+		set_led_immediate(i, 0u, 0u, 0u);
+	}
+	LED_refresh();
+}
+
+void LED_StateMachineInit(uint32_t now)
+{
+	led_mode = LED_MODE_BOOT;
+	led_host_deadline_ms = 0u;
+	led_boot_start_ms = now;
+	led_effect_last_ms = now;
+	led_clear_fades();
+	led_render_boot(now);
+}
+
+void LED_ServiceStateMachine(uint32_t now)
+{
+	uint8_t mode = led_mode;
+
+	if (mode == LED_MODE_HOST_CONTROLLED) {
+		if ((led_host_timeout_ms != 0u) &&
+				(led_time_reached(now, led_host_deadline_ms) != 0u)) {
+			(void)LED_SetMode(LED_MODE_IDLE, now);
+		}
+		return;
+	}
+
+	if (mode == LED_MODE_OFF) {
+		return;
+	}
+
+	if ((uint32_t)(now - led_effect_last_ms) < LED_EFFECT_STEP_MS) {
+		return;
+	}
+	led_effect_last_ms = now;
+
+	if (mode == LED_MODE_BOOT) {
+		led_render_boot(now);
+	} else {
+		if (mode == LED_MODE_AUTO) {
+			led_mode = LED_MODE_IDLE;
+		}
+		led_render_idle(now);
+	}
+}
+
+void LED_NotifyHostControl(uint32_t now)
+{
+	led_mode = LED_MODE_HOST_CONTROLLED;
+	if (led_host_timeout_ms != 0u) {
+		led_host_deadline_ms = now + led_host_timeout_ms;
+	} else {
+		led_host_deadline_ms = 0u;
+	}
+}
+
+uint8_t LED_SetMode(uint8_t mode, uint32_t now)
+{
+	switch (mode) {
+	case LED_MODE_AUTO:
+	case LED_MODE_IDLE:
+		led_mode = LED_MODE_IDLE;
+		led_effect_last_ms = now;
+		led_clear_fades();
+		led_render_idle(now);
+		break;
+	case LED_MODE_HOST_CONTROLLED:
+		LED_NotifyHostControl(now);
+		break;
+	case LED_MODE_OFF:
+		led_mode = LED_MODE_OFF;
+		led_host_deadline_ms = 0u;
+		led_clear_fades();
+		led_render_off();
+		break;
+	case LED_MODE_BOOT:
+		led_mode = LED_MODE_BOOT;
+		led_boot_start_ms = now;
+		led_effect_last_ms = now;
+		led_clear_fades();
+		led_render_boot(now);
+		break;
+	default:
+		return 0u;
+	}
+
+	return 1u;
+}
+
+uint8_t LED_ConfigSet(uint8_t idle_effect, uint8_t idle_brightness,
+		uint16_t host_timeout_ms)
+{
+	if ((idle_effect >= LED_IDLE_EFFECT_COUNT) ||
+			(host_timeout_ms > LED_HOST_TIMEOUT_MS_MAX)) {
+		return 0u;
+	}
+
+	led_idle_effect = idle_effect;
+	led_idle_brightness = idle_brightness;
+	led_host_timeout_ms = host_timeout_ms;
+	return 1u;
+}
+
+void LED_StatusSnapshot(LED_Status *status, uint32_t now)
+{
+	uint16_t remaining = 0u;
+	uint8_t mode = led_mode;
+
+	if (status == NULL) {
+		return;
+	}
+
+	if ((mode == LED_MODE_HOST_CONTROLLED) && (led_host_timeout_ms != 0u) &&
+			(led_time_reached(now, led_host_deadline_ms) == 0u)) {
+		uint32_t diff = led_host_deadline_ms - now;
+		remaining = (diff > UINT16_MAX) ? UINT16_MAX : (uint16_t)diff;
+	}
+
+	status->mode = mode;
+	status->host_active = (uint8_t)(mode == LED_MODE_HOST_CONTROLLED);
+	status->idle_effect = led_idle_effect;
+	status->idle_brightness = led_idle_brightness;
+	status->host_timeout_ms = led_host_timeout_ms;
+	status->host_remaining_ms = remaining;
+}
+
 void LED_update_button(uint8_t speed){
+	LED_NotifyHostControl(HAL_GetTick());
 	for(uint8_t i = 0;i<8;i++){
 		set_led_fade(i, WS2812_data_button[i*3], WS2812_data_button[i*3+1], WS2812_data_button[i*3+2], speed);
 	}
@@ -504,6 +742,7 @@ void LED_Task_Process(const uint8_t *data, uint16_t len){
 		switch(cmd){
 		case SetLedGs8Bit:
 			if (req.index < BUTTON_LED_COUNT) {
+				LED_NotifyHostControl(HAL_GetTick());
 				set_led_immediate(req.index, req.color[0], req.color[1], req.color[2]);
 				res_init(0,AckStatus_Ok,AckReport_Ok);
 			} else {
@@ -516,6 +755,7 @@ void LED_Task_Process(const uint8_t *data, uint16_t len){
 			if ((req.start >= BUTTON_LED_COUNT) && (count == 0u)) {
 				res_init(0,AckStatus_Ok,AckReport_ParamError);
 			} else {
+				LED_NotifyHostControl(HAL_GetTick());
 				for(uint8_t i = 0; i < count; i++){
 					set_led_immediate(req.start + i, req.Multi_color[0], req.Multi_color[1], req.Multi_color[2]);
 				}
@@ -529,6 +769,7 @@ void LED_Task_Process(const uint8_t *data, uint16_t len){
 			if ((req.start >= BUTTON_LED_COUNT) && (count == 0u)) {
 				res_init(0,AckStatus_Ok,AckReport_ParamError);
 			} else {
+				LED_NotifyHostControl(HAL_GetTick());
 				for(uint8_t i = 0; i < count; i++){
 					schedule_led_fade(req.start + i, req.Multi_color[0], req.Multi_color[1], req.Multi_color[2], req.speed);
 				}
@@ -541,6 +782,7 @@ void LED_Task_Process(const uint8_t *data, uint16_t len){
 			res_init(0,AckStatus_Ok,AckReport_Ok);
 			break;
 		case SetLedGsUpdate:
+			LED_NotifyHostControl(HAL_GetTick());
 			start_pending_fades();
 			LED_refresh();
 			res_init(0,AckStatus_Ok,AckReport_Ok);

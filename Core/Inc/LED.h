@@ -2,6 +2,7 @@
 #define _LED_H
 
 #include "stdio.h"
+#include <stdint.h>
 #include "dma.h"
 #include "tim.h"
 enum {
@@ -132,12 +133,36 @@ extern uint8_t led_fade_flag;
 extern uint8_t led_fade_color[2][3];
 extern uint16_t led_fade_clock;
 
+typedef enum {
+  LED_MODE_AUTO = 0,
+  LED_MODE_HOST_CONTROLLED = 1,
+  LED_MODE_OFF = 2,
+  LED_MODE_BOOT = 3,
+  LED_MODE_IDLE = 4
+} LED_Mode;
+
+typedef struct {
+  uint8_t mode;
+  uint8_t host_active;
+  uint8_t idle_effect;
+  uint8_t idle_brightness;
+  uint16_t host_timeout_ms;
+  uint16_t host_remaining_ms;
+} LED_Status;
+
 void FET_LED_Init();
 void FET_LED_Update(uint8_t BodyLed,uint8_t ExtLed,uint8_t SideLed);
 void LED_set(uint8_t led_no,uint8_t r,uint8_t g,uint8_t b);
 void LED_refresh();
 void LED_ServiceRefresh(void);
 void LED_update_button(uint8_t speed);
+void LED_StateMachineInit(uint32_t now);
+void LED_ServiceStateMachine(uint32_t now);
+void LED_NotifyHostControl(uint32_t now);
+uint8_t LED_SetMode(uint8_t mode, uint32_t now);
+uint8_t LED_ConfigSet(uint8_t idle_effect, uint8_t idle_brightness,
+    uint16_t host_timeout_ms);
+void LED_StatusSnapshot(LED_Status *status, uint32_t now);
 void LED_UART_Init();
 void LED_UART_RequestRxRestart(void);
 void LED_UART_IRQHandler();

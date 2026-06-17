@@ -756,12 +756,10 @@ void LED_Task(void const * argument)
 	LED_UART_Init();
 	FET_LED_Init();
 //	HAL_TIM_Base_Start_IT(&htim7);
-	for(uint8_t i = 0;i<8;i++){
-		LED_set(i,0xff,0xff,0xff);
-	}
-	LED_refresh();
+	LED_StateMachineInit(HAL_GetTick());
 	while(1){
 		LED_Task_ProcessPending();
+		LED_ServiceStateMachine(HAL_GetTick());
 		LED_Fade_IRQHandler();
 		LED_ServiceRefresh();
 		osDelay(1);
