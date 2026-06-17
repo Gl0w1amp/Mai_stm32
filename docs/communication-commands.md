@@ -72,7 +72,7 @@ Control the on-board LEDs and external lighting.
 - **Diagnostic**: yellow blink while the capsense link is not online, or green pulse while debug/calibration owns the button LEDs and the link is online.
 - **Error**: two quick red fade flashes while a recent capsense UART/link error is reported.
 - **Idle effects**: currently disabled; `IDLE` keeps button LEDs off.
-- **Host timeout**: default is `10000 ms`; `0` disables automatic return. When the timeout expires without another host LED command, the firmware returns to idle mode.
+- **Host timeout**: default is `0 ms`, so host-controlled lighting holds the last frame until explicitly released. Setting a non-zero timeout with `LED_CONFIG` enables automatic return to the default local mode after that many milliseconds without another host LED command.
 
 ### Touch & Settings Commands
 
