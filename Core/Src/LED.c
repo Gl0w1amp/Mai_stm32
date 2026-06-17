@@ -14,14 +14,14 @@
 #define LED_WS2812_DMA_LENGTH (64u + NUM_LED * 24u + 64u)
 #define LED_BOOT_DURATION_MS 1600u
 #define LED_EFFECT_STEP_MS 20u
-#define LED_HOST_TIMEOUT_MS_DEFAULT 1000u
+#define LED_HOST_TIMEOUT_MS_DEFAULT 10000u
 #define LED_HOST_TIMEOUT_MS_MAX 10000u
 #define LED_IDLE_BRIGHTNESS_DEFAULT 32u
 #define LED_IDLE_EFFECT_BREATHE 0u
 #define LED_IDLE_EFFECT_STATIC 1u
 #define LED_IDLE_EFFECT_COUNT 2u
 #define LED_LOCAL_DEFAULT_MODE LED_MODE_INPUT_REACTIVE
-#define LED_INPUT_PULSE_MS 180u
+#define LED_INPUT_RELEASE_HOLD_MS 50u
 #define LED_ERROR_BLINK_HALF_PERIOD_MS 160u
 #define LED_DIAGNOSTIC_BLINK_HALF_PERIOD_MS 350u
 
@@ -345,33 +345,37 @@ static uint8_t led_effective_mode_for(uint32_t now, input_snapshot_t *snapshot)
 static void led_render_boot(uint32_t now)
 {
 	uint32_t elapsed = now - led_boot_start_ms;
-	uint8_t head;
+	int32_t head_q8;
 
 	if (elapsed >= LED_BOOT_DURATION_MS) {
 		(void)LED_SetMode(LED_LOCAL_DEFAULT_MODE, now);
 		return;
 	}
 
-	head = (uint8_t)((elapsed * BUTTON_LED_COUNT) / LED_BOOT_DURATION_MS);
-	if (head >= BUTTON_LED_COUNT) {
-		head = (uint8_t)(BUTTON_LED_COUNT - 1u);
-	}
+	head_q8 = (int32_t)(((uint32_t)elapsed *
+			(uint32_t)((BUTTON_LED_COUNT + 4u) * 256u)) /
+			LED_BOOT_DURATION_MS) - (2 * 256);
 
 	for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
-		uint8_t r = 4u;
-		uint8_t g = 10u;
-		uint8_t b = 20u;
+		int32_t dist = ((int32_t)i * 256) - head_q8;
+		uint16_t intensity = 0u;
+		uint8_t r;
+		uint8_t g;
+		uint8_t b;
 
-		if (i == head) {
-			r = 120u;
-			g = 180u;
-			b = 255u;
-		} else if ((i + 1u == head) || ((head == 0u) && (i == BUTTON_LED_COUNT - 1u))) {
-			r = 20u;
-			g = 55u;
-			b = 90u;
+		if (dist < 0) {
+			dist = -dist;
 		}
 
+		if (dist < 384) {
+			intensity = (uint16_t)(255u - (((uint32_t)dist * 80u) / 384u));
+		} else if (dist < 1024) {
+			intensity = (uint16_t)(((uint32_t)(1024 - dist) * 175u) / 640u);
+		}
+
+		r = (uint8_t)(4u + ((uint32_t)intensity * 116u) / 255u);
+		g = (uint8_t)(10u + ((uint32_t)intensity * 170u) / 255u);
+		b = (uint8_t)(20u + ((uint32_t)intensity * 235u) / 255u);
 		set_led_immediate(i, r, g, b);
 	}
 	LED_refresh();
@@ -399,15 +403,15 @@ static void led_render_input_reactive(uint32_t now,
 		const input_snapshot_t *snapshot)
 {
 	uint8_t buttons = led_snapshot_button_bits(snapshot);
-	uint8_t rising = (uint8_t)(buttons & (uint8_t)~led_last_button_bits);
+	uint8_t released = (uint8_t)((uint8_t)~buttons & led_last_button_bits);
 	uint8_t level = led_idle_brightness;
 
-	led_last_button_bits = buttons;
 	for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
-		if ((rising & (uint8_t)(1u << i)) != 0u) {
-			led_input_pulse_deadline[i] = now + LED_INPUT_PULSE_MS;
+		if ((released & (uint8_t)(1u << i)) != 0u) {
+			led_input_pulse_deadline[i] = now + LED_INPUT_RELEASE_HOLD_MS;
 		}
 	}
+	led_last_button_bits = buttons;
 
 	if (led_idle_effect == LED_IDLE_EFFECT_BREATHE) {
 		uint8_t wave = led_triangle8(now, 2400u);
