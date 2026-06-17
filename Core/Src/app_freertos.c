@@ -761,6 +761,7 @@ void LED_Task(void const * argument)
 	while(1){
 		LED_Task_ProcessPending();
 		LED_Fade_IRQHandler();
+		LED_ServiceRefresh();
 		osDelay(1);
 	}
   /* USER CODE END LED_Task */

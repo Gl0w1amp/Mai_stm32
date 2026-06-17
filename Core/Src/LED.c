@@ -10,6 +10,7 @@
 #define WS2812_HIGH 143
 #define WS2812_LOW 67
 #define LED_RX_QUEUE_LENGTH 4u
+#define LED_WS2812_DMA_LENGTH (64u + NUM_LED * 24u + 64u)
 
 extern UART_HandleTypeDef huart1;
 extern DMA_HandleTypeDef hdma_usart1_rx;
@@ -76,6 +77,8 @@ static volatile uint8_t led_rx_head = 0;
 static volatile uint8_t led_rx_tail = 0;
 static volatile uint8_t led_rx_count = 0;
 static volatile uint8_t led_uart_rx_restart_pending = 0u;
+static volatile uint8_t led_refresh_pending = 0u;
+static volatile uint8_t led_dma_active = 0u;
 
 volatile uint32_t timer7_count = 0;
 volatile uint32_t timer7_target = 0;
@@ -145,7 +148,7 @@ void LED_set(uint8_t led_no,uint8_t r,uint8_t g,uint8_t b){
 	}
 }
 
-void LED_refresh()
+static void led_build_dma_buffer(void)
 {
 	for(uint8_t i = 0 ;i<NUM_LED;i++)
 	{
@@ -162,7 +165,48 @@ void LED_refresh()
 			WS2812_data_DMA_buffer[(i*3+2)*8+j+ 64] = (gamma8[WS2812_data[i*3+2]] & (1<<(7-j))) ? WS2812_HIGH:WS2812_LOW;
 		}
 	}
-	HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_2, (uint32_t *)WS2812_data_DMA_buffer, (64 + NUM_LED * 24 + 64));
+}
+
+static void led_try_start_refresh(void)
+{
+	HAL_StatusTypeDef status;
+	uint32_t primask;
+
+	primask = led_lock_irq();
+	if ((led_refresh_pending == 0u) || (led_dma_active != 0u)) {
+		led_unlock_irq(primask);
+		return;
+	}
+	led_dma_active = 1u;
+	led_refresh_pending = 0u;
+	led_unlock_irq(primask);
+
+	led_build_dma_buffer();
+	status = HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_2,
+			(uint32_t *)WS2812_data_DMA_buffer, LED_WS2812_DMA_LENGTH);
+	if (status == HAL_OK) {
+		return;
+	}
+
+	primask = led_lock_irq();
+	led_refresh_pending = 1u;
+	if (status != HAL_BUSY) {
+		led_dma_active = 0u;
+	}
+	led_unlock_irq(primask);
+}
+
+void LED_refresh(void)
+{
+	uint32_t primask = led_lock_irq();
+
+	led_refresh_pending = 1u;
+	led_unlock_irq(primask);
+}
+
+void LED_ServiceRefresh(void)
+{
+	led_try_start_refresh();
 }
 
 void LED_update_button(uint8_t speed){
@@ -193,6 +237,8 @@ void LED_UART_Init(){
 	led_rx_tail = 0;
 	led_rx_count = 0;
 	led_uart_rx_restart_pending = 0u;
+	led_refresh_pending = 0u;
+	led_dma_active = 0u;
 	if (led_uart_start_receive_to_idle() == 0u) {
 		led_uart_rx_restart_pending = 1u;
 	}
@@ -275,8 +321,11 @@ static void start_pending_fades(void) {
 }
 
 void LED_Fade_IRQHandler(){
+	uint8_t changed = 0u;
+
     for(int i=0; i<BUTTON_LED_COUNT; i++) {
         if(fade_ctx[i].duration > 0) {
+            changed = 1u;
             fade_ctx[i].elapsed++;
             if(fade_ctx[i].elapsed >= fade_ctx[i].duration) {
                 fade_ctx[i].elapsed = fade_ctx[i].duration;
@@ -293,7 +342,17 @@ void LED_Fade_IRQHandler(){
             LED_set(i, fade_ctx[i].current[0], fade_ctx[i].current[1], fade_ctx[i].current[2]);
         }
     }
-    LED_refresh();
+    if (changed != 0u) {
+		LED_refresh();
+    }
+}
+
+void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
+{
+    if ((htim != NULL) && (htim->Instance == TIM3) &&
+			(htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2)) {
+		led_dma_active = 0u;
+    }
 }
 
 uint8_t led_packet_check(uint8_t* data, uint8_t len, uint8_t* consumed) {
