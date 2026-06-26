@@ -21,10 +21,6 @@
 #define LED_IDLE_EFFECT_STATIC 1u
 #define LED_IDLE_EFFECT_COUNT 2u
 #define LED_LOCAL_DEFAULT_MODE LED_MODE_INPUT_REACTIVE
-#define LED_ERROR_FLASH_MS 110u
-#define LED_ERROR_FLASH_GAP_MS 60u
-#define LED_ERROR_REPEAT_MS 520u
-#define LED_DIAGNOSTIC_BLINK_HALF_PERIOD_MS 350u
 
 extern UART_HandleTypeDef huart1;
 extern DMA_HandleTypeDef hdma_usart1_rx;
@@ -101,7 +97,6 @@ static volatile uint16_t led_host_timeout_ms = LED_HOST_TIMEOUT_MS_DEFAULT;
 static volatile uint32_t led_host_deadline_ms = 0u;
 static uint32_t led_boot_start_ms = 0u;
 static uint32_t led_effect_last_ms = 0u;
-static uint32_t led_error_start_ms = 0u;
 static uint8_t led_last_button_bits = 0u;
 
 volatile uint32_t timer7_count = 0;
@@ -116,8 +111,6 @@ static void led_render_boot(uint32_t now);
 static void led_render_idle(uint32_t now);
 static void led_render_input_reactive(uint32_t now,
 		const input_snapshot_t *snapshot);
-static void led_render_diagnostic(uint32_t now, const input_snapshot_t *snapshot);
-static void led_render_error(uint32_t now);
 static void led_render_off(void);
 
 static uint8_t led_uart_start_receive_to_idle(void)
@@ -247,27 +240,6 @@ static uint8_t led_time_reached(uint32_t now, uint32_t deadline)
 	return (uint8_t)(((int32_t)(now - deadline)) >= 0);
 }
 
-static uint8_t led_triangle8(uint32_t phase, uint32_t period)
-{
-	uint32_t half;
-	uint32_t pos;
-
-	if (period == 0u) {
-		return 0u;
-	}
-
-	pos = phase % period;
-	half = period / 2u;
-	if (half == 0u) {
-		return 0u;
-	}
-	if (pos >= half) {
-		pos = period - pos;
-	}
-
-	return (uint8_t)((pos * 255u) / half);
-}
-
 static void led_clear_fades(void)
 {
 	for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
@@ -287,39 +259,17 @@ static uint8_t led_snapshot_button_bits(const input_snapshot_t *snapshot)
 	return snapshot->button_bits[0];
 }
 
-static uint8_t led_snapshot_online(const input_snapshot_t *snapshot)
-{
-	return (uint8_t)((snapshot != NULL) &&
-			((snapshot->link.flags & INPUT_LINK_FLAG_ONLINE) != 0u));
-}
-
-static uint8_t led_snapshot_error_recent(const input_snapshot_t *snapshot)
-{
-	return (uint8_t)((snapshot != NULL) &&
-			((snapshot->link.flags & INPUT_LINK_FLAG_ERROR_RECENT) != 0u));
-}
-
 static uint8_t led_effective_mode_for(uint32_t now, input_snapshot_t *snapshot)
 {
 	uint8_t has_snapshot;
 	uint8_t mode = led_mode;
+	(void)now;
 
 	if (snapshot != NULL) {
 		memset(snapshot, 0, sizeof(*snapshot));
 	}
 	has_snapshot = input_snapshot_get_latest(snapshot);
 
-	if ((has_snapshot != 0u) && (led_snapshot_error_recent(snapshot) != 0u)) {
-		return LED_MODE_ERROR;
-	}
-	if (mode == LED_MODE_ERROR) {
-		return LED_MODE_ERROR;
-	}
-	if ((mode != LED_MODE_BOOT) && (mode != LED_MODE_OFF) &&
-			((mode == LED_MODE_DIAGNOSTIC) ||
-			((has_snapshot != 0u) && (led_snapshot_online(snapshot) == 0u)))) {
-		return LED_MODE_DIAGNOSTIC;
-	}
 	if (mode == LED_MODE_HOST_CONTROLLED) {
 		return LED_MODE_HOST_CONTROLLED;
 	}
@@ -407,50 +357,6 @@ static void led_render_input_reactive(uint32_t now,
 	LED_refresh();
 }
 
-static void led_render_diagnostic(uint32_t now, const input_snapshot_t *snapshot)
-{
-	uint8_t online = led_snapshot_online(snapshot);
-	uint8_t phase = (uint8_t)(((now / LED_DIAGNOSTIC_BLINK_HALF_PERIOD_MS) &
-			0x01u) != 0u);
-
-	for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
-		if (online != 0u) {
-			uint8_t pulse = led_triangle8((uint32_t)(now + (i * 120u)), 1200u);
-			set_led_immediate(i, 0u, (uint8_t)(24u + (pulse / 4u)), 12u);
-		} else if (phase != 0u) {
-			set_led_immediate(i, 90u, 52u, 0u);
-		} else {
-			set_led_immediate(i, 8u, 4u, 0u);
-		}
-	}
-	LED_refresh();
-}
-
-static void led_render_error(uint32_t now)
-{
-	uint32_t phase = (now - led_error_start_ms) % LED_ERROR_REPEAT_MS;
-	uint8_t level = 0u;
-
-	if (phase < LED_ERROR_FLASH_MS) {
-		level = led_triangle8(phase, LED_ERROR_FLASH_MS);
-	} else {
-		uint32_t second_flash_start = LED_ERROR_FLASH_MS +
-				LED_ERROR_FLASH_GAP_MS;
-		if ((phase >= second_flash_start) &&
-				(phase < (second_flash_start + LED_ERROR_FLASH_MS))) {
-			level = led_triangle8(phase - second_flash_start,
-					LED_ERROR_FLASH_MS);
-		}
-	}
-
-	for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
-		uint8_t red = (level == 0u) ? 0u :
-				(uint8_t)(16u + (((uint16_t)level * 220u) / 255u));
-		set_led_immediate(i, red, 0u, 0u);
-	}
-	LED_refresh();
-}
-
 static void led_render_off(void)
 {
 	for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
@@ -497,18 +403,10 @@ void LED_ServiceStateMachine(uint32_t now)
 			(effective_mode == led_effective_mode)) {
 		return;
 	}
-	if ((effective_mode == LED_MODE_ERROR) &&
-			(led_effective_mode != LED_MODE_ERROR)) {
-		led_error_start_ms = now;
-	}
 	led_effect_last_ms = now;
 	led_effective_mode = effective_mode;
 
-	if (effective_mode == LED_MODE_ERROR) {
-		led_render_error(now);
-	} else if (effective_mode == LED_MODE_DIAGNOSTIC) {
-		led_render_diagnostic(now, &snapshot);
-	} else if (effective_mode == LED_MODE_INPUT_REACTIVE) {
+	if (effective_mode == LED_MODE_INPUT_REACTIVE) {
 		led_render_input_reactive(now, &snapshot);
 	} else if (effective_mode == LED_MODE_BOOT) {
 		led_render_boot(now);
@@ -570,19 +468,8 @@ uint8_t LED_SetMode(uint8_t mode, uint32_t now)
 		led_render_boot(now);
 		break;
 	case LED_MODE_DIAGNOSTIC:
-		led_mode = LED_MODE_DIAGNOSTIC;
-		led_effective_mode = LED_MODE_DIAGNOSTIC;
-		led_effect_last_ms = now;
-		led_clear_fades();
-		break;
 	case LED_MODE_ERROR:
-		led_mode = LED_MODE_ERROR;
-		led_effective_mode = LED_MODE_ERROR;
-		led_effect_last_ms = now;
-		led_error_start_ms = now;
-		led_clear_fades();
-		led_render_error(now);
-		break;
+		return LED_SetMode(LED_LOCAL_DEFAULT_MODE, now);
 	default:
 		return 0u;
 	}

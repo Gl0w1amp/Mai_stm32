@@ -63,14 +63,14 @@ Control the on-board LEDs and external lighting.
 **Notes:**
 - **RGB Data**: 3 bytes per LED in R, G, B order.
 - **Speed**: 0 = Immediate, >0 = Fade duration (lower is slower, calculation: `4095 / speed * 8` ticks).
-- **Button LED state machine**: boot uses a local startup sweep, idle uses the configured local effect, and any `LED_BUTTON` command or UART LED board GS command switches the button LEDs to host-controlled mode.
-- **Mode values**: `0` = auto/default local mode, `1` = host controlled, `2` = off, `3` = boot effect, `4` = idle effect only, `5` = input reactive, `6` = diagnostic, `7` = error.
+- **Button LED state machine**: boot uses a local startup sweep, idle currently keeps button LEDs off, and any `LED_BUTTON` command or UART LED board GS command switches the button LEDs to host-controlled mode.
+- **Mode values**: `0` = auto/default local mode, `1` = host controlled, `2` = off, `3` = boot effect, `4` = idle effect only, `5` = input reactive, `6` = diagnostic compatibility value, `7` = error compatibility value.
 - **Default local mode**: boot completion, host timeout, and `LED_MODE` value `0` enter input-reactive idle mode.
-- **Mode priority**: recent capsense/link errors render the `error` effect first, diagnostic/waiting renders next, host control renders next, then input-reactive and idle/boot/off local modes.
+- **Mode priority**: host control holds the last host frame, off stays off, and local modes render boot/input-reactive/idle behavior without diagnostic or error override.
 - **Boot effect**: smooth blue-white sweep across the 8 logical button LED groups for about `1600 ms`, then returns to idle.
 - **Input reactive**: button groups are off at rest and show cyan-white highlight while pressed.
-- **Diagnostic**: yellow blink while the capsense link is not online, or green pulse while debug/calibration owns the button LEDs and the link is online.
-- **Error**: two quick red fade flashes while a recent capsense UART/link error is reported.
+- **Diagnostic**: currently disabled; mode value `6` is accepted for compatibility and returns to the default local mode.
+- **Error**: currently disabled; recent capsense UART/link errors no longer force a red button LED effect, and mode value `7` returns to the default local mode.
 - **Idle effects**: currently disabled; `IDLE` keeps button LEDs off.
 - **Host timeout**: default is `0 ms`, so host-controlled lighting holds the last frame until explicitly released. Setting a non-zero timeout with `LED_CONFIG` enables automatic return to the default local mode after that many milliseconds without another host LED command.
 
