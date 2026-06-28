@@ -22,12 +22,9 @@ typedef union{
 
 extern packet_capsense_t Touch;
 extern uint8_t uart_dma_buffer[128];
-extern uint16_t capsense_threshold[34];
 extern uint8_t capsense_touch_status[34];
-extern uint8_t touch_sheet[34];
 extern volatile uint8_t capsense_data_ready;
 
-void Touch_UART_IDLE_Handler();
 void capsense_init();
 void capsense_check();
 void capsense_input_snapshot_publish(void);

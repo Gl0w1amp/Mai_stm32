@@ -8,7 +8,6 @@
 #include "usbd_hid_vendor_if.h"
 
 #include "serial_protocol.h"
-#include "slider.h"
 #include "usbd_cdc_acm_if.h"
 #include "serial_commands.h"
 

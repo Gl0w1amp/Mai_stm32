@@ -92,7 +92,7 @@ indefinitely for touch data.
 - `capsense_core.c`, `capsense_uart.c`, `capsense_calibration.c`,
   `capsense_debug.c`, `capsense_sim.c` - touch acquisition, detection
   state machine, calibration, debug streaming, and a simulated-touch backend
-- `button.c`, `slider.c`, `input_snapshot.c` - input scanning and snapshotting
+- `button.c`, `input_snapshot.c` - input scanning and snapshotting
 - `LED.c` - WS2812 + FET lighting and the `mai2led` UART protocol
 - `serial_commands.c`, `serial_protocol.c`, `serial_reports.c`,
   `usb_reporter.c` - command parsing, framing, and device reports

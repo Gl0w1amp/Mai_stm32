@@ -27,7 +27,6 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "semphr.h"
-#include "slider.h"
 #include "usb_reporter.h"
 #include "serial_commands.h"
 #include "debug_mode.h"

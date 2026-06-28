@@ -69,21 +69,13 @@ typedef enum serial_cmd {
 } serial_cmd_t;
 
 void serial_command_init(void);
-uint8_t serial_command_feed(const uint8_t *data, uint16_t len);
-uint8_t serial_command_feed_isr(const uint8_t *data, uint16_t len);
 uint8_t serial_command_feed_transport(const uint8_t *data, uint16_t len,
 		serial_command_transport_t transport);
 uint8_t serial_command_feed_isr_transport(const uint8_t *data, uint16_t len,
 		serial_command_transport_t transport);
 uint8_t serial_command_drain_rx_stream(void);
-uint8_t serial_command_push(const uint8_t *data, uint16_t len);
-uint8_t serial_command_push_transport(const uint8_t *data, uint16_t len,
-		serial_command_transport_t transport);
 uint8_t serial_command_pop(serial_frame_t *frame);
 uint8_t serial_command_stream_pending(void);
-uint8_t serial_command_stream_pending_transport(
-		serial_command_transport_t transport);
-serial_command_transport_t serial_command_response_transport(void);
 void serial_command_set_response_transport(
 		serial_command_transport_t transport);
 uint8_t serial_protocol_frame_valid(const uint8_t *frame, uint8_t len);

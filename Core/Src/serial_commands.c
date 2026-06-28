@@ -21,7 +21,6 @@
 #include "benchmark.h"
 #include "serial_checksum.h"
 #include "byte_pack.h"
-#include "slider.h"
 #include "usbd_desc.h"
 #include "usbd_hid_custom_if.h"
 #include <string.h>
@@ -113,7 +112,6 @@ static void handle_serial_cmd_led(const serial_command_context_t *ctx)
 //				if(rxBuffer[2] != 27){
 //					return;
 //				}
-//				memcpy(WS2812_data_raw,rxBuffer+3,24);
 //				FET_LED_Update(rxBuffer[27],rxBuffer[28],rxBuffer[29]);
 				return;
 }

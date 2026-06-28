@@ -219,17 +219,6 @@ void serial_command_init(void)
 	critical_section_exit(primask);
 }
 
-uint8_t serial_command_push(const uint8_t *data, uint16_t len)
-{
-	return serial_command_queue_push(data, len, SERIAL_COMMAND_TRANSPORT_CDC);
-}
-
-uint8_t serial_command_push_transport(const uint8_t *data, uint16_t len,
-		serial_command_transport_t transport)
-{
-	return serial_command_queue_push(data, len, transport);
-}
-
 uint8_t serial_command_feed_transport(const uint8_t *data, uint16_t len,
 		serial_command_transport_t transport)
 {
@@ -323,12 +312,6 @@ uint8_t serial_command_feed_transport(const uint8_t *data, uint16_t len,
 	return pushed_any;
 }
 
-uint8_t serial_command_feed(const uint8_t *data, uint16_t len)
-{
-	return serial_command_feed_transport(data, len,
-			SERIAL_COMMAND_TRANSPORT_CDC);
-}
-
 uint8_t serial_command_feed_isr_transport(const uint8_t *data, uint16_t len,
 		serial_command_transport_t transport)
 {
@@ -355,12 +338,6 @@ uint8_t serial_command_feed_isr_transport(const uint8_t *data, uint16_t len,
 	critical_section_exit(primask);
 
 	return 1u;
-}
-
-uint8_t serial_command_feed_isr(const uint8_t *data, uint16_t len)
-{
-	return serial_command_feed_isr_transport(data, len,
-			SERIAL_COMMAND_TRANSPORT_CDC);
 }
 
 uint8_t serial_command_drain_rx_stream(void)
@@ -429,19 +406,6 @@ uint8_t serial_command_stream_pending(void)
 		}
 	}
 	return (uint8_t)(serial_rx_raw_count != 0u);
-}
-
-uint8_t serial_command_stream_pending_transport(
-		serial_command_transport_t transport)
-{
-	transport = serial_transport_normalize(transport);
-	return (uint8_t)((serial_command_stream_len[transport] != 0u) ||
-			(serial_rx_raw_count != 0u));
-}
-
-serial_command_transport_t serial_command_response_transport(void)
-{
-	return serial_response_transport;
 }
 
 void serial_command_set_response_transport(serial_command_transport_t transport)

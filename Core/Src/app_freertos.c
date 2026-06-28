@@ -32,7 +32,6 @@
 #include "dma.h"
 #include "tim.h"
 #include "LED.h"
-#include "slider.h"
 #include "usbd_cdc_acm_if.h"
 #include "usbd_hid_custom_if.h"
 #include "usbd_hid_keyboard.h"

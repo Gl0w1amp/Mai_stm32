@@ -25,7 +25,6 @@ uint16_t capsense_hold_duration[16] = {0};
 uint16_t capsense_level[8] = {0};
 uint16_t capsense_freeze[34];
 uint16_t capsense_baseline[34];
-uint16_t capsense_threshold[34];
 uint16_t capsense_hold_prev_raw[16] = {0};
 uint16_t capsense_hold_peak_envelope[16] = {0};
 uint16_t capsense_hold_release_level[16] = {0};

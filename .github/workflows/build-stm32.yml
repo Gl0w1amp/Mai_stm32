@@ -126,7 +126,6 @@ jobs:
                 ../Core/Src/serial_commands.c \
                 ../Core/Src/serial_protocol.c \
                 ../Core/Src/serial_reports.c \
-                ../Core/Src/slider.c \
                 ../Core/Src/stack.c \
                 ../Core/Src/stm32g4xx_hal_msp.c \
                 ../Core/Src/stm32g4xx_hal_timebase_tim.c \

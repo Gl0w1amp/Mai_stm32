@@ -38,11 +38,6 @@ static volatile uint16_t led_host_timeout_ms = LED_HOST_TIMEOUT_MS_DEFAULT;
 static volatile uint32_t led_host_deadline_ms = 0u;
 static uint32_t led_boot_start_ms = 0u;
 static uint32_t led_effect_last_ms = 0u;
-static uint8_t led_last_button_bits = 0u;
-
-volatile uint32_t timer7_count = 0;
-volatile uint32_t timer7_target = 0;
-volatile uint8_t timer7_active = 0;
 
 static void set_led_fade_explicit(uint8_t index,
 		uint8_t start_r, uint8_t start_g, uint8_t start_b,
@@ -164,8 +159,6 @@ static void led_render_input_reactive(uint32_t now,
 	uint8_t buttons = led_snapshot_button_bits(snapshot);
 	(void)now;
 
-	led_last_button_bits = buttons;
-
 	for (uint8_t i = 0u; i < BUTTON_LED_COUNT; i++) {
 		uint8_t active = (uint8_t)((buttons & (uint8_t)(1u << i)) != 0u);
 
@@ -193,7 +186,6 @@ void LED_StateMachineInit(uint32_t now)
 	led_host_deadline_ms = 0u;
 	led_boot_start_ms = now;
 	led_effect_last_ms = now;
-	led_last_button_bits = 0u;
 	led_clear_fades();
 	led_render_boot(now);
 }
@@ -266,7 +258,6 @@ uint8_t LED_SetMode(uint8_t mode, uint32_t now)
 		led_mode = LED_MODE_INPUT_REACTIVE;
 		led_effective_mode = LED_MODE_IDLE;
 		led_effect_last_ms = now;
-		led_last_button_bits = 0u;
 		led_clear_fades();
 		led_render_idle(now);
 		break;

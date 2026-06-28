@@ -26,15 +26,6 @@ typedef struct {
   uint16_t host_remaining_ms;
 } LED_Status;
 
-extern uint8_t WS2812_data_raw[24];
-extern uint16_t led_fade_time;
-extern uint8_t led_fade_target[2];
-extern uint8_t led_fade_flag;
-extern uint8_t led_fade_color[2][3];
-extern uint16_t led_fade_clock;
-
-void LED_UART_IRQHandler();
-
 #include "mai2led.h"
 #include "led_ws2812.h"
 #include "led_state.h"

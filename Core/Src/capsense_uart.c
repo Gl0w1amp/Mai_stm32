@@ -72,17 +72,6 @@ static uint8_t capsense_uart_frame_is_empty(const uint8_t *frame)
 	return 1u;
 }
 
-bool check_checksum(uint8_t* data){
-	uint8_t checksum = 0;
-	for(uint8_t i = 0;i<69;i++){
-		checksum += data[i];
-	}
-	if(checksum == data[69]){
-		return true;
-	}else{
-		return false;
-	}
-}
 uint8_t checksum = 0;
 
 static uint8_t capsense_accept_packet(const uint8_t *data, uint8_t lock_protocol, uint8_t rolling_checksum)
@@ -477,11 +466,6 @@ void capsense_uart_stats_reset(void)
 	memset(&capsense_uart_stats, 0, sizeof(capsense_uart_stats));
 	capsense_uart_stats.protocol_version = capsense_procotl_version;
 	capsense_uart_stats.legacy_payload_offset = capsense_legacy_payload_offset;
-}
-
-void capsense_uart_stats_note_short_packet(void)
-{
-	capsense_uart_stats.short_packet_count++;
 }
 
 void capsense_uart_stats_note_empty_packet(void)

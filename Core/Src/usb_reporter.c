@@ -11,8 +11,8 @@
 #include "input_snapshot.h"
 #include "queue.h"
 #include "serial_reports.h"
+#include "serial_protocol.h"
 #include "byte_pack.h"
-#include "slider.h"
 #include "task.h"
 #include "usbd_cdc_acm_if.h"
 #include "usbd_hid_custom_if.h"
@@ -867,11 +867,6 @@ uint8_t serial_cdc_tx_enqueue_high(const uint8_t *buf, uint16_t len)
 {
 	/* Keep command replies off CDC IN; CDC IN is reserved for legacy/live output. */
 	return usb_reporter_vendor_hid_enqueue(buf, len);
-}
-
-uint8_t serial_cdc_tx_enqueue_high_isr(const uint8_t *buf, uint16_t len)
-{
-	return usb_reporter_cdc_enqueue_high_isr(buf, len);
 }
 
 uint8_t serial_cdc_tx_enqueue_low(const uint8_t *buf, uint16_t len)

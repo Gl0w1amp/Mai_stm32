@@ -33,7 +33,6 @@ void capsense_uart_stream_feed(const uint8_t *data, uint16_t len,
 		uint16_t *accepted_frames_out, uint16_t *rejected_frames_out);
 void capsense_uart_stats_get(capsense_uart_stats_t *stats_out);
 void capsense_uart_stats_reset(void);
-void capsense_uart_stats_note_short_packet(void);
 void capsense_uart_stats_note_empty_packet(void);
 void capsense_uart_stats_note_parse_fail(void);
 void capsense_uart_stats_note_uart_error(void);
