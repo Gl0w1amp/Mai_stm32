@@ -248,7 +248,6 @@ static void usb_reporter_cdc_record_giveup(uint32_t now)
 
 static void usb_reporter_cdc_recover_in_stall(uint32_t now)
 {
-	extern USBD_CDC_ACM_HandleTypeDef CDC_ACM_Class_Data[];
 	uint32_t tx_latency_ms = now - cdc_in_flight_start_tick;
 
 	cdc_stats.tx_giveup_count++;
@@ -260,10 +259,7 @@ static void usb_reporter_cdc_recover_in_stall(uint32_t now)
 	if (cdc_ep.retry_count > cdc_stats.max_retry_count) {
 		cdc_stats.max_retry_count = cdc_ep.retry_count;
 	}
-	CDC_ACM_Class_Data[0].TxState = 0U;
-	if (hUsbDevice.dev_state == USBD_STATE_CONFIGURED) {
-		(void)USBD_LL_FlushEP(&hUsbDevice, CDC_IN_EP[0]);
-	}
+	CDC_AbortTx(0u);
 	cdc_in_ready = 1u;
 	cdc_in_flight_start_tick = 0u;
 	cdc_ep.retry_count = 0u;

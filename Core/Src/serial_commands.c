@@ -141,7 +141,7 @@ static void handle_serial_cmd_led_button(const serial_command_context_t *ctx)
 	if(rxBuffer[2] < 24u){
 		return;
 	}
-	memcpy(WS2812_data_button,rxBuffer+3,24);
+	LED_SetButtonFrame(rxBuffer + 3);
 	if (rxBuffer[2] >= 25u) {
 		speed = rxBuffer[27];
 	}
@@ -160,7 +160,7 @@ static void handle_serial_cmd_led_billboard(const serial_command_context_t *ctx)
 				if(rxBuffer[2] != 24){
 					return;
 				}
-				memcpy(WS2812_data_billboard,rxBuffer+3,24);
+				LED_SetBillboardFrame(rxBuffer + 3);
 				return;
 }
 
@@ -551,17 +551,14 @@ static void handle_serial_cmd_set_controller_role(const serial_command_context_t
 
 				requested_role = rxBuffer[3];
 				if ((requested_role == 1u) || (requested_role == 2u)) {
-					uint8_t previous_role = Flash.controller_role;
 					applied_role = controller_role_normalize(requested_role);
-					Flash.controller_role = applied_role;
-					if (flash_write(Flash.raw_flash) != 0u) {
+					if (flash_set_controller_role(applied_role) != 0u) {
 						player = applied_role;
 						USBD_SetControllerRole(applied_role);
 						ok = 1u;
 						cmd_tmp[3] = applied_role;
 						cmd_tmp[4] = ok;
 					} else {
-						Flash.controller_role = previous_role;
 						cmd_tmp[3] = requested_role;
 						cmd_tmp[4] = ok;
 					}
@@ -652,12 +649,9 @@ static void handle_serial_cmd_write_mono_threshold(const serial_command_context_
 					return;
 				}
 				uint8_t index = rxBuffer[3];
-				uint16_t previous_threshold = Flash.touch_threshold[index];
-				memcpy(&Flash.touch_threshold[index],&rxBuffer[4],2);
-				uint8_t ok = flash_write(Flash.raw_flash);
-				if (ok == 0u) {
-					Flash.touch_threshold[index] = previous_threshold;
-				}
+				uint16_t value;
+				memcpy(&value,&rxBuffer[4],2);
+				uint8_t ok = flash_set_touch_threshold(index, value);
 				serial_send_simple_status(SERIAL_CMD_WRITE_MONO_THRESHOLD, ok);
 				return;
 			}
@@ -702,16 +696,7 @@ static void handle_serial_cmd_write_touch_sheet(const serial_command_context_t *
 					serial_send_simple_status(SERIAL_CMD_WRITE_TOUCH_SHEET, 0u);
 					return;
 				}
-				uint8_t previous_sheet[TOUCH_CHANNEL_COUNT];
-				memcpy(previous_sheet, Flash.touch_sheet, TOUCH_CHANNEL_COUNT);
-				//memcpy(Flash.touch_sheet,&rxBuffer[3],34);
-				for(uint8_t i = 0;i<TOUCH_CHANNEL_COUNT;i++){
-					Flash.touch_sheet[i] = rxBuffer[i+3];
-				}
-				uint8_t ok = flash_write(Flash.raw_flash);
-				if (ok == 0u) {
-					memcpy(Flash.touch_sheet, previous_sheet, TOUCH_CHANNEL_COUNT);
-				}
+				uint8_t ok = flash_set_touch_sheet(&rxBuffer[3]);
 				serial_send_simple_status(SERIAL_CMD_WRITE_TOUCH_SHEET, ok);
 				return;
 			}
@@ -914,15 +899,12 @@ static void handle_serial_cmd_write_delay_setting(const serial_command_context_t
 						return;
 					}
 					uint8_t index = rxBuffer[3];
-					uint8_t previous_delay = Flash.delay_setting[index];
-					Flash.delay_setting[index] = rxBuffer[4];
-					if (flash_write(Flash.raw_flash) != 0u) {
+					if (flash_set_delay_setting(index, rxBuffer[4]) != 0u) {
 						uint8_t cmd_tmp[5] = {0xff,0x13,1};
 						cmd_tmp[3] = index;
 						cmd_tmp[4] = serial_checksum_sum(cmd_tmp, 4u);
 						(void) serial_cdc_tx_enqueue_high(cmd_tmp, 5);
 					} else {
-						Flash.delay_setting[index] = previous_delay;
 						uint8_t cmd_tmp[6] = {0xff,0x13,2,index,0,0};
 						cmd_tmp[5] = serial_checksum_sum(cmd_tmp, 5u);
 						(void) serial_cdc_tx_enqueue_high(cmd_tmp, 6);

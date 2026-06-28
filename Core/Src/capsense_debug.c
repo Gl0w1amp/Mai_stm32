@@ -11,22 +11,12 @@
 #include "usb_reporter.h"
 #include "usbd_cdc_acm_if.h"
 #include "usbd_hid_custom_if.h"
+#include "serial_reports.h"
 #include "string.h"
 
 static const uint8_t capsense_debug_vofa_tail[CAPSENSE_DEBUG_VOFA_TAIL_SIZE] = {
 		0x00u, 0x00u, 0x80u, 0x7Fu
 };
-
-static uint8_t capsense_debug_stream_chunk(const float *values, uint8_t count)
-{
-	if ((values == NULL) || (count == 0u) ||
-			(count > CAPSENSE_DEBUG_STREAM_CHUNK_FLOAT_COUNT)) {
-		return 0u;
-	}
-
-	return serial_cdc_tx_enqueue_low((const uint8_t *) values,
-			(uint16_t) (count * sizeof(float)));
-}
 
 static uint16_t capsense_debug_enter_line(uint8_t logical_index)
 {
@@ -71,7 +61,7 @@ void capsense_debug_service(void)
 		uint8_t hid_status;
 
 		capsense_debug_stats.enqueue_attempt_count++;
-		hid_status = mai2_hid_raw_debug_stream(Touch.channel_raw, 34u);
+		hid_status = serial_capsense_debug_emit_raw(Touch.channel_raw, 34u);
 		if (hid_status == (uint8_t) USBD_OK) {
 			capsense_debug_stats.emit_batch_count++;
 			capsense_debug_stats.enqueue_success_count++;
@@ -102,9 +92,8 @@ void capsense_debug_service(void)
 		focus_values[3] = hold_state;
 		focus_values[4] = capsense_touch_status[logical] ? 1.0f : 0.0f;
 		focus_values[5] = hold_duration;
-		(void) capsense_debug_stream_chunk(focus_values,
-				CAPSENSE_DEBUG_FOCUS_FLOAT_COUNT);
-		(void) serial_cdc_tx_enqueue_low(capsense_debug_vofa_tail,
+		(void) serial_capsense_debug_emit_focus(focus_values,
+				CAPSENSE_DEBUG_FOCUS_FLOAT_COUNT, capsense_debug_vofa_tail,
 				CAPSENSE_DEBUG_VOFA_TAIL_SIZE);
 	}
 }

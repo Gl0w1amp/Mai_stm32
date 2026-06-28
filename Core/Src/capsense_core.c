@@ -428,9 +428,9 @@ static void capsense_reset_runtime_state(void)
 
 
 void capsense_on_boot_button(){
-	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,0);
+	Board_TouchResetLine_Set(0u);
 	capsense_reset_runtime_state();
-	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,1);
+	Board_TouchResetLine_Set(1u);
 }
 
 void capsense_init(){

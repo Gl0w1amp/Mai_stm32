@@ -125,8 +125,6 @@ extern PacketReq req;
 extern PacketRes res;
 
 extern uint8_t WS2812_data_raw[24];
-extern uint8_t WS2812_data_button[24];
-extern uint8_t WS2812_data_billboard[24];
 extern uint16_t led_fade_time;
 extern uint8_t led_fade_target[2];
 extern uint8_t led_fade_flag;
@@ -161,6 +159,8 @@ void LED_ServiceRefresh(void);
 void LED_update_button(uint8_t speed);
 void LED_update_button_rgb_speed(const uint8_t *rgb_speed, uint8_t count);
 void LED_update_button_rgb_fade(const uint8_t *rgb_fade, uint8_t count);
+void LED_SetButtonFrame(const uint8_t rgb[24]);
+void LED_SetBillboardFrame(const uint8_t rgb[24]);
 void LED_StateMachineInit(uint32_t now);
 void LED_ServiceStateMachine(uint32_t now);
 void LED_NotifyHostControl(uint32_t now);

@@ -10,6 +10,7 @@
 #include "capsense.h"
 #include "benchmark.h"
 #include "usb_reporter.h"
+#include "usbd_hid_custom_if.h"
 #include "main.h"
 #include <string.h>
 
@@ -163,4 +164,23 @@ void serial_send_benchmark_reply(uint8_t cmd, const uint8_t *payload, uint8_t pa
 		cmd_tmp[idx] += cmd_tmp[i];
 	}
 	(void) serial_cdc_tx_enqueue_high(cmd_tmp, idx + 1);
+}
+
+uint8_t serial_capsense_debug_emit_focus(const float *focus_values, uint8_t count,
+		const uint8_t *vofa_tail, uint8_t tail_len)
+{
+	if ((focus_values == NULL) || (count == 0u)) {
+		return 0u;
+	}
+	(void) serial_cdc_tx_enqueue_low((const uint8_t *) focus_values,
+			(uint16_t) (count * sizeof(float)));
+	if ((vofa_tail != NULL) && (tail_len != 0u)) {
+		(void) serial_cdc_tx_enqueue_low(vofa_tail, tail_len);
+	}
+	return 1u;
+}
+
+uint8_t serial_capsense_debug_emit_raw(const uint16_t *raw_values, uint8_t value_count)
+{
+	return mai2_hid_raw_debug_stream(raw_values, value_count);
 }

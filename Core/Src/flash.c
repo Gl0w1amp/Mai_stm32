@@ -107,6 +107,58 @@ void flash_read(uint64_t* data){
 	memcpy(data, flash_addr, sizeof(FlashData));
 }
 
+uint8_t flash_set_touch_threshold(uint8_t index, uint16_t value){
+	if(index >= 34u){
+		return 0u;
+	}
+	uint16_t prev = Flash.touch_threshold[index];
+	Flash.touch_threshold[index] = value;
+	uint8_t ok = flash_write(Flash.raw_flash);
+	if(ok == 0u){
+		Flash.touch_threshold[index] = prev;
+	}
+	return ok;
+}
+
+uint8_t flash_set_touch_sheet(const uint8_t *sheet){
+	if(sheet == NULL){
+		return 0u;
+	}
+	uint8_t prev[34];
+	memcpy(prev, Flash.touch_sheet, 34);
+	for(uint8_t i = 0; i < 34u; i++){
+		Flash.touch_sheet[i] = sheet[i];
+	}
+	uint8_t ok = flash_write(Flash.raw_flash);
+	if(ok == 0u){
+		memcpy(Flash.touch_sheet, prev, 34);
+	}
+	return ok;
+}
+
+uint8_t flash_set_delay_setting(uint8_t index, uint8_t value){
+	if(index >= 2u){
+		return 0u;
+	}
+	uint8_t prev = Flash.delay_setting[index];
+	Flash.delay_setting[index] = value;
+	uint8_t ok = flash_write(Flash.raw_flash);
+	if(ok == 0u){
+		Flash.delay_setting[index] = prev;
+	}
+	return ok;
+}
+
+uint8_t flash_set_controller_role(uint8_t role){
+	uint8_t prev = Flash.controller_role;
+	Flash.controller_role = role;
+	uint8_t ok = flash_write(Flash.raw_flash);
+	if(ok == 0u){
+		Flash.controller_role = prev;
+	}
+	return ok;
+}
+
 #define TOUCH_CHANNEL_COUNT 34u
 #define TOUCH_THRESHOLD_DEFAULT 2000u
 #define DELAY_SETTING_COUNT 2u

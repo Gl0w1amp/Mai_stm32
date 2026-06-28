@@ -18,5 +18,8 @@ uint8_t serial_reports_build_touch_scan_frame(const input_snapshot_t *snapshot,
 void serial_send_simple_status(uint8_t command, uint8_t ok);
 uint8_t serial_send_raw_debug_snapshot(uint8_t sequence, uint8_t part_index);
 void serial_send_benchmark_reply(uint8_t cmd, const uint8_t *payload, uint8_t payload_len, uint64_t dispatch_cycles);
+uint8_t serial_capsense_debug_emit_focus(const float *focus_values, uint8_t count,
+		const uint8_t *vofa_tail, uint8_t tail_len);
+uint8_t serial_capsense_debug_emit_raw(const uint16_t *raw_values, uint8_t value_count);
 
 #endif /* INC_SERIAL_REPORTS_H_ */

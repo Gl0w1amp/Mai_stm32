@@ -568,6 +568,20 @@ void UsbTxGuard_Give(void)
   }
 }
 
+void CDC_AbortTx(uint8_t ch)
+{
+  extern USBD_CDC_ACM_HandleTypeDef CDC_ACM_Class_Data[];
+  if (ch >= NUMBER_OF_CDC)
+  {
+    return;
+  }
+  CDC_ACM_Class_Data[ch].TxState = 0U;
+  if (hUsbDevice.dev_state == USBD_STATE_CONFIGURED)
+  {
+    (void)USBD_LL_FlushEP(&hUsbDevice, CDC_IN_EP[ch]);
+  }
+}
+
 //void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 //{
 //  /* Initiate next USB packet transfer once UART completes transfer (transmitting data over Tx line) */

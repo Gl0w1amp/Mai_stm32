@@ -38,5 +38,9 @@ uint8_t flash_write(uint64_t* data);
 void flash_read(uint64_t* data);
 uint8_t flash_touch_sheet_valid(const uint8_t *sheet);
 uint8_t flash_config_sanitize(void);
+uint8_t flash_set_touch_threshold(uint8_t index, uint16_t value);
+uint8_t flash_set_touch_sheet(const uint8_t *sheet);
+uint8_t flash_set_delay_setting(uint8_t index, uint8_t value);
+uint8_t flash_set_controller_role(uint8_t role);
 
 #endif /* INC_FLASH_H_ */

@@ -115,7 +115,7 @@ int main(void)
   flash_read(Flash.raw_flash);
   USBD_SetControllerRole((Flash.controller_role == 2u) ? 2u : 1u);
   MX_USB_DEVICE_Init();
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, 1);
+  Board_TouchResetLine_Set(1u);
   FET_LED_Init();
   /* USER CODE END 2 */
 

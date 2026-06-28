@@ -73,7 +73,7 @@ void button_scan(){
 	}
 
 	if(button[0] || button[1]){
-		HAL_GPIO_WritePin(GPIOB,GPIO_PIN_15,1);
+		Board_ButtonActivityLed_Set(1u);
 	}else{
 //		HAL_GPIO_WritePin(GPIOB,GPIO_PIN_15,0);
 	}

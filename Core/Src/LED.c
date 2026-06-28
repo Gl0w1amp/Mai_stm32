@@ -60,8 +60,8 @@ uint8_t WS2812_data_raw[24] = {
 0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
 0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff
 };
-uint8_t WS2812_data_button[24];
-uint8_t WS2812_data_billboard[24];
+static uint8_t WS2812_data_button[24];
+static uint8_t WS2812_data_billboard[24];
 uint8_t WS2812_data[NUM_LED * 3]; //16LED
 uint16_t WS2812_data_DMA_buffer[64 + NUM_LED * 24 + 64];
 uint8_t led_uart_buffer_rx[64];
@@ -663,6 +663,20 @@ void LED_update_button_rgb_fade(const uint8_t *rgb_fade, uint8_t count)
 	if (count != 0u) {
 		LED_refresh();
 	}
+}
+
+void LED_SetButtonFrame(const uint8_t rgb[24]) {
+	if (rgb == NULL) {
+		return;
+	}
+	memcpy(WS2812_data_button, rgb, 24);
+}
+
+void LED_SetBillboardFrame(const uint8_t rgb[24]) {
+	if (rgb == NULL) {
+		return;
+	}
+	memcpy(WS2812_data_billboard, rgb, 24);
 }
 
 static uint8_t resolve_multi_len(uint8_t start, uint8_t end_field) {
