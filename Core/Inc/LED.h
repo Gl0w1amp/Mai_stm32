@@ -171,7 +171,7 @@ void LED_StatusSnapshot(LED_Status *status, uint32_t now);
 void LED_UART_Init();
 void LED_UART_RequestRxRestart(void);
 void LED_UART_IRQHandler();
-void LED_Fade_IRQHandler();
+void LED_ServiceFade(void);
 uint8_t LED_RxFramePush(const uint8_t *data, uint16_t len);
 void LED_Task_Process(const uint8_t *data, uint16_t len);
 void LED_Task_ProcessPending(void);

@@ -10,6 +10,7 @@
  * Copyright (c) Ruminasu Labs. All rights reserved.
  */
 #include "capsense_internal.h"
+#include "debug_mode.h"
 #include "capsense_sim.h"
 #include "cmsis_os.h"
 #include "gpio.h"
@@ -17,8 +18,6 @@
 #include "string.h"
 
 uint8_t uart_dma_buffer[128];
-
-extern FlashData Flash;
 
 packet_capsense_t Touch;
 packet_capsense_t capsense_rx_touch;
@@ -50,8 +49,6 @@ volatile uint32_t capsense_last_real_frame_tick = 0;
 volatile uint32_t capsense_last_error_tick = 0;
 volatile uint8_t capsense_reset_pending = 0;
 uint8_t debug_channel = 0;
-extern volatile uint8_t debug_flag;
-extern volatile uint8_t debug_stream_mode;
 
 static void capsense_reset_runtime_state(void);
 uint8_t capsense_channel_for_logical(uint8_t logical_index)
@@ -430,7 +427,7 @@ static void capsense_reset_runtime_state(void)
 }
 
 
-void Boot_Buttom_IRQHandler(){
+void capsense_on_boot_button(){
 	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,0);
 	capsense_reset_runtime_state();
 	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_3,1);

@@ -547,7 +547,7 @@ void capsense_service_pending_reset(void)
 	critical_section_exit(primask);
 
 	(void) HAL_UART_DMAStop(&huart4);
-	Boot_Buttom_IRQHandler();
+	capsense_on_boot_button();
 	if (capsense_restart_uart4_rx() == 0u) {
 		capsense_request_link_reset();
 	}

@@ -30,6 +30,7 @@
 #include "slider.h"
 #include "usb_reporter.h"
 #include "serial_commands.h"
+#include "debug_mode.h"
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -38,9 +39,6 @@
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
-extern uint8_t debug_channel;
-extern volatile uint8_t debug_flag;
-extern volatile uint8_t debug_stream_mode;
 static SemaphoreHandle_t usb_tx_guard_mutex = NULL;
 /* USER CODE END PV */
 

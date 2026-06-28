@@ -705,7 +705,7 @@ static void start_pending_fades(void) {
     }
 }
 
-void LED_Fade_IRQHandler(){
+void LED_ServiceFade(void){
 	uint8_t changed = 0u;
 
     for(int i=0; i<BUTTON_LED_COUNT; i++) {

@@ -14,6 +14,8 @@
 #include "capsense.h"
 #include "dfu_jump.h"
 #include "flash.h"
+#include "debug_mode.h"
+#include "app_state.h"
 #include "input_snapshot.h"
 #include "serial_reports.h"
 #include "benchmark.h"
@@ -49,8 +51,6 @@ typedef struct {
 
 extern USBD_HandleTypeDef hUsbDevice;
 extern const char VERSION[];
-extern volatile uint8_t debug_flag;
-extern volatile uint8_t debug_stream_mode;
 extern volatile uint8_t debug_exit_reset_pending;
 extern volatile uint32_t debug_exit_reset_deadline_ms;
 extern osThreadId CommandTaskHandle;
@@ -59,8 +59,6 @@ extern volatile uint8_t benchmark_event_pending;
 extern volatile uint32_t benchmark_event_due_ms;
 extern volatile uint32_t benchmark_event_sequence;
 extern volatile uint8_t benchmark_event_transport;
-extern uint8_t debug_channel;
-extern uint8_t player;
 extern volatile uint8_t touch_scan_flag;
 
 static volatile uint32_t heart_beat_deadline_ms = 0;

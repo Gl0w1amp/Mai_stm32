@@ -16,6 +16,8 @@
 
 #include "flash.h"
 
+#include "debug_mode.h"
+
 #include <stdint.h>
 
 #define CAPSENSE_BASELINE_VARIANCE 3000
@@ -160,8 +162,6 @@ typedef struct {
 
 } capsense_auto_threshold_workspace_t;
 
-extern FlashData Flash;
-
 extern packet_capsense_t capsense_rx_touch;
 
 extern uint16_t capsense_hold_duration[16];
@@ -211,8 +211,6 @@ extern volatile uint32_t capsense_last_real_frame_tick;
 extern volatile uint32_t capsense_last_error_tick;
 
 extern volatile uint8_t capsense_reset_pending;
-
-extern uint8_t debug_channel;
 
 uint8_t capsense_channel_for_logical(uint8_t logical_index);
 

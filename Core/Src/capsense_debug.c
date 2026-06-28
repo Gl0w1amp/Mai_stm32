@@ -5,15 +5,13 @@
  */
 
 #include "capsense_internal.h"
+#include "debug_mode.h"
 #include "serial_protocol.h"
 #include "slider.h"
 #include "usb_reporter.h"
 #include "usbd_cdc_acm_if.h"
 #include "usbd_hid_custom_if.h"
 #include "string.h"
-
-extern volatile uint8_t debug_flag;
-extern volatile uint8_t debug_stream_mode;
 
 static const uint8_t capsense_debug_vofa_tail[CAPSENSE_DEBUG_VOFA_TAIL_SIZE] = {
 		0x00u, 0x00u, 0x80u, 0x7Fu

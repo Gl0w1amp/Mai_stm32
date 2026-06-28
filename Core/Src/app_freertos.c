@@ -49,6 +49,8 @@
 #include "usbd_desc.h"
 #include "usb_reporter.h"
 #include "benchmark.h"
+#include "debug_mode.h"
+#include "app_state.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -90,7 +92,6 @@ extern USBD_HandleTypeDef hUsbDevice;
 uint8_t touch_cmd_flag = 0;
 volatile uint8_t touch_scan_flag = 0;
 extern uint8_t keyboard_sheet[14];
-extern uint8_t debug_channel;
 uint8_t player = 1;
 uint8_t current_touch_status[34];
 uint8_t current_button_status[2];
@@ -336,7 +337,7 @@ void LED_Task(void const * argument)
 	while(1){
 		LED_Task_ProcessPending();
 		LED_ServiceStateMachine(HAL_GetTick());
-		LED_Fade_IRQHandler();
+		LED_ServiceFade();
 		LED_ServiceRefresh();
 		osDelay(1);
 	}
