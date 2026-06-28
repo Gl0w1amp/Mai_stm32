@@ -8,6 +8,7 @@
 
 #include "serial_protocol.h"
 #include "serial_checksum.h"
+#include "critical_section.h"
 #include "capsense.h"
 #include "benchmark.h"
 #include "usb_reporter.h"
@@ -148,10 +149,22 @@ uint8_t serial_send_raw_debug_snapshot(uint8_t sequence, uint8_t part_index)
 			(RAW_DEBUG_SNAPSHOT_VALUES_PER_PART * 2u) + 1u] = {0};
 	uint8_t idx = 0u;
 	uint8_t first_channel = (uint8_t) (part_index * RAW_DEBUG_SNAPSHOT_VALUES_PER_PART);
+	uint16_t raw_values[RAW_DEBUG_SNAPSHOT_VALUES_PER_PART];
+	uint32_t primask;
 
 	if (part_index >= RAW_DEBUG_SNAPSHOT_PARTS) {
 		return 0u;
 	}
+
+	/* Snapshot this part's raw channels atomically with respect to the Touch_Task
+	 * writer, which rewrites the whole Touch packet under the same critical section
+	 * (capsense_take_latest_snapshot). Reading the global channel_raw[] directly in
+	 * the loop below could otherwise tear the frame mid-update. */
+	primask = critical_section_enter();
+	for (uint8_t i = 0u; i < RAW_DEBUG_SNAPSHOT_VALUES_PER_PART; i++) {
+		raw_values[i] = Touch.channel_raw[first_channel + i];
+	}
+	critical_section_exit(primask);
 
 	cmd_tmp[idx++] = 0xFFu;
 	cmd_tmp[idx++] = SERIAL_CMD_GET_RAW_DEBUG_SNAPSHOT;
@@ -160,10 +173,8 @@ uint8_t serial_send_raw_debug_snapshot(uint8_t sequence, uint8_t part_index)
 	cmd_tmp[idx++] = part_index;
 	cmd_tmp[idx++] = RAW_DEBUG_SNAPSHOT_PARTS;
 
-	for (uint8_t channel = first_channel;
-			channel < (uint8_t) (first_channel + RAW_DEBUG_SNAPSHOT_VALUES_PER_PART);
-			channel++) {
-		uint16_t raw = Touch.channel_raw[channel];
+	for (uint8_t i = 0u; i < RAW_DEBUG_SNAPSHOT_VALUES_PER_PART; i++) {
+		uint16_t raw = raw_values[i];
 		cmd_tmp[idx++] = (uint8_t) (raw & 0xFFu);
 		cmd_tmp[idx++] = (uint8_t) ((raw >> 8) & 0xFFu);
 	}
