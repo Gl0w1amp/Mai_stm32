@@ -105,4 +105,14 @@ void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 2 */
 
+void Board_TouchResetLine_Set(uint8_t level)
+{
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, level ? GPIO_PIN_SET : GPIO_PIN_RESET);
+}
+
+void Board_ButtonActivityLed_Set(uint8_t level)
+{
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_15, level ? GPIO_PIN_SET : GPIO_PIN_RESET);
+}
+
 /* USER CODE END 2 */

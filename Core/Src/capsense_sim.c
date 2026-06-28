@@ -77,7 +77,8 @@ static uint16_t capsense_sim_next_noise(uint16_t amplitude)
 static uint8_t capsense_sim_channel_for_logical(
 		const capsense_sim_context_t *ctx, uint8_t logical)
 {
-	if ((ctx == NULL) || (ctx->logical_to_channel == NULL) || (logical >= 34u)) {
+	if ((ctx == NULL) || (ctx->logical_to_channel == NULL) ||
+			(logical >= CAPSENSE_CHANNEL_COUNT)) {
 		return 0xFFu;
 	}
 	return ctx->logical_to_channel[logical];
@@ -88,7 +89,7 @@ static void capsense_sim_add_logical_touch(const capsense_sim_context_t *ctx,
 {
 	uint8_t channel = capsense_sim_channel_for_logical(ctx, logical);
 
-	if (channel < 34u) {
+	if (channel < CAPSENSE_CHANNEL_COUNT) {
 		uint32_t raw = (uint32_t)ctx->rx_touch->channel_raw[channel] + delta;
 		ctx->rx_touch->channel_raw[channel] =
 				raw > 0xFE00u ? 0xFE00u : (uint16_t)raw;
@@ -102,7 +103,7 @@ static void capsense_sim_generate_frame(const capsense_sim_context_t *ctx,
 	uint8_t warmup_complete = (uint8_t)(elapsed >=
 			(CAPSENSE_SIMULATED_START_DELAY_MS + CAPSENSE_SIMULATED_WARMUP_MS));
 
-	for (uint8_t channel = 0u; channel < 34u; channel++) {
+	for (uint8_t channel = 0u; channel < CAPSENSE_CHANNEL_COUNT; channel++) {
 		uint32_t phase = (now / CAPSENSE_SIMULATED_WAVE_STEP_MS) +
 				(channel * 5u);
 		uint32_t raw = CAPSENSE_SIMULATED_BASELINE +

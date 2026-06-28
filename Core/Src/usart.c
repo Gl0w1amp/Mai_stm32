@@ -31,12 +31,6 @@ extern UART_HandleTypeDef huart1;
 extern DMA_HandleTypeDef hdma_uart4_rx;
 extern DMA_HandleTypeDef hdma_usart1_rx;
 
-#define CAPSENSE_CONSECUTIVE_FAILURE_RESET_THRESHOLD 8u
-#define CAPSENSE_RESET_COOLDOWN_MS 500u
-
-static uint8_t capsense_rx_failure_count = 0;
-static uint32_t capsense_last_reset_tick = 0;
-
 static uint8_t usart1_start_receive_to_idle(void)
 {
 	HAL_StatusTypeDef status;
@@ -61,36 +55,6 @@ static uint8_t uart4_start_receive_to_idle(void)
 
 	__HAL_DMA_DISABLE_IT(&hdma_uart4_rx, DMA_IT_HT);
 	return 1u;
-}
-
-static void capsense_note_rx_success(void)
-{
-    capsense_rx_failure_count = 0;
-    capsense_uart_stats_set_failure_streak(capsense_rx_failure_count);
-}
-
-static void capsense_note_rx_failure(void)
-{
-    uint32_t now = HAL_GetTick();
-
-    if (capsense_rx_failure_count < 0xFFu) {
-        capsense_rx_failure_count++;
-    }
-    capsense_uart_stats_set_failure_streak(capsense_rx_failure_count);
-
-    if (capsense_rx_failure_count < CAPSENSE_CONSECUTIVE_FAILURE_RESET_THRESHOLD) {
-        return;
-    }
-
-    if ((uint32_t)(now - capsense_last_reset_tick) < CAPSENSE_RESET_COOLDOWN_MS) {
-        return;
-    }
-
-    capsense_last_reset_tick = now;
-    capsense_rx_failure_count = 0;
-    capsense_uart_stats_note_auto_reset();
-    capsense_uart_stats_set_failure_streak(capsense_rx_failure_count);
-    capsense_request_link_reset();
 }
 /* USER CODE END 0 */
 
@@ -392,11 +356,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 		capsense_uart_stream_feed(uart_dma_buffer, Size, &accepted_frames,
 				&rejected_frames);
 
-		if(accepted_frames > 0u){
-			capsense_note_rx_success();
-		}else if(rejected_frames > 0u){
-			capsense_note_rx_failure();
-		}
+		capsense_uart_on_rx_result(accepted_frames, rejected_frames);
 		if (uart4_start_receive_to_idle() == 0u) {
 			capsense_uart_stats_note_uart_error();
 			capsense_request_link_reset();
@@ -416,8 +376,7 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
         }
     }
     if (huart->Instance == UART4){
-    	capsense_uart_stats_note_uart_error();
-    	capsense_note_rx_failure();
+    	capsense_uart_on_error();
     	if (uart4_start_receive_to_idle() == 0u) {
     		capsense_request_link_reset();
     	}

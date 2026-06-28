@@ -8,8 +8,8 @@
 #include "usbd_hid_vendor_if.h"
 
 #include "serial_protocol.h"
-#include "slider.h"
 #include "usbd_cdc_acm_if.h"
+#include "serial_commands.h"
 
 __ALIGN_BEGIN static uint8_t VENDOR_HID_ReportDesc[USBD_VENDOR_HID_REPORT_DESC_SIZE] __ALIGN_END =
 {
@@ -55,7 +55,7 @@ static int8_t VENDOR_HID_OutEvent(const uint8_t *report, uint16_t len)
 {
   if (serial_command_feed_isr_transport(report, len,
       SERIAL_COMMAND_TRANSPORT_VENDOR_HID) != 0u) {
-    slider_notify_command_ready_from_isr();
+    command_notify_ready_from_isr();
   }
   return (int8_t)USBD_OK;
 }

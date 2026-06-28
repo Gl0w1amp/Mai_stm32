@@ -105,9 +105,9 @@ jobs:
         # Source files
         CSRCS = ../Core/Src/main.c \
                 ../Core/Src/app_freertos.c \
+                ../Core/Src/benchmark.c \
                 ../Core/Src/button.c \
                 ../Core/Src/capsense.c \
-                ../Core/Src/capsense_calibration.c \
                 ../Core/Src/capsense_core.c \
                 ../Core/Src/capsense_debug.c \
                 ../Core/Src/capsense_uart.c \
@@ -118,10 +118,13 @@ jobs:
                 ../Core/Src/gpio.c \
                 ../Core/Src/input_snapshot.c \
                 ../Core/Src/LED.c \
+                ../Core/Src/led_fet.c \
+                ../Core/Src/led_ws2812.c \
+                ../Core/Src/led_state.c \
+                ../Core/Src/mai2led.c \
                 ../Core/Src/serial_commands.c \
                 ../Core/Src/serial_protocol.c \
                 ../Core/Src/serial_reports.c \
-                ../Core/Src/slider.c \
                 ../Core/Src/stack.c \
                 ../Core/Src/stm32g4xx_hal_msp.c \
                 ../Core/Src/stm32g4xx_hal_timebase_tim.c \

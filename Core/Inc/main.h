@@ -53,8 +53,6 @@ extern "C" {
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
-// Legacy function name for backward compatibility
-void Jump_To_DFU_Mode(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/

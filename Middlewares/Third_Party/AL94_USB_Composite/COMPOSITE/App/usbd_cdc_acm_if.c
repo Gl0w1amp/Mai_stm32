@@ -27,8 +27,9 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "semphr.h"
-#include "slider.h"
 #include "usb_reporter.h"
+#include "serial_commands.h"
+#include "debug_mode.h"
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -37,9 +38,6 @@
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
-extern uint8_t debug_channel;
-extern volatile uint8_t debug_flag;
-extern volatile uint8_t debug_stream_mode;
 static SemaphoreHandle_t usb_tx_guard_mutex = NULL;
 /* USER CODE END PV */
 
@@ -439,7 +437,7 @@ static int8_t CDC_Receive(uint8_t cdc_ch, uint8_t *Buf, uint32_t *Len)
 		debug_channel = Buf[0] <= 33 ? Buf[0] : 33;
 	} else if (serial_command_feed_isr_transport(Buf, (uint16_t) *Len,
 			SERIAL_COMMAND_TRANSPORT_CDC) != 0u) {
-		slider_notify_command_ready_from_isr();
+		command_notify_ready_from_isr();
 	}
 	USBD_CDC_SetRxBuffer(cdc_ch, &hUsbDevice, &Buf[0]);
 	USBD_CDC_ReceivePacket(cdc_ch, &hUsbDevice);
@@ -566,6 +564,20 @@ void UsbTxGuard_Give(void)
   if (usb_tx_guard_mutex != NULL)
   {
     (void)xSemaphoreGive(usb_tx_guard_mutex);
+  }
+}
+
+void CDC_AbortTx(uint8_t ch)
+{
+  extern USBD_CDC_ACM_HandleTypeDef CDC_ACM_Class_Data[];
+  if (ch >= NUMBER_OF_CDC)
+  {
+    return;
+  }
+  CDC_ACM_Class_Data[ch].TxState = 0U;
+  if (hUsbDevice.dev_state == USBD_STATE_CONFIGURED)
+  {
+    (void)USBD_LL_FlushEP(&hUsbDevice, CDC_IN_EP[ch]);
   }
 }
 

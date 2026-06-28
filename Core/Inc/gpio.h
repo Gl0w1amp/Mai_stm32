@@ -39,7 +39,8 @@ extern "C" {
 void MX_GPIO_Init(void);
 
 /* USER CODE BEGIN Prototypes */
-
+void Board_TouchResetLine_Set(uint8_t level);
+void Board_ButtonActivityLed_Set(uint8_t level);
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus

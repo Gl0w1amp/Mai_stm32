@@ -6,8 +6,9 @@
 
 #include "serial_protocol.h"
 
-#include "capsense.h"
 #include "main.h"
+#include "serial_checksum.h"
+#include "critical_section.h"
 #include <string.h>
 
 #define SERIAL_COMMAND_QUEUE_LENGTH 8u
@@ -31,32 +32,12 @@ static serial_rx_raw_byte_t serial_rx_raw_buffer[SERIAL_RX_RAW_BUFFER_SIZE];
 static volatile uint16_t serial_rx_raw_head = 0u;
 static volatile uint16_t serial_rx_raw_tail = 0u;
 static volatile uint16_t serial_rx_raw_count = 0u;
-static volatile serial_command_transport_t serial_response_transport =
-		SERIAL_COMMAND_TRANSPORT_CDC;
 
 static serial_command_transport_t serial_transport_normalize(
 		serial_command_transport_t transport)
 {
 	return (transport < SERIAL_COMMAND_TRANSPORT_COUNT) ?
 			transport : SERIAL_COMMAND_TRANSPORT_CDC;
-}
-
-static uint8_t serial_frame_is_calibration_cancel_capture(const uint8_t *data,
-		uint16_t len)
-{
-	uint8_t checksum = 0u;
-
-	if ((data == NULL) || (len != 4u) || (data[0] != 0xFFu) ||
-			(data[1] != SERIAL_CMD_CALIBRATION_CANCEL_CAPTURE) ||
-			(data[2] != 0u)) {
-		return 0u;
-	}
-
-	for (uint16_t i = 0u; i < (uint16_t)(len - 1u); i++) {
-		checksum += data[i];
-	}
-
-	return (uint8_t)(checksum == data[len - 1u]);
 }
 
 static uint8_t serial_frame_is_led_command(const uint8_t *data, uint16_t len)
@@ -76,21 +57,6 @@ static uint8_t serial_frame_is_led_command(const uint8_t *data, uint16_t len)
 	}
 }
 
-static uint32_t serial_lock_irq(void)
-{
-	uint32_t primask = __get_PRIMASK();
-
-	__disable_irq();
-	return primask;
-}
-
-static void serial_unlock_irq(uint32_t primask)
-{
-	if (primask == 0u) {
-		__enable_irq();
-	}
-}
-
 static uint8_t serial_frame_checksum_valid(const uint8_t *data, uint16_t len)
 {
 	uint8_t checksum = 0u;
@@ -99,9 +65,7 @@ static uint8_t serial_frame_checksum_valid(const uint8_t *data, uint16_t len)
 		return 0u;
 	}
 
-	for (uint16_t i = 0u; i < (uint16_t)(len - 1u); i++) {
-		checksum += data[i];
-	}
+	checksum = serial_checksum_sum(data, (uint8_t)(len - 1u));
 
 	return (uint8_t)(checksum == data[len - 1u]);
 }
@@ -175,7 +139,6 @@ uint8_t serial_protocol_frame_valid(const uint8_t *frame, uint8_t len)
 static uint8_t serial_command_queue_push(const uint8_t *data, uint16_t len,
 		serial_command_transport_t transport)
 {
-	uint8_t is_cancel_capture;
 	uint32_t primask;
 	serial_frame_t *frame;
 
@@ -184,14 +147,10 @@ static uint8_t serial_command_queue_push(const uint8_t *data, uint16_t len,
 	}
 
 	transport = serial_transport_normalize(transport);
-	is_cancel_capture = serial_frame_is_calibration_cancel_capture(data, len);
-	if (is_cancel_capture != 0u) {
-		capsense_calibration_request_cancel();
-	}
 
-	primask = serial_lock_irq();
+	primask = critical_section_enter();
 	if (serial_command_queue_replace_led_locked(data, len, transport) != 0u) {
-		serial_unlock_irq(primask);
+		critical_section_exit(primask);
 		return 1u;
 	}
 
@@ -200,8 +159,8 @@ static uint8_t serial_command_queue_push(const uint8_t *data, uint16_t len,
 				(serial_command_queue_drop_oldest_led_locked() != 0u)) {
 			/* keep room for control/status commands under LED floods */
 		} else {
-			serial_unlock_irq(primask);
-			return is_cancel_capture;
+			critical_section_exit(primask);
+			return 0u;
 		}
 	}
 
@@ -212,14 +171,14 @@ static uint8_t serial_command_queue_push(const uint8_t *data, uint16_t len,
 	serial_command_head = (uint8_t)((serial_command_head + 1u) %
 			SERIAL_COMMAND_QUEUE_LENGTH);
 	serial_command_count++;
-	serial_unlock_irq(primask);
+	critical_section_exit(primask);
 
 	return 1u;
 }
 
 void serial_command_init(void)
 {
-	uint32_t primask = serial_lock_irq();
+	uint32_t primask = critical_section_enter();
 
 	memset(serial_command_queue, 0, sizeof(serial_command_queue));
 	serial_command_head = 0u;
@@ -231,20 +190,8 @@ void serial_command_init(void)
 	serial_rx_raw_head = 0u;
 	serial_rx_raw_tail = 0u;
 	serial_rx_raw_count = 0u;
-	serial_response_transport = SERIAL_COMMAND_TRANSPORT_CDC;
 
-	serial_unlock_irq(primask);
-}
-
-uint8_t serial_command_push(const uint8_t *data, uint16_t len)
-{
-	return serial_command_queue_push(data, len, SERIAL_COMMAND_TRANSPORT_CDC);
-}
-
-uint8_t serial_command_push_transport(const uint8_t *data, uint16_t len,
-		serial_command_transport_t transport)
-{
-	return serial_command_queue_push(data, len, transport);
+	critical_section_exit(primask);
 }
 
 uint8_t serial_command_feed_transport(const uint8_t *data, uint16_t len,
@@ -340,12 +287,6 @@ uint8_t serial_command_feed_transport(const uint8_t *data, uint16_t len,
 	return pushed_any;
 }
 
-uint8_t serial_command_feed(const uint8_t *data, uint16_t len)
-{
-	return serial_command_feed_transport(data, len,
-			SERIAL_COMMAND_TRANSPORT_CDC);
-}
-
 uint8_t serial_command_feed_isr_transport(const uint8_t *data, uint16_t len,
 		serial_command_transport_t transport)
 {
@@ -356,7 +297,7 @@ uint8_t serial_command_feed_isr_transport(const uint8_t *data, uint16_t len,
 	}
 
 	transport = serial_transport_normalize(transport);
-	primask = serial_lock_irq();
+	primask = critical_section_enter();
 	for (uint16_t i = 0u; i < len; i++) {
 		if (serial_rx_raw_count >= SERIAL_RX_RAW_BUFFER_SIZE) {
 			serial_rx_raw_tail = (uint16_t)((serial_rx_raw_tail + 1u) %
@@ -369,15 +310,9 @@ uint8_t serial_command_feed_isr_transport(const uint8_t *data, uint16_t len,
 				SERIAL_RX_RAW_BUFFER_SIZE);
 		serial_rx_raw_count++;
 	}
-	serial_unlock_irq(primask);
+	critical_section_exit(primask);
 
 	return 1u;
-}
-
-uint8_t serial_command_feed_isr(const uint8_t *data, uint16_t len)
-{
-	return serial_command_feed_isr_transport(data, len,
-			SERIAL_COMMAND_TRANSPORT_CDC);
 }
 
 uint8_t serial_command_drain_rx_stream(void)
@@ -387,7 +322,7 @@ uint8_t serial_command_drain_rx_stream(void)
 
 	for (;;) {
 		uint16_t chunk_len;
-		uint32_t primask = serial_lock_irq();
+		uint32_t primask = critical_section_enter();
 
 		chunk_len = serial_rx_raw_count;
 		if (chunk_len > SERIAL_RX_DRAIN_CHUNK_SIZE) {
@@ -399,7 +334,7 @@ uint8_t serial_command_drain_rx_stream(void)
 					SERIAL_RX_RAW_BUFFER_SIZE);
 		}
 		serial_rx_raw_count = (uint16_t)(serial_rx_raw_count - chunk_len);
-		serial_unlock_irq(primask);
+		critical_section_exit(primask);
 
 		if (chunk_len == 0u) {
 			break;
@@ -423,9 +358,9 @@ uint8_t serial_command_pop(serial_frame_t *frame)
 		return 0u;
 	}
 
-	primask = serial_lock_irq();
+	primask = critical_section_enter();
 	if (serial_command_count == 0u) {
-		serial_unlock_irq(primask);
+		critical_section_exit(primask);
 		return 0u;
 	}
 
@@ -433,7 +368,7 @@ uint8_t serial_command_pop(serial_frame_t *frame)
 	serial_command_tail = (uint8_t)((serial_command_tail + 1u) %
 			SERIAL_COMMAND_QUEUE_LENGTH);
 	serial_command_count--;
-	serial_unlock_irq(primask);
+	critical_section_exit(primask);
 
 	return 1u;
 }
@@ -446,22 +381,4 @@ uint8_t serial_command_stream_pending(void)
 		}
 	}
 	return (uint8_t)(serial_rx_raw_count != 0u);
-}
-
-uint8_t serial_command_stream_pending_transport(
-		serial_command_transport_t transport)
-{
-	transport = serial_transport_normalize(transport);
-	return (uint8_t)((serial_command_stream_len[transport] != 0u) ||
-			(serial_rx_raw_count != 0u));
-}
-
-serial_command_transport_t serial_command_response_transport(void)
-{
-	return serial_response_transport;
-}
-
-void serial_command_set_response_transport(serial_command_transport_t transport)
-{
-	serial_response_transport = serial_transport_normalize(transport);
 }

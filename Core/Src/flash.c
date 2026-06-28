@@ -16,6 +16,12 @@
 #define G431_APP_SETTINGS_BASE      0x0801D000UL
 #define G431_TARGET_DOUBLEWORD      ((uint32_t)(sizeof(FlashData) / sizeof(uint64_t)))
 
+/* The settings image is erased one page and programmed as exactly 16
+ * doublewords (sizeof(FlashData)/8). G431_APP_SETTINGS_BASE must stay
+ * page-aligned and outside the application image for this to be safe. */
+_Static_assert(sizeof(FlashData) == 16 * sizeof(uint64_t),
+		"FlashData must be exactly 16 doublewords");
+
 FlashData Flash;
 
 static uint8_t g431_flash_uses_dual_bank(void)
@@ -105,4 +111,125 @@ void flash_read(uint64_t* data){
 	const void *flash_addr = (const void *)(uintptr_t)G431_APP_SETTINGS_BASE;
 
 	memcpy(data, flash_addr, sizeof(FlashData));
+}
+
+uint8_t flash_set_touch_threshold(uint8_t index, uint16_t value){
+	if(index >= 34u){
+		return 0u;
+	}
+	uint16_t prev = Flash.touch_threshold[index];
+	Flash.touch_threshold[index] = value;
+	uint8_t ok = flash_write(Flash.raw_flash);
+	if(ok == 0u){
+		Flash.touch_threshold[index] = prev;
+	}
+	return ok;
+}
+
+uint8_t flash_set_touch_sheet(const uint8_t *sheet){
+	if(sheet == NULL){
+		return 0u;
+	}
+	uint8_t prev[34];
+	memcpy(prev, Flash.touch_sheet, 34);
+	for(uint8_t i = 0; i < 34u; i++){
+		Flash.touch_sheet[i] = sheet[i];
+	}
+	uint8_t ok = flash_write(Flash.raw_flash);
+	if(ok == 0u){
+		memcpy(Flash.touch_sheet, prev, 34);
+	}
+	return ok;
+}
+
+uint8_t flash_set_delay_setting(uint8_t index, uint8_t value){
+	if(index >= 2u){
+		return 0u;
+	}
+	uint8_t prev = Flash.delay_setting[index];
+	Flash.delay_setting[index] = value;
+	uint8_t ok = flash_write(Flash.raw_flash);
+	if(ok == 0u){
+		Flash.delay_setting[index] = prev;
+	}
+	return ok;
+}
+
+uint8_t flash_set_controller_role(uint8_t role){
+	uint8_t prev = Flash.controller_role;
+	Flash.controller_role = role;
+	uint8_t ok = flash_write(Flash.raw_flash);
+	if(ok == 0u){
+		Flash.controller_role = prev;
+	}
+	return ok;
+}
+
+#define TOUCH_CHANNEL_COUNT 34u
+#define TOUCH_THRESHOLD_DEFAULT 2000u
+#define DELAY_SETTING_COUNT 2u
+#define DELAY_SETTING_MAX 9u
+#define CONFIG_VERSION 1
+
+static const uint8_t touch_sheet_default[TOUCH_CHANNEL_COUNT] = {
+		0,16,2,3,4,5,6,7,8,
+		9,10,11,12,13,14,15,
+		1,17,
+		18,19,20,21,22,23,24,
+		25,26,27,28,29,30,31,32,33
+};
+
+static void flash_load_defaults(void)
+{
+	for(uint8_t i = 0;i<TOUCH_CHANNEL_COUNT;i++){
+		Flash.touch_threshold[i] = TOUCH_THRESHOLD_DEFAULT;
+	}
+	memcpy(Flash.touch_sheet, touch_sheet_default, TOUCH_CHANNEL_COUNT);
+	Flash.delay_setting[0] = 0u;
+	Flash.delay_setting[1] = 0u;
+	Flash.controller_role = 1u;
+	Flash.system_config = CONFIG_VERSION;
+}
+
+uint8_t flash_touch_sheet_valid(const uint8_t *sheet)
+{
+	if (sheet == NULL) {
+		return 0u;
+	}
+	for(uint8_t i = 0;i<TOUCH_CHANNEL_COUNT;i++){
+		if (sheet[i] >= TOUCH_CHANNEL_COUNT) {
+			return 0u;
+		}
+	}
+	return 1u;
+}
+
+uint8_t flash_config_sanitize(void)
+{
+	uint8_t changed = 0u;
+
+	if(Flash.system_config != CONFIG_VERSION){
+		flash_load_defaults();
+		return flash_write(Flash.raw_flash);
+	}
+
+	if (flash_touch_sheet_valid(Flash.touch_sheet) == 0u) {
+		memcpy(Flash.touch_sheet, touch_sheet_default, TOUCH_CHANNEL_COUNT);
+		changed = 1u;
+	}
+	for(uint8_t i = 0;i<DELAY_SETTING_COUNT;i++){
+		if(Flash.delay_setting[i] > DELAY_SETTING_MAX){
+			Flash.delay_setting[i] = DELAY_SETTING_MAX;
+			changed = 1u;
+		}
+	}
+	if ((Flash.controller_role != 1u) && (Flash.controller_role != 2u)) {
+		Flash.controller_role = 1u;
+		changed = 1u;
+	}
+
+	if (changed != 0u) {
+		return flash_write(Flash.raw_flash);
+	}
+	return 1u;
 }

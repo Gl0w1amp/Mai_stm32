@@ -110,6 +110,7 @@ uint8_t CDC_TransmitReady(uint8_t ch);
 void UsbTxGuard_Init(void);
 uint8_t UsbTxGuard_Take(uint32_t timeout_ms);
 void UsbTxGuard_Give(void);
+void CDC_AbortTx(uint8_t ch);
 
 /* USER CODE END EXPORTED_FUNCTIONS */
 

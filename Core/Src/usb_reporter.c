@@ -11,7 +11,8 @@
 #include "input_snapshot.h"
 #include "queue.h"
 #include "serial_reports.h"
-#include "slider.h"
+#include "serial_protocol.h"
+#include "byte_pack.h"
 #include "task.h"
 #include "usbd_cdc_acm_if.h"
 #include "usbd_hid_custom_if.h"
@@ -105,8 +106,6 @@ static usb_reporter_custom_endpoint_t custom_ep = {0};
 static usb_reporter_vendor_endpoint_t vendor_ep = {0};
 static usb_reporter_touch_endpoint_t touch_ep = {0};
 static uint8_t last_keyboard_report[USB_REPORTER_KEYBOARD_REPORT_SIZE] = {0};
-static uint8_t last_custom_buttons0 = 0xFFu;
-static uint8_t last_custom_io_status = 0xFFu;
 static uint8_t cdc_in_ready = 1u;
 static uint8_t custom_hid_in_ready = 1u;
 static uint8_t vendor_hid_in_ready = 1u;
@@ -247,7 +246,6 @@ static void usb_reporter_cdc_record_giveup(uint32_t now)
 
 static void usb_reporter_cdc_recover_in_stall(uint32_t now)
 {
-	extern USBD_CDC_ACM_HandleTypeDef CDC_ACM_Class_Data[];
 	uint32_t tx_latency_ms = now - cdc_in_flight_start_tick;
 
 	cdc_stats.tx_giveup_count++;
@@ -259,10 +257,7 @@ static void usb_reporter_cdc_recover_in_stall(uint32_t now)
 	if (cdc_ep.retry_count > cdc_stats.max_retry_count) {
 		cdc_stats.max_retry_count = cdc_ep.retry_count;
 	}
-	CDC_ACM_Class_Data[0].TxState = 0U;
-	if (hUsbDevice.dev_state == USBD_STATE_CONFIGURED) {
-		(void)USBD_LL_FlushEP(&hUsbDevice, CDC_IN_EP[0]);
-	}
+	CDC_AbortTx(0u);
 	cdc_in_ready = 1u;
 	cdc_in_flight_start_tick = 0u;
 	cdc_ep.retry_count = 0u;
@@ -440,6 +435,9 @@ static void usb_reporter_vendor_service_endpoint(void)
 static void usb_reporter_maybe_enqueue_custom_buttons(uint8_t debug_flag,
 		uint8_t debug_stream_mode)
 {
+	/* Continuous sequence counter; intentionally free-runs across logical
+	 * resets. usb_reporter_reset() cannot reach this function-local static, so
+	 * it is never cleared and simply wraps at 16 bits. */
 	static uint16_t sequence = 0u;
 	input_snapshot_t snapshot;
 	uint8_t report[USB_REPORTER_CUSTOM_REPORT_SIZE] = {0};
@@ -451,19 +449,23 @@ static void usb_reporter_maybe_enqueue_custom_buttons(uint8_t debug_flag,
 	if (input_snapshot_get_latest(&snapshot) == 0u) {
 		return;
 	}
-	if ((snapshot.button_bits[0] == last_custom_buttons0) &&
-			(snapshot.button_bits[1] == last_custom_io_status)) {
+	/* Always report the current button state (continuous). A fresh frame is
+	 * enqueued only once the previous one has been collected by the host: the
+	 * IN-complete callback clears custom_ep.pending and drains the queue, so
+	 * this gate (queue empty AND no transfer in flight) keeps at most one
+	 * custom-button frame outstanding. No stale backlog builds, and the other
+	 * custom reports that share this endpoint are not starved. */
+	if ((custom_hid_queue == NULL) ||
+			(uxQueueMessagesWaiting(custom_hid_queue) != 0u) ||
+			(custom_ep.pending != 0u)) {
 		return;
 	}
 
 	report[0] = snapshot.button_bits[0];
 	report[1] = snapshot.button_bits[1];
-	report[2] = (uint8_t)(sequence & 0xFFu);
-	report[3] = (uint8_t)((sequence >> 8) & 0xFFu);
+	put_u16le(&report[2], sequence);
 	if (usb_reporter_custom_hid_enqueue(report, sizeof(report)) != 0u) {
 		sequence++;
-		last_custom_buttons0 = snapshot.button_bits[0];
-		last_custom_io_status = snapshot.button_bits[1];
 	}
 }
 
@@ -552,10 +554,7 @@ static void usb_reporter_touch_build_part(void)
 	touch_ep.report_buffer[5] = USB_TOUCH_REPORT_PART_COUNT;
 	touch_ep.report_buffer[6] = first_logical;
 	touch_ep.report_buffer[7] = value_count;
-	touch_ep.report_buffer[8] = (uint8_t)(touch_ep.active_snapshot.tick_ms & 0xFFu);
-	touch_ep.report_buffer[9] = (uint8_t)((touch_ep.active_snapshot.tick_ms >> 8) & 0xFFu);
-	touch_ep.report_buffer[10] = (uint8_t)((touch_ep.active_snapshot.tick_ms >> 16) & 0xFFu);
-	touch_ep.report_buffer[11] = (uint8_t)((touch_ep.active_snapshot.tick_ms >> 24) & 0xFFu);
+	put_u32le(&touch_ep.report_buffer[8], touch_ep.active_snapshot.tick_ms);
 	touch_ep.report_buffer[12] = USB_TOUCH_REPORT_FLAG_DELTA |
 			USB_TOUCH_REPORT_FLAG_LOGICAL_ORDER |
 			USB_TOUCH_REPORT_FLAG_TOUCH_BITS_VALID;
@@ -564,20 +563,14 @@ static void usb_reporter_touch_build_part(void)
 
 	for (uint8_t i = 0u; i < value_count; i++) {
 		uint16_t value = touch_ep.active_snapshot.touch_strength[first_logical + i];
-		touch_ep.report_buffer[16u + (i * 2u)] = (uint8_t)(value & 0xFFu);
-		touch_ep.report_buffer[17u + (i * 2u)] = (uint8_t)((value >> 8) & 0xFFu);
+		put_u16le(&touch_ep.report_buffer[16u + (i * 2u)], value);
 	}
 
 	memcpy(&touch_ep.report_buffer[50], touch_ep.active_snapshot.touch_bits,
 			INPUT_SNAPSHOT_TOUCH_BITS_SIZE);
-	touch_ep.report_buffer[55] = (uint8_t)(touch_ep.dropped_frames & 0xFFu);
-	touch_ep.report_buffer[56] = (uint8_t)((touch_ep.dropped_frames >> 8) & 0xFFu);
-	touch_ep.report_buffer[57] = (uint8_t)(touch_ep.active_snapshot.seq & 0xFFu);
-	touch_ep.report_buffer[58] = (uint8_t)((touch_ep.active_snapshot.seq >> 8) & 0xFFu);
-	touch_ep.report_buffer[59] = (uint8_t)((touch_ep.active_snapshot.seq >> 16) & 0xFFu);
-	touch_ep.report_buffer[60] = (uint8_t)((touch_ep.active_snapshot.seq >> 24) & 0xFFu);
-	touch_ep.report_buffer[61] = (uint8_t)(touch_hid_stats.last_frame_interval_ms & 0xFFu);
-	touch_ep.report_buffer[62] = (uint8_t)((touch_hid_stats.last_frame_interval_ms >> 8) & 0xFFu);
+	put_u16le(&touch_ep.report_buffer[55], (uint16_t)touch_ep.dropped_frames);
+	put_u32le(&touch_ep.report_buffer[57], touch_ep.active_snapshot.seq);
+	put_u16le(&touch_ep.report_buffer[61], (uint16_t)touch_hid_stats.last_frame_interval_ms);
 }
 
 static uint8_t usb_reporter_touch_try_send_part(void)
@@ -699,8 +692,6 @@ void usb_reporter_reset(void)
 	memset(&vendor_ep, 0, sizeof(vendor_ep));
 	memset(&touch_ep, 0, sizeof(touch_ep));
 	memset(last_keyboard_report, 0, sizeof(last_keyboard_report));
-	last_custom_buttons0 = 0xFFu;
-	last_custom_io_status = 0xFFu;
 	cdc_in_ready = 1u;
 	cdc_in_flight_start_tick = 0u;
 	cdc_live_last_enqueue_tick = 0u;
@@ -874,4 +865,30 @@ void usb_reporter_notify_keyboard_hid_in_complete(void)
 void usb_reporter_notify_touch_hid_in_complete(void)
 {
 	touch_hid_in_ready = 1u;
+}
+
+uint8_t serial_cdc_tx_enqueue_high(const uint8_t *buf, uint16_t len)
+{
+	/* Keep command replies off CDC IN; CDC IN is reserved for legacy/live output. */
+	return usb_reporter_vendor_hid_enqueue(buf, len);
+}
+
+uint8_t serial_cdc_tx_enqueue_low(const uint8_t *buf, uint16_t len)
+{
+	return usb_reporter_cdc_enqueue_low(buf, len);
+}
+
+uint32_t serial_cdc_tx_low_spaces_available(void)
+{
+	return usb_reporter_cdc_low_spaces_available();
+}
+
+void usb_cdc_tx_stats_reset(void)
+{
+	usb_reporter_cdc_stats_reset();
+}
+
+void usb_cdc_tx_stats_snapshot(usb_cdc_tx_stats_t *stats_out, uint32_t *high_depth_out, uint32_t *low_depth_out)
+{
+	usb_reporter_cdc_stats_snapshot(stats_out, high_depth_out, low_depth_out);
 }

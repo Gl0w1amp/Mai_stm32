@@ -7,9 +7,13 @@
 
 #include "main.h"
 
-/* Magic pattern stored in RAM to indicate DFU request */
+/* Magic pattern stored in RAM to indicate DFU request.
+ * The marker word at 0x20007F00 is reserved by the linker script
+ * (STM32G431CBUX_BOOTLOADER_APP.ld puts _estack below it), so the descending
+ * MSP stack cannot clobber it. The Affine address below must stay byte-for-byte
+ * in sync with the separate Affine bootloader, which reads this fixed address. */
 #define DFU_REQUEST_SIGNATURE   0xDEADBEEF
-#define DFU_REQUEST_ADDRESS     (0x20000000 + 0x7F00)  // Near end of RAM
+#define DFU_REQUEST_ADDRESS     (0x20000000 + 0x7F00)
 
 /* Magic pattern stored in RAM to indicate Affine bootloader request */
 #define AFFINE_BOOT_REQUEST_SIGNATURE   0x424F4F54UL

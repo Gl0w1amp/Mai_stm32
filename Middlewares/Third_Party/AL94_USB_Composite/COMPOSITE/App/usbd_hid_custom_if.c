@@ -8,6 +8,7 @@
 #include "usbd_hid_custom_if.h"
 #include "usbd_cdc_acm_if.h"
 #include "usb_reporter.h"
+#include "byte_pack.h"
 #include <string.h>
 
 #define MAI2_HID_REPORT_SIZE 24u
@@ -82,39 +83,18 @@ uint8_t mai2_hid_custom_send_report(uint8_t *report, uint16_t len)
   return status;
 }
 
-uint8_t mai2_hid_buttons_send_report(uint8_t buttons0, uint8_t io_status)
-{
-  static uint16_t sequence = 0;
-  uint8_t report[MAI2_HID_REPORT_SIZE] = {0};
-
-  report[0] = buttons0;
-  report[1] = io_status;
-  report[2] = (uint8_t)(sequence & 0xFF);
-  report[3] = (uint8_t)((sequence >> 8) & 0xFF);
-  if (usb_reporter_custom_hid_enqueue(report, sizeof(report)) == 0u) {
-    return (uint8_t)USBD_BUSY;
-  }
-
-  sequence++;
-  return (uint8_t)USBD_OK;
-}
-
 uint8_t mai2_hid_benchmark_send_report(uint16_t sequence, uint64_t event_cycles, uint64_t tx_cycles, uint32_t core_hz)
 {
   uint8_t report[MAI2_HID_REPORT_SIZE] = {0};
 
   report[0] = 0x00;
   report[1] = 0xFF;
-  report[2] = (uint8_t)(sequence & 0xFF);
-  report[3] = (uint8_t)((sequence >> 8) & 0xFF);
+  put_u16le(&report[2], sequence);
   for (uint8_t i = 0; i < 8; i++) {
     report[4 + i] = (uint8_t)((event_cycles >> (i * 8)) & 0xFF);
     report[12 + i] = (uint8_t)((tx_cycles >> (i * 8)) & 0xFF);
   }
-  report[20] = (uint8_t)(core_hz & 0xFF);
-  report[21] = (uint8_t)((core_hz >> 8) & 0xFF);
-  report[22] = (uint8_t)((core_hz >> 16) & 0xFF);
-  report[23] = (uint8_t)((core_hz >> 24) & 0xFF);
+  put_u32le(&report[20], core_hz);
 
   return (usb_reporter_custom_hid_enqueue(report, sizeof(report)) != 0u) ?
       (uint8_t)USBD_OK : (uint8_t)USBD_BUSY;
@@ -175,8 +155,7 @@ uint8_t mai2_hid_raw_debug_stream(const uint16_t *raw_values, uint8_t value_coun
 
   for (uint8_t i = 0u; i < report_value_count; i++) {
     uint16_t raw = raw_debug_snapshot[first_value + i];
-    report[5u + (i * 2u)] = (uint8_t)(raw & 0xFFu);
-    report[6u + (i * 2u)] = (uint8_t)((raw >> 8) & 0xFFu);
+    put_u16le(&report[5u + (i * 2u)], raw);
   }
 
   if (usb_reporter_custom_hid_enqueue(report, sizeof(report)) == 0u) {

@@ -20,7 +20,7 @@ typedef struct {
 	volatile uint32_t *last_good_frame_tick;
 	volatile uint32_t *frame_counter;
 	uint32_t last_real_frame_tick;
-	uint8_t *protocol_version;
+	volatile uint8_t *protocol_version;
 	capsense_uart_stats_t *uart_stats;
 	const uint8_t *logical_to_channel;
 } capsense_sim_context_t;

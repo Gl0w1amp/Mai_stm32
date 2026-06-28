@@ -44,16 +44,10 @@ typedef enum serial_cmd {
 	SERIAL_CMD_LED_BUTTON = 0x14,
 	SERIAL_CMD_LED_BILLBOARD = 0x15,
 	SERIAL_CMD_LED_PWM = 0x16,
-	SERIAL_CMD_AUTO_CALIBRATE_THRESHOLD = 0x17,
 	SERIAL_CMD_GET_CAPSENSE_UART_STATS = 0x18,
 	SERIAL_CMD_GET_USB_CDC_STATS = 0x19,
 	SERIAL_CMD_GET_CONTROLLER_ROLE = 0x1A,
 	SERIAL_CMD_SET_CONTROLLER_ROLE = 0x1B,
-	SERIAL_CMD_CALIBRATION_BEGIN = 0x1C,
-	SERIAL_CMD_CALIBRATION_CAPTURE = 0x1D,
-	SERIAL_CMD_CALIBRATION_COMMIT = 0x1E,
-	SERIAL_CMD_CALIBRATION_ABORT = 0x1F,
-	SERIAL_CMD_CALIBRATION_CANCEL_CAPTURE = 0x20,
 	SERIAL_CMD_JUMP_TO_DFU = 0x21,
 	SERIAL_CMD_BENCHMARK = 0x22,
 	SERIAL_CMD_BENCHMARK_EVENT = 0x23,
@@ -69,23 +63,13 @@ typedef enum serial_cmd {
 } serial_cmd_t;
 
 void serial_command_init(void);
-uint8_t serial_command_feed(const uint8_t *data, uint16_t len);
-uint8_t serial_command_feed_isr(const uint8_t *data, uint16_t len);
 uint8_t serial_command_feed_transport(const uint8_t *data, uint16_t len,
 		serial_command_transport_t transport);
 uint8_t serial_command_feed_isr_transport(const uint8_t *data, uint16_t len,
 		serial_command_transport_t transport);
 uint8_t serial_command_drain_rx_stream(void);
-uint8_t serial_command_push(const uint8_t *data, uint16_t len);
-uint8_t serial_command_push_transport(const uint8_t *data, uint16_t len,
-		serial_command_transport_t transport);
 uint8_t serial_command_pop(serial_frame_t *frame);
 uint8_t serial_command_stream_pending(void);
-uint8_t serial_command_stream_pending_transport(
-		serial_command_transport_t transport);
-serial_command_transport_t serial_command_response_transport(void);
-void serial_command_set_response_transport(
-		serial_command_transport_t transport);
 uint8_t serial_protocol_frame_valid(const uint8_t *frame, uint8_t len);
 
 #endif /* INC_SERIAL_PROTOCOL_H_ */

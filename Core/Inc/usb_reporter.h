@@ -67,4 +67,11 @@ void usb_reporter_notify_vendor_hid_in_complete(void);
 void usb_reporter_notify_keyboard_hid_in_complete(void);
 void usb_reporter_notify_touch_hid_in_complete(void);
 
+uint8_t serial_cdc_tx_enqueue_high(const uint8_t *buf, uint16_t len);
+uint8_t serial_cdc_tx_enqueue_low(const uint8_t *buf, uint16_t len);
+uint32_t serial_cdc_tx_low_spaces_available(void);
+void usb_cdc_tx_stats_reset(void);
+void usb_cdc_tx_stats_snapshot(usb_cdc_tx_stats_t *stats_out,
+		uint32_t *high_depth_out, uint32_t *low_depth_out);
+
 #endif /* INC_USB_REPORTER_H_ */
