@@ -108,7 +108,6 @@ jobs:
                 ../Core/Src/benchmark.c \
                 ../Core/Src/button.c \
                 ../Core/Src/capsense.c \
-                ../Core/Src/capsense_calibration.c \
                 ../Core/Src/capsense_core.c \
                 ../Core/Src/capsense_debug.c \
                 ../Core/Src/capsense_uart.c \

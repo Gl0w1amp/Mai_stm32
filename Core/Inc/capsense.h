@@ -31,7 +31,6 @@ void capsense_input_snapshot_publish(void);
 void capsense_on_boot_button(void);
 
 #include "capsense_uart.h"
-#include "capsense_calibration.h"
 #include "capsense_debug.h"
 
 #endif /* INC_CAPSENSE_H_ */

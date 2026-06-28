@@ -32,7 +32,6 @@ possible while exposing a rich command and telemetry protocol.
 - **Capacitive touch** read from an external PSoC/CY8CMBR3116-based sensor board
   over UART, with persistent per-channel thresholds and a logical→physical
   mapping table stored in flash.
-- **Guided + automatic calibration** of touch thresholds and channel mapping.
 - **Lighting**: 16 cascaded WS2812 LEDs (button + billboard groups) driven by
   timer + DMA, plus three PWM FET channels (body / external / side), with a
   host-controlled mode and local boot/idle/input-reactive effects.
@@ -89,9 +88,9 @@ indefinitely for touch data.
 ### Key source modules
 
 - `main.c`, `app_freertos.c` - startup and RTOS task setup
-- `capsense_core.c`, `capsense_uart.c`, `capsense_calibration.c`,
-  `capsense_debug.c`, `capsense_sim.c` - touch acquisition, detection
-  state machine, calibration, debug streaming, and a simulated-touch backend
+- `capsense_core.c`, `capsense_uart.c`, `capsense_debug.c`, `capsense_sim.c`
+  - touch acquisition, detection state machine, debug streaming, and a
+  simulated-touch backend
 - `button.c`, `input_snapshot.c` - input scanning and snapshotting
 - `LED.c` - WS2812 + FET lighting and the `mai2led` UART protocol
 - `serial_commands.c`, `serial_protocol.c`, `serial_reports.c`,

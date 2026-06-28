@@ -6,7 +6,6 @@
 
 #include "serial_protocol.h"
 
-#include "capsense.h"
 #include "main.h"
 #include "serial_checksum.h"
 #include "critical_section.h"
@@ -41,22 +40,6 @@ static serial_command_transport_t serial_transport_normalize(
 {
 	return (transport < SERIAL_COMMAND_TRANSPORT_COUNT) ?
 			transport : SERIAL_COMMAND_TRANSPORT_CDC;
-}
-
-static uint8_t serial_frame_is_calibration_cancel_capture(const uint8_t *data,
-		uint16_t len)
-{
-	uint8_t checksum = 0u;
-
-	if ((data == NULL) || (len != 4u) || (data[0] != 0xFFu) ||
-			(data[1] != SERIAL_CMD_CALIBRATION_CANCEL_CAPTURE) ||
-			(data[2] != 0u)) {
-		return 0u;
-	}
-
-	checksum = serial_checksum_sum(data, (uint8_t)(len - 1u));
-
-	return (uint8_t)(checksum == data[len - 1u]);
 }
 
 static uint8_t serial_frame_is_led_command(const uint8_t *data, uint16_t len)
@@ -158,7 +141,6 @@ uint8_t serial_protocol_frame_valid(const uint8_t *frame, uint8_t len)
 static uint8_t serial_command_queue_push(const uint8_t *data, uint16_t len,
 		serial_command_transport_t transport)
 {
-	uint8_t is_cancel_capture;
 	uint32_t primask;
 	serial_frame_t *frame;
 
@@ -167,10 +149,6 @@ static uint8_t serial_command_queue_push(const uint8_t *data, uint16_t len,
 	}
 
 	transport = serial_transport_normalize(transport);
-	is_cancel_capture = serial_frame_is_calibration_cancel_capture(data, len);
-	if (is_cancel_capture != 0u) {
-		capsense_calibration_request_cancel();
-	}
 
 	primask = critical_section_enter();
 	if (serial_command_queue_replace_led_locked(data, len, transport) != 0u) {
@@ -184,7 +162,7 @@ static uint8_t serial_command_queue_push(const uint8_t *data, uint16_t len,
 			/* keep room for control/status commands under LED floods */
 		} else {
 			critical_section_exit(primask);
-			return is_cancel_capture;
+			return 0u;
 		}
 	}
 

@@ -237,53 +237,6 @@ static void handle_serial_cmd_led_config(const serial_command_context_t *ctx)
 	serial_send_led_status_response(SERIAL_CMD_LED_CONFIG, ok);
 }
 
-static void handle_serial_cmd_auto_calibrate_threshold(const serial_command_context_t *ctx)
-{
-	const uint8_t *rxBuffer = ctx->data;
-	uint8_t rxLen = ctx->len;
-	uint64_t dispatch_cycles = ctx->dispatch_cycles;
-	(void)rxBuffer;
-	(void)rxLen;
-	(void)dispatch_cycles;
-{
-				uint16_t calibrated_thresholds[34];
-				uint16_t threshold_min = 0;
-				uint16_t threshold_max = 0;
-				uint8_t summary_cmd[10] = {0xff, SERIAL_CMD_AUTO_CALIBRATE_THRESHOLD, 6, 0, 34, 0, 0, 0, 0, 0};
-				uint8_t success;
-
-				if(rxBuffer[2] != 0){
-					return;
-				}
-
-				(void)LED_SetMode(LED_MODE_DIAGNOSTIC, HAL_GetTick());
-				success = capsense_auto_calibrate_thresholds(calibrated_thresholds, &threshold_min, &threshold_max);
-				(void)LED_SetMode(LED_MODE_AUTO, HAL_GetTick());
-				summary_cmd[3] = success;
-				memcpy(&summary_cmd[5], &threshold_min, 2);
-				memcpy(&summary_cmd[7], &threshold_max, 2);
-				summary_cmd[9] = serial_checksum_sum(summary_cmd, 9u);
-				(void) serial_cdc_tx_enqueue_high(summary_cmd, 10);
-
-				if(success){
-					for(uint8_t start = 0; start < 34; start += 15){
-						uint8_t count = (uint8_t) ((34 - start) > 15 ? 15 : (34 - start));
-						uint8_t cmd_tmp[40] = {0};
-
-						cmd_tmp[0] = 0xff;
-						cmd_tmp[1] = SERIAL_CMD_AUTO_CALIBRATE_THRESHOLD;
-						cmd_tmp[2] = (uint8_t) (2 + (count * 2));
-						cmd_tmp[3] = start;
-						cmd_tmp[4] = count;
-						memcpy(&cmd_tmp[5], &calibrated_thresholds[start], count * sizeof(uint16_t));
-						cmd_tmp[5 + (count * 2)] = serial_checksum_sum(cmd_tmp, (uint8_t)(5 + (count * 2)));
-						(void) serial_cdc_tx_enqueue_high(cmd_tmp, (uint16_t) (6 + (count * 2)));
-					}
-				}
-				return;
-			}
-}
-
 static void handle_serial_cmd_get_capsense_uart_stats(const serial_command_context_t *ctx)
 {
 	const uint8_t *rxBuffer = ctx->data;
@@ -696,157 +649,6 @@ static void handle_serial_cmd_write_touch_sheet(const serial_command_context_t *
 				}
 				uint8_t ok = flash_set_touch_sheet(&rxBuffer[3]);
 				serial_send_simple_status(SERIAL_CMD_WRITE_TOUCH_SHEET, ok);
-				return;
-			}
-}
-
-static void handle_serial_cmd_calibration_begin(const serial_command_context_t *ctx)
-{
-	const uint8_t *rxBuffer = ctx->data;
-	uint8_t rxLen = ctx->len;
-	uint64_t dispatch_cycles = ctx->dispatch_cycles;
-	(void)rxBuffer;
-	(void)rxLen;
-	(void)dispatch_cycles;
-{
-				if(rxBuffer[2] != 0){
-					return;
-				}
-				capsense_calibration_begin();
-				(void)LED_SetMode(LED_MODE_DIAGNOSTIC, HAL_GetTick());
-				{
-					uint8_t cmd_tmp[5] = {0xff, SERIAL_CMD_CALIBRATION_BEGIN, 1, 1, 0};
-					cmd_tmp[4] = serial_checksum_sum(cmd_tmp, 4u);
-					(void) serial_cdc_tx_enqueue_high(cmd_tmp, sizeof(cmd_tmp));
-				}
-				return;
-			}
-}
-
-static void handle_serial_cmd_calibration_capture(const serial_command_context_t *ctx)
-{
-	const uint8_t *rxBuffer = ctx->data;
-	uint8_t rxLen = ctx->len;
-	uint64_t dispatch_cycles = ctx->dispatch_cycles;
-	(void)rxBuffer;
-	(void)rxLen;
-	(void)dispatch_cycles;
-{
-				capsense_calibration_result_t result = {0};
-				uint8_t capture_flags = 0u;
-				uint8_t ok = 0u;
-				uint8_t cmd_tmp[14] = {
-					0xff,
-					SERIAL_CMD_CALIBRATION_CAPTURE,
-					10,
-					0,
-					0,
-					0xFF,
-					0,
-					0,
-					0,
-					0,
-					0,
-					0,
-					0,
-					0
-				};
-
-				if((rxBuffer[2] != 1u) && (rxBuffer[2] != 2u)){
-					return;
-				}
-
-				if(rxBuffer[2] == 2u){
-					capture_flags = rxBuffer[4];
-				}
-
-				ok = capsense_calibration_capture(rxBuffer[3], capture_flags, &result);
-				cmd_tmp[3] = ok;
-				cmd_tmp[4] = rxBuffer[3];
-				if(ok != 0u){
-					cmd_tmp[5] = result.best_channel;
-					cmd_tmp[6] = result.confidence;
-					memcpy(&cmd_tmp[7], &result.threshold, 2);
-					memcpy(&cmd_tmp[9], &result.peak_delta, 2);
-					memcpy(&cmd_tmp[11], &result.idle_threshold, 2);
-				}
-
-				cmd_tmp[13] = serial_checksum_sum(cmd_tmp, 13u);
-				(void) serial_cdc_tx_enqueue_high(cmd_tmp, sizeof(cmd_tmp));
-				return;
-			}
-}
-
-static void handle_serial_cmd_calibration_commit(const serial_command_context_t *ctx)
-{
-	const uint8_t *rxBuffer = ctx->data;
-	uint8_t rxLen = ctx->len;
-	uint64_t dispatch_cycles = ctx->dispatch_cycles;
-	(void)rxBuffer;
-	(void)rxLen;
-	(void)dispatch_cycles;
-{
-				uint8_t ok;
-
-				if(rxBuffer[2] != 0){
-					return;
-				}
-
-				ok = capsense_calibration_commit();
-				if (ok != 0u) {
-					(void)LED_SetMode(LED_MODE_AUTO, HAL_GetTick());
-				}
-				{
-					uint8_t cmd_tmp[5] = {0xff, SERIAL_CMD_CALIBRATION_COMMIT, 1, ok, 0};
-					cmd_tmp[4] = serial_checksum_sum(cmd_tmp, 4u);
-					(void) serial_cdc_tx_enqueue_high(cmd_tmp, sizeof(cmd_tmp));
-				}
-				return;
-			}
-}
-
-static void handle_serial_cmd_calibration_abort(const serial_command_context_t *ctx)
-{
-	const uint8_t *rxBuffer = ctx->data;
-	uint8_t rxLen = ctx->len;
-	uint64_t dispatch_cycles = ctx->dispatch_cycles;
-	(void)rxBuffer;
-	(void)rxLen;
-	(void)dispatch_cycles;
-{
-				if(rxBuffer[2] != 0){
-					return;
-				}
-
-				capsense_calibration_abort();
-				(void)LED_SetMode(LED_MODE_AUTO, HAL_GetTick());
-				{
-					uint8_t cmd_tmp[5] = {0xff, SERIAL_CMD_CALIBRATION_ABORT, 1, 1, 0};
-					cmd_tmp[4] = serial_checksum_sum(cmd_tmp, 4u);
-					(void) serial_cdc_tx_enqueue_high(cmd_tmp, sizeof(cmd_tmp));
-				}
-				return;
-			}
-}
-
-static void handle_serial_cmd_calibration_cancel_capture(const serial_command_context_t *ctx)
-{
-	const uint8_t *rxBuffer = ctx->data;
-	uint8_t rxLen = ctx->len;
-	uint64_t dispatch_cycles = ctx->dispatch_cycles;
-	(void)rxBuffer;
-	(void)rxLen;
-	(void)dispatch_cycles;
-{
-				if(rxBuffer[2] != 0u){
-					return;
-				}
-
-				{
-					uint8_t cmd_tmp[5] = {0xff, SERIAL_CMD_CALIBRATION_CANCEL_CAPTURE, 1, 1, 0};
-					cmd_tmp[4] = serial_checksum_sum(cmd_tmp, 4u);
-					(void) serial_cdc_tx_enqueue_high(cmd_tmp, sizeof(cmd_tmp));
-				}
 				return;
 			}
 }
@@ -1274,7 +1076,6 @@ static const serial_command_entry_t serial_command_table[] = {
 	{ SERIAL_CMD_LED_PWM, handle_serial_cmd_led_pwm },
 	{ SERIAL_CMD_LED_MODE, handle_serial_cmd_led_mode },
 	{ SERIAL_CMD_LED_CONFIG, handle_serial_cmd_led_config },
-	{ SERIAL_CMD_AUTO_CALIBRATE_THRESHOLD, handle_serial_cmd_auto_calibrate_threshold },
 	{ SERIAL_CMD_GET_CAPSENSE_UART_STATS, handle_serial_cmd_get_capsense_uart_stats },
 	{ SERIAL_CMD_GET_USB_CDC_STATS, handle_serial_cmd_get_usb_cdc_stats },
 	{ SERIAL_CMD_GET_TOUCH_HID_STATS, handle_serial_cmd_get_touch_hid_stats },
@@ -1287,11 +1088,6 @@ static const serial_command_entry_t serial_command_table[] = {
 	{ SERIAL_CMD_WRITE_MONO_THRESHOLD, handle_serial_cmd_write_mono_threshold },
 	{ SERIAL_CMD_READ_TOUCH_SHEET, handle_serial_cmd_read_touch_sheet },
 	{ SERIAL_CMD_WRITE_TOUCH_SHEET, handle_serial_cmd_write_touch_sheet },
-	{ SERIAL_CMD_CALIBRATION_BEGIN, handle_serial_cmd_calibration_begin },
-	{ SERIAL_CMD_CALIBRATION_CAPTURE, handle_serial_cmd_calibration_capture },
-	{ SERIAL_CMD_CALIBRATION_COMMIT, handle_serial_cmd_calibration_commit },
-	{ SERIAL_CMD_CALIBRATION_ABORT, handle_serial_cmd_calibration_abort },
-	{ SERIAL_CMD_CALIBRATION_CANCEL_CAPTURE, handle_serial_cmd_calibration_cancel_capture },
 	{ SERIAL_CMD_READ_DELAY_SETTING, handle_serial_cmd_read_delay_setting },
 	{ SERIAL_CMD_WRITE_DELAY_SETTING, handle_serial_cmd_write_delay_setting },
 	{ SERIAL_CMD_RESET, handle_serial_cmd_reset },
