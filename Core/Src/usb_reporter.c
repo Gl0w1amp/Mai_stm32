@@ -866,3 +866,34 @@ void usb_reporter_notify_touch_hid_in_complete(void)
 {
 	touch_hid_in_ready = 1u;
 }
+
+uint8_t serial_cdc_tx_enqueue_high(const uint8_t *buf, uint16_t len)
+{
+	/* Keep command replies off CDC IN; CDC IN is reserved for legacy/live output. */
+	return usb_reporter_vendor_hid_enqueue(buf, len);
+}
+
+uint8_t serial_cdc_tx_enqueue_high_isr(const uint8_t *buf, uint16_t len)
+{
+	return usb_reporter_cdc_enqueue_high_isr(buf, len);
+}
+
+uint8_t serial_cdc_tx_enqueue_low(const uint8_t *buf, uint16_t len)
+{
+	return usb_reporter_cdc_enqueue_low(buf, len);
+}
+
+uint32_t serial_cdc_tx_low_spaces_available(void)
+{
+	return usb_reporter_cdc_low_spaces_available();
+}
+
+void usb_cdc_tx_stats_reset(void)
+{
+	usb_reporter_cdc_stats_reset();
+}
+
+void usb_cdc_tx_stats_snapshot(usb_cdc_tx_stats_t *stats_out, uint32_t *high_depth_out, uint32_t *low_depth_out)
+{
+	usb_reporter_cdc_stats_snapshot(stats_out, high_depth_out, low_depth_out);
+}

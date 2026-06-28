@@ -7,6 +7,7 @@
 #include "capsense_internal.h"
 #include "serial_protocol.h"
 #include "slider.h"
+#include "usb_reporter.h"
 #include "usbd_cdc_acm_if.h"
 #include "usbd_hid_custom_if.h"
 #include "string.h"

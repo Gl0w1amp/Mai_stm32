@@ -16,11 +16,6 @@ void slider_scan_stop();
 void slider_reset();
 void slider_get_board_info();
 void slider_scan();
-void slider_notify_command_ready_from_isr(void);
-uint8_t serial_cdc_tx_enqueue_high(const uint8_t *buf, uint16_t len);
-uint8_t serial_cdc_tx_enqueue_high_isr(const uint8_t *buf, uint16_t len);
-uint8_t serial_cdc_tx_enqueue_low(const uint8_t *buf, uint16_t len);
-uint32_t serial_cdc_tx_low_spaces_available(void);
 
 extern uint8_t slider_scan_flag;
 

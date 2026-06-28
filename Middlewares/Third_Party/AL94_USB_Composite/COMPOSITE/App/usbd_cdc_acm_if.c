@@ -29,6 +29,7 @@
 #include "semphr.h"
 #include "slider.h"
 #include "usb_reporter.h"
+#include "serial_commands.h"
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -439,7 +440,7 @@ static int8_t CDC_Receive(uint8_t cdc_ch, uint8_t *Buf, uint32_t *Len)
 		debug_channel = Buf[0] <= 33 ? Buf[0] : 33;
 	} else if (serial_command_feed_isr_transport(Buf, (uint16_t) *Len,
 			SERIAL_COMMAND_TRANSPORT_CDC) != 0u) {
-		slider_notify_command_ready_from_isr();
+		command_notify_ready_from_isr();
 	}
 	USBD_CDC_SetRxBuffer(cdc_ch, &hUsbDevice, &Buf[0]);
 	USBD_CDC_ReceivePacket(cdc_ch, &hUsbDevice);

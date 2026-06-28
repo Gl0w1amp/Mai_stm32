@@ -93,6 +93,8 @@ void capsense_debug_stats_get(capsense_debug_stats_t *stats_out);
 void capsense_debug_stats_reset(void);
 void capsense_link_state_get(uint32_t *last_good_tick_out, uint32_t *last_error_tick_out, uint8_t *protocol_version_out);
 void capsense_request_link_reset(void);
+void capsense_uart_on_rx_result(uint16_t accepted_frames, uint16_t rejected_frames);
+void capsense_uart_on_error(void);
 void capsense_service_pending_reset(void);
 
 #endif /* INC_CAPSENSE_H_ */

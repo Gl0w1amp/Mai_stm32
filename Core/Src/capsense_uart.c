@@ -243,6 +243,52 @@ void capsense_uart_stream_feed(const uint8_t *data, uint16_t len,
 	}
 }
 
+#define CAPSENSE_CONSECUTIVE_FAILURE_RESET_THRESHOLD 8u
+#define CAPSENSE_RESET_COOLDOWN_MS 500u
+
+static uint8_t capsense_rx_failure_count = 0;
+static uint32_t capsense_last_reset_tick = 0;
+
+static void capsense_uart_note_rx_failure(void)
+{
+    uint32_t now = HAL_GetTick();
+
+    if (capsense_rx_failure_count < 0xFFu) {
+        capsense_rx_failure_count++;
+    }
+    capsense_uart_stats_set_failure_streak(capsense_rx_failure_count);
+
+    if (capsense_rx_failure_count < CAPSENSE_CONSECUTIVE_FAILURE_RESET_THRESHOLD) {
+        return;
+    }
+
+    if ((uint32_t)(now - capsense_last_reset_tick) < CAPSENSE_RESET_COOLDOWN_MS) {
+        return;
+    }
+
+    capsense_last_reset_tick = now;
+    capsense_rx_failure_count = 0;
+    capsense_uart_stats_note_auto_reset();
+    capsense_uart_stats_set_failure_streak(capsense_rx_failure_count);
+    capsense_request_link_reset();
+}
+
+void capsense_uart_on_rx_result(uint16_t accepted_frames, uint16_t rejected_frames)
+{
+    if (accepted_frames > 0u) {
+        capsense_rx_failure_count = 0;
+        capsense_uart_stats_set_failure_streak(capsense_rx_failure_count);
+    } else if (rejected_frames > 0u) {
+        capsense_uart_note_rx_failure();
+    }
+}
+
+void capsense_uart_on_error(void)
+{
+    capsense_uart_stats_note_uart_error();
+    capsense_uart_note_rx_failure();
+}
+
 //static inline void UART_ClearIdle(UART_HandleTypeDef *huart)
 //{
 //	//dont use on stm32F1/F2/F3/F4,them has usart v1

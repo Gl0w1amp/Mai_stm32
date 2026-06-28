@@ -36,5 +36,7 @@ extern FlashData Flash;
 
 uint8_t flash_write(uint64_t* data);
 void flash_read(uint64_t* data);
+uint8_t flash_touch_sheet_valid(const uint8_t *sheet);
+uint8_t flash_config_sanitize(void);
 
 #endif /* INC_FLASH_H_ */

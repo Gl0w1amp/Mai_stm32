@@ -105,6 +105,7 @@ jobs:
         # Source files
         CSRCS = ../Core/Src/main.c \
                 ../Core/Src/app_freertos.c \
+                ../Core/Src/benchmark.c \
                 ../Core/Src/button.c \
                 ../Core/Src/capsense.c \
                 ../Core/Src/capsense_calibration.c \

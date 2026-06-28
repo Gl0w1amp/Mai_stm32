@@ -16,6 +16,7 @@
 #include "flash.h"
 #include "input_snapshot.h"
 #include "serial_reports.h"
+#include "benchmark.h"
 #include "serial_checksum.h"
 #include "byte_pack.h"
 #include "slider.h"
@@ -23,14 +24,15 @@
 #include "usbd_hid_custom_if.h"
 #include <string.h>
 
-#define BENCHMARK_REPLY_OVERHEAD 24u
-#define BENCHMARK_MAX_PAYLOAD (64u - BENCHMARK_REPLY_OVERHEAD)
 #define BENCHMARK_EVENT_PAYLOAD 8u
 #define BENCHMARK_EVENT_DELAY_MS_DEFAULT 10u
 #define BENCHMARK_QUIET_PERIOD_MS 30u
 #define TOUCH_CHANNEL_COUNT 34u
 #define DELAY_SETTING_COUNT 2u
 #define DELAY_SETTING_MAX 9u
+#define HEART_BEAT_HOLD_MS 300u
+#define DEBUG_EXIT_RESET_DELAY_MS 500u
+#define DEBUG_EXIT_USB_DISCONNECT_HOLD_MS 500u
 
 typedef struct {
 	const uint8_t *data;
@@ -50,6 +52,8 @@ extern const char VERSION[];
 extern volatile uint8_t debug_flag;
 extern volatile uint8_t debug_stream_mode;
 extern volatile uint8_t debug_exit_reset_pending;
+extern volatile uint32_t debug_exit_reset_deadline_ms;
+extern osThreadId CommandTaskHandle;
 extern volatile uint32_t benchmark_quiet_until_ms;
 extern volatile uint8_t benchmark_event_pending;
 extern volatile uint32_t benchmark_event_due_ms;
@@ -58,6 +62,47 @@ extern volatile uint8_t benchmark_event_transport;
 extern uint8_t debug_channel;
 extern uint8_t player;
 extern volatile uint8_t touch_scan_flag;
+
+static volatile uint32_t heart_beat_deadline_ms = 0;
+
+void heart_beat_refresh(void)
+{
+	heart_beat_deadline_ms = HAL_GetTick() + HEART_BEAT_HOLD_MS;
+}
+
+uint8_t heart_beat_active(void)
+{
+	return ((int32_t)(heart_beat_deadline_ms - HAL_GetTick()) > 0) ? 1u : 0u;
+}
+
+uint8_t controller_role_normalize(uint8_t role)
+{
+	return (role == 2u) ? 2u : 1u;
+}
+
+void debug_exit_reset_now(void)
+{
+	debug_exit_reset_pending = 0u;
+	/* Keep USB offline long enough for Windows CDC to retire the current
+	 * devnode before the MCU comes back and re-enumerates.
+	 */
+	(void) USBD_Stop(&hUsbDevice);
+	(void) USBD_DeInit(&hUsbDevice);
+	osDelay(DEBUG_EXIT_USB_DISCONNECT_HOLD_MS);
+	NVIC_SystemReset();
+}
+
+void command_notify_ready_from_isr(void)
+{
+	BaseType_t higher_priority_task_woken = pdFALSE;
+
+	if (CommandTaskHandle == NULL) {
+		return;
+	}
+
+	vTaskNotifyGiveFromISR((TaskHandle_t) CommandTaskHandle, &higher_priority_task_woken);
+	portYIELD_FROM_ISR(higher_priority_task_woken);
+}
 
 static void handle_serial_cmd_led(const serial_command_context_t *ctx)
 {

@@ -106,3 +106,72 @@ void flash_read(uint64_t* data){
 
 	memcpy(data, flash_addr, sizeof(FlashData));
 }
+
+#define TOUCH_CHANNEL_COUNT 34u
+#define TOUCH_THRESHOLD_DEFAULT 2000u
+#define DELAY_SETTING_COUNT 2u
+#define DELAY_SETTING_MAX 9u
+#define CONFIG_VERSION 1
+
+static const uint8_t touch_sheet_default[TOUCH_CHANNEL_COUNT] = {
+		0,16,2,3,4,5,6,7,8,
+		9,10,11,12,13,14,15,
+		1,17,
+		18,19,20,21,22,23,24,
+		25,26,27,28,29,30,31,32,33
+};
+
+static void flash_load_defaults(void)
+{
+	for(uint8_t i = 0;i<TOUCH_CHANNEL_COUNT;i++){
+		Flash.touch_threshold[i] = TOUCH_THRESHOLD_DEFAULT;
+	}
+	memcpy(Flash.touch_sheet, touch_sheet_default, TOUCH_CHANNEL_COUNT);
+	Flash.delay_setting[0] = 0u;
+	Flash.delay_setting[1] = 0u;
+	Flash.controller_role = 1u;
+	Flash.system_config = CONFIG_VERSION;
+}
+
+uint8_t flash_touch_sheet_valid(const uint8_t *sheet)
+{
+	if (sheet == NULL) {
+		return 0u;
+	}
+	for(uint8_t i = 0;i<TOUCH_CHANNEL_COUNT;i++){
+		if (sheet[i] >= TOUCH_CHANNEL_COUNT) {
+			return 0u;
+		}
+	}
+	return 1u;
+}
+
+uint8_t flash_config_sanitize(void)
+{
+	uint8_t changed = 0u;
+
+	if(Flash.system_config != CONFIG_VERSION){
+		flash_load_defaults();
+		return flash_write(Flash.raw_flash);
+	}
+
+	if (flash_touch_sheet_valid(Flash.touch_sheet) == 0u) {
+		memcpy(Flash.touch_sheet, touch_sheet_default, TOUCH_CHANNEL_COUNT);
+		changed = 1u;
+	}
+	for(uint8_t i = 0;i<DELAY_SETTING_COUNT;i++){
+		if(Flash.delay_setting[i] > DELAY_SETTING_MAX){
+			Flash.delay_setting[i] = DELAY_SETTING_MAX;
+			changed = 1u;
+		}
+	}
+	if ((Flash.controller_role != 1u) && (Flash.controller_role != 2u)) {
+		Flash.controller_role = 1u;
+		changed = 1u;
+	}
+
+	if (changed != 0u) {
+		return flash_write(Flash.raw_flash);
+	}
+	return 1u;
+}
