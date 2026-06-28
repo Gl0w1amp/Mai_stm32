@@ -11,6 +11,8 @@
 #include "usb_reporter.h"
 #include "usbd_hid_custom_if.h"
 #include "serial_protocol.h"
+#include "serial_checksum.h"
+#include "byte_pack.h"
 #include "benchmark.h"
 
 #define BENCHMARK_EVENT_PAYLOAD 8
@@ -103,18 +105,15 @@ static void serial_send_benchmark_event(uint32_t sequence, uint64_t event_cycles
 	cmd_tmp[idx++] = 0xFF;
 	cmd_tmp[idx++] = SERIAL_CMD_BENCHMARK_EVENT;
 	cmd_tmp[idx++] = BENCHMARK_EVENT_REPLY_PAYLOAD;
-	benchmark_write_u32_le(&cmd_tmp[idx], sequence);
+	put_u32le(&cmd_tmp[idx], sequence);
 	idx += 4;
-	benchmark_write_u64_le(&cmd_tmp[idx], event_cycles);
+	put_u64le(&cmd_tmp[idx], event_cycles);
 	idx += 8;
-	benchmark_write_u64_le(&cmd_tmp[idx], tx_cycles);
+	put_u64le(&cmd_tmp[idx], tx_cycles);
 	idx += 8;
-	benchmark_write_u32_le(&cmd_tmp[idx], SystemCoreClock);
+	put_u32le(&cmd_tmp[idx], SystemCoreClock);
 	idx += 4;
-	cmd_tmp[idx] = 0;
-	for (uint8_t i = 0; i < idx; i++) {
-		cmd_tmp[idx] += cmd_tmp[i];
-	}
+	cmd_tmp[idx] = serial_checksum_sum(cmd_tmp, idx);
 	(void) usb_reporter_cdc_enqueue_high(cmd_tmp, idx + 1);
 }
 

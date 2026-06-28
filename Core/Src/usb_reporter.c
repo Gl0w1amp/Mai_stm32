@@ -435,6 +435,9 @@ static void usb_reporter_vendor_service_endpoint(void)
 static void usb_reporter_maybe_enqueue_custom_buttons(uint8_t debug_flag,
 		uint8_t debug_stream_mode)
 {
+	/* Continuous sequence counter; intentionally free-runs across logical
+	 * resets. usb_reporter_reset() cannot reach this function-local static, so
+	 * it is never cleared and simply wraps at 16 bits. */
 	static uint16_t sequence = 0u;
 	input_snapshot_t snapshot;
 	uint8_t report[USB_REPORTER_CUSTOM_REPORT_SIZE] = {0};
@@ -446,10 +449,12 @@ static void usb_reporter_maybe_enqueue_custom_buttons(uint8_t debug_flag,
 	if (input_snapshot_get_latest(&snapshot) == 0u) {
 		return;
 	}
-	/* Always report the current button state (continuous), but keep at most one
-	 * custom frame outstanding so reports self-pace to the host poll rate without
-	 * building a backlog of stale states or starving the other custom reports
-	 * that share this endpoint. */
+	/* Always report the current button state (continuous). A fresh frame is
+	 * enqueued only once the previous one has been collected by the host: the
+	 * IN-complete callback clears custom_ep.pending and drains the queue, so
+	 * this gate (queue empty AND no transfer in flight) keeps at most one
+	 * custom-button frame outstanding. No stale backlog builds, and the other
+	 * custom reports that share this endpoint are not starved. */
 	if ((custom_hid_queue == NULL) ||
 			(uxQueueMessagesWaiting(custom_hid_queue) != 0u) ||
 			(custom_ep.pending != 0u)) {

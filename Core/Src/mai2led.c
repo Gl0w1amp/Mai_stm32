@@ -7,9 +7,6 @@
 #include <string.h>
 #include <stdbool.h>
 
-#define NUM_LED 16
-#define PRE_BUTTON_LED 2
-#define BUTTON_LED_COUNT (NUM_LED / PRE_BUTTON_LED)
 #define LED_RX_QUEUE_LENGTH 4u
 
 extern UART_HandleTypeDef huart1;
@@ -19,12 +16,6 @@ uint8_t led_write_buffer[64];
 uint8_t dummyEEPRom[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 PacketReq req;
 PacketRes res;
-
-//uint8_t mai_led_default_response[8] = {0xe0,0x01,0x11,0x03,0x01,0x31,0x01,0x48};
-//uint8_t mai_led_eeprom_response[9] = {0xe0,0x01 ,0x11,0x04,0x01,0x7c,0x01,0x00,0x94};
-//uint8_t mai_led_boardinfo_response[18] = {0xe0,0x01,0x11,0x0d,0x01,0xf0,0x01,0x31,0x35,0x30,0x37,0x30,0x2d,0x30,0x34,0xff,0x90,0x2e};
-//uint8_t mai_led_boardstatus_response[12] = {0xe0,0x01,0x11,0x07,0x01,0xf1,0x01,00,00,00,00,0x0c};
-//uint8_t mai_led_protocolversion_response[11] = {0xe0,0x01,0x11,0x06,0x01,0xf3,0x01,0x01,0x00,0x00,0x0e};
 
 uint8_t led_uart_buffer_rx[64];
 
@@ -300,15 +291,12 @@ void LED_Task_Process(const uint8_t *data, uint16_t len){
 			} else {
 				res_init(0,AckStatus_Ok,AckReport_ParamError);
 			}
-			//HAL_UART_Transmit_DMA(&huart1, mai_led_eeprom_response, 9);
 			break;
 		case GetBoardInfo:
 			  memcpy(res.boardNo, "15070-04", 8);
 			  res.boardNo[8] = 0xFF;
 			  res.firmRevision = 144;
 			  res_init(10,AckStatus_Ok,AckReport_Ok);
-//			  res.dstNodeID = 0x01;
-//			  res.srcNodeID = 0x11;
 			break;
 		case GetBoardStatus:
 			res.timeoutStat = 0;

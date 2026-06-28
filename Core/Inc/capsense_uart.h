@@ -25,8 +25,6 @@ typedef struct{
 	uint8_t rx_failure_streak;
 } capsense_uart_stats_t;
 
-bool capsense_data_proc(uint8_t *uart_dma_buffer);
-bool capsense_data_proc_legacy(uint8_t *uart_dma_buffer);
 uint8_t capsense_take_latest_snapshot(void);
 void capsense_uart_stream_reset(void);
 void capsense_uart_stream_feed(const uint8_t *data, uint16_t len,

@@ -3,9 +3,6 @@
 #include "input_snapshot.h"
 #include <string.h>
 
-#define NUM_LED 16
-#define PRE_BUTTON_LED 2
-#define BUTTON_LED_COUNT (NUM_LED / PRE_BUTTON_LED)
 #define LED_BOOT_DURATION_MS 1600u
 #define LED_EFFECT_STEP_MS 20u
 #define LED_HOST_TIMEOUT_MS_DEFAULT 0u
@@ -25,9 +22,8 @@ typedef struct {
 } FadeContext;
 
 static uint8_t WS2812_data_button[24];
-static uint8_t WS2812_data_billboard[24];
 
-FadeContext fade_ctx[NUM_LED];
+static FadeContext fade_ctx[NUM_LED];
 static uint16_t fade_pending_duration[NUM_LED];
 static uint8_t fade_pending_active[NUM_LED];
 static volatile uint8_t led_mode = LED_MODE_BOOT;
@@ -281,6 +277,8 @@ uint8_t LED_SetMode(uint8_t mode, uint32_t now)
 		break;
 	case LED_MODE_DIAGNOSTIC:
 	case LED_MODE_ERROR:
+		/* Diagnostic/error have no dedicated effect yet: both currently
+		 * map to the local default reactive mode. */
 		return LED_SetMode(LED_LOCAL_DEFAULT_MODE, now);
 	default:
 		return 0u;
@@ -465,13 +463,6 @@ void LED_SetButtonFrame(const uint8_t rgb[24]) {
 		return;
 	}
 	memcpy(WS2812_data_button, rgb, 24);
-}
-
-void LED_SetBillboardFrame(const uint8_t rgb[24]) {
-	if (rgb == NULL) {
-		return;
-	}
-	memcpy(WS2812_data_billboard, rgb, 24);
 }
 
 uint8_t resolve_multi_len(uint8_t start, uint8_t end_field) {

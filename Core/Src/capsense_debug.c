@@ -60,7 +60,7 @@ void capsense_debug_service(void)
 		uint8_t hid_status;
 
 		capsense_debug_stats.enqueue_attempt_count++;
-		hid_status = serial_capsense_debug_emit_raw(Touch.channel_raw, 34u);
+		hid_status = serial_capsense_debug_emit_raw(Touch.channel_raw, CAPSENSE_CHANNEL_COUNT);
 		if (hid_status == (uint8_t) USBD_OK) {
 			capsense_debug_stats.emit_batch_count++;
 			capsense_debug_stats.enqueue_success_count++;
@@ -71,7 +71,7 @@ void capsense_debug_service(void)
 		capsense_debug_stats.last_queue_slots = hid_status;
 		return;
 	} else {
-		uint8_t logical = debug_channel < 34 ? debug_channel : 0;
+		uint8_t logical = debug_channel < CAPSENSE_CHANNEL_COUNT ? debug_channel : 0;
 		uint8_t channel = capsense_channel_for_logical(logical);
 		uint8_t hold_index =
 				(logical < 8) ? logical :

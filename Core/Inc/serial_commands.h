@@ -8,7 +8,6 @@
 #define INC_SERIAL_COMMANDS_H_
 
 #include "serial_protocol.h"
-#include "usb_reporter.h"
 #include <stdint.h>
 
 void serial_commands_process_frame(const serial_frame_t *frame,

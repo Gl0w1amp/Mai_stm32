@@ -23,4 +23,16 @@ static inline void put_u32le(uint8_t *dst, uint32_t v)
 	dst[3] = (uint8_t)((v >> 24) & 0xFFu);
 }
 
+static inline void put_u64le(uint8_t *dst, uint64_t v)
+{
+	dst[0] = (uint8_t)(v & 0xFFu);
+	dst[1] = (uint8_t)((v >> 8) & 0xFFu);
+	dst[2] = (uint8_t)((v >> 16) & 0xFFu);
+	dst[3] = (uint8_t)((v >> 24) & 0xFFu);
+	dst[4] = (uint8_t)((v >> 32) & 0xFFu);
+	dst[5] = (uint8_t)((v >> 40) & 0xFFu);
+	dst[6] = (uint8_t)((v >> 48) & 0xFFu);
+	dst[7] = (uint8_t)((v >> 56) & 0xFFu);
+}
+
 #endif /* INC_BYTE_PACK_H_ */

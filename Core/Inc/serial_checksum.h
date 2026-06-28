@@ -2,7 +2,8 @@
  * serial_checksum.h
  *
  * Header-only inline additive sum-of-bytes checksum shared across modules.
- * Semantics copied verbatim from serial_reports.c serial_reports_checksum().
+ * Canonical checksum helper for serial frames: returns the 8-bit sum of the
+ * given bytes (sum of bytes & 0xFF).
  */
 #ifndef INC_SERIAL_CHECKSUM_H_
 #define INC_SERIAL_CHECKSUM_H_

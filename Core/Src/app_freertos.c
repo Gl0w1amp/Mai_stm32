@@ -45,7 +45,6 @@
 #include "input_snapshot.h"
 #include "serial_commands.h"
 #include "serial_reports.h"
-#include "usbd_desc.h"
 #include "usb_reporter.h"
 #include "benchmark.h"
 #include "debug_mode.h"
@@ -87,14 +86,10 @@ const FirmwareHeader_t fw_header = {
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
-extern USBD_HandleTypeDef hUsbDevice;
-uint8_t touch_cmd_flag = 0;
 volatile uint8_t touch_scan_flag = 0;
-extern uint8_t keyboard_sheet[14];
 uint8_t player = 1;
 uint8_t current_touch_status[34];
 uint8_t current_button_status[2];
-extern volatile uint8_t capsense_data_ready;
 volatile uint8_t debug_flag = 0;
 volatile uint8_t debug_stream_mode = SERIAL_DEBUG_STREAM_MODE_FOCUS;
 volatile uint8_t debug_exit_reset_pending = 0u;
@@ -296,19 +291,14 @@ void Command_Task(void const * argument)
 	(void) ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5));
 	(void) serial_command_drain_rx_stream();
 	while (serial_command_pop(&rx_frame)) {
-		serial_command_set_response_transport(
-				(serial_command_transport_t)rx_frame.transport);
 		if ((rx_frame.len != 0u) && (rx_frame.data[0] == 0xFFu)) {
 			if (serial_protocol_frame_valid(rx_frame.data, rx_frame.len) == 0u) {
-				serial_command_set_response_transport(
-						SERIAL_COMMAND_TRANSPORT_CDC);
 				continue;
 			}
 			serial_commands_process_frame(&rx_frame, benchmark_cycles64());
 		} else {
 			serial_commands_process_legacy_ascii(rx_frame.data, rx_frame.len);
 		}
-		serial_command_set_response_transport(SERIAL_COMMAND_TRANSPORT_CDC);
 	}
 	if ((debug_exit_reset_pending != 0u) &&
 			((int32_t)(HAL_GetTick() - debug_exit_reset_deadline_ms) >= 0)) {

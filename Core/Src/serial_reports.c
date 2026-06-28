@@ -7,6 +7,7 @@
 #include "serial_reports.h"
 
 #include "serial_protocol.h"
+#include "serial_checksum.h"
 #include "capsense.h"
 #include "benchmark.h"
 #include "usb_reporter.h"
@@ -16,21 +17,6 @@
 
 #define RAW_DEBUG_SNAPSHOT_PARTS 2u
 #define RAW_DEBUG_SNAPSHOT_VALUES_PER_PART (34u / RAW_DEBUG_SNAPSHOT_PARTS)
-
-uint8_t serial_reports_checksum(const uint8_t *buf, uint8_t len)
-{
-	uint8_t checksum = 0u;
-
-	if (buf == NULL) {
-		return 0u;
-	}
-
-	for (uint8_t i = 0u; i < len; i++) {
-		checksum += buf[i];
-	}
-
-	return checksum;
-}
 
 uint8_t serial_reports_build_live_state_frame(uint8_t command,
 		const input_snapshot_t *snapshot, uint8_t *buf, uint8_t *len_out)
@@ -63,7 +49,7 @@ uint8_t serial_reports_build_live_state_frame(uint8_t command,
 		buf[idx++] = packed;
 	}
 
-	buf[idx] = serial_reports_checksum(buf, idx);
+	buf[idx] = serial_checksum_sum(buf, idx);
 	*len_out = (uint8_t)(idx + 1u);
 	return 1u;
 }
@@ -98,9 +84,7 @@ void serial_send_simple_status(uint8_t command, uint8_t ok)
 {
 	uint8_t cmd_tmp[5] = {0xff, command, 1u, ok, 0u};
 
-	for(uint8_t i = 0;i<4u;i++){
-		cmd_tmp[4] += cmd_tmp[i];
-	}
+	cmd_tmp[4] = serial_checksum_sum(cmd_tmp, 4u);
 	(void) serial_cdc_tx_enqueue_high(cmd_tmp, sizeof(cmd_tmp));
 }
 
@@ -130,9 +114,7 @@ uint8_t serial_send_raw_debug_snapshot(uint8_t sequence, uint8_t part_index)
 		cmd_tmp[idx++] = (uint8_t) ((raw >> 8) & 0xFFu);
 	}
 
-	for (uint8_t checksum_index = 0u; checksum_index < idx; checksum_index++) {
-		cmd_tmp[idx] += cmd_tmp[checksum_index];
-	}
+	cmd_tmp[idx] = serial_checksum_sum(cmd_tmp, idx);
 
 	return serial_cdc_tx_enqueue_high(cmd_tmp, (uint16_t) (idx + 1u));
 }
@@ -159,10 +141,7 @@ void serial_send_benchmark_reply(uint8_t cmd, const uint8_t *payload, uint8_t pa
 	idx += 8;
 	benchmark_write_u32_le(&cmd_tmp[idx], SystemCoreClock);
 	idx += 4;
-	cmd_tmp[idx] = 0;
-	for (uint8_t i = 0; i < idx; i++) {
-		cmd_tmp[idx] += cmd_tmp[i];
-	}
+	cmd_tmp[idx] = serial_checksum_sum(cmd_tmp, idx);
 	(void) serial_cdc_tx_enqueue_high(cmd_tmp, idx + 1);
 }
 

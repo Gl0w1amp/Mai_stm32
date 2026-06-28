@@ -16,6 +16,12 @@
 #define G431_APP_SETTINGS_BASE      0x0801D000UL
 #define G431_TARGET_DOUBLEWORD      ((uint32_t)(sizeof(FlashData) / sizeof(uint64_t)))
 
+/* The settings image is erased one page and programmed as exactly 16
+ * doublewords (sizeof(FlashData)/8). G431_APP_SETTINGS_BASE must stay
+ * page-aligned and outside the application image for this to be safe. */
+_Static_assert(sizeof(FlashData) == 16 * sizeof(uint64_t),
+		"FlashData must be exactly 16 doublewords");
+
 FlashData Flash;
 
 static uint8_t g431_flash_uses_dual_bank(void)

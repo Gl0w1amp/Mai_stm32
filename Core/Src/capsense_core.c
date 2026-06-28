@@ -4,7 +4,7 @@
  * Created on: Jan 8, 2025
  * Originally created by Qinh.
  *
- * The current capsense processing, calibration, and debug architecture
+ * The current capsense processing and debug architecture
  * has been substantially redesigned and extended by Gl0w1amp.
  *
  * Copyright (c) Ruminasu Labs. All rights reserved.
@@ -22,21 +22,19 @@ uint8_t uart_dma_buffer[128];
 packet_capsense_t Touch;
 packet_capsense_t capsense_rx_touch;
 uint16_t capsense_hold_duration[16] = {0};
-uint16_t capsense_level[8] = {0};
-uint16_t capsense_freeze[34];
-uint16_t capsense_baseline[34];
-uint16_t capsense_hold_prev_raw[16] = {0};
-uint16_t capsense_hold_peak_envelope[16] = {0};
+uint16_t capsense_freeze[CAPSENSE_CHANNEL_COUNT];
+uint16_t capsense_baseline[CAPSENSE_CHANNEL_COUNT];
+static uint16_t capsense_hold_prev_raw[16] = {0};
+static uint16_t capsense_hold_peak_envelope[16] = {0};
 uint16_t capsense_hold_release_level[16] = {0};
-uint8_t capsense_hold_baseline_cooldown[16] = {0};
+static uint8_t capsense_hold_baseline_cooldown[16] = {0};
 volatile uint8_t capsense_data_ready = 0;
-uint8_t capsense_bit;
-uint8_t capsense_touch_status[34];
-uint8_t capsense_hold_enter_confirm[16] = {0};
-uint8_t capsense_hold_release_confirm[16] = {0};
-uint8_t capsense_hold_rearm_confirm[16] = {0};
+uint8_t capsense_touch_status[CAPSENSE_CHANNEL_COUNT];
+static uint8_t capsense_hold_enter_confirm[16] = {0};
+static uint8_t capsense_hold_release_confirm[16] = {0};
+static uint8_t capsense_hold_rearm_confirm[16] = {0};
 uint8_t capsense_hold_state[16] = {0};
-uint8_t capsense_procotl_version = 0;
+uint8_t capsense_protocol_version = 0;
 uint8_t capsense_checksum_last = 0;
 uint8_t capsense_legacy_payload_offset = 0;
 uint8_t capsense_protocol1_confirm_count = 0;
@@ -175,8 +173,8 @@ void capsense_input_snapshot_publish(void)
 
 	link_state.last_good_tick = capsense_last_good_frame_tick;
 	link_state.last_error_tick = capsense_last_error_tick;
-	link_state.protocol_version = capsense_procotl_version;
-	if (capsense_procotl_version != 0u) {
+	link_state.protocol_version = capsense_protocol_version;
+	if (capsense_protocol_version != 0u) {
 		link_state.flags |= INPUT_LINK_FLAG_ONLINE;
 	}
 	if ((capsense_last_error_tick != 0u) &&
@@ -389,7 +387,7 @@ static void capsense_process_standard_block(uint8_t logical_start, uint8_t count
 
 static void capsense_reset_runtime_state(void)
 {
-	for(uint8_t i = 0;i<34;i++){
+	for(uint8_t i = 0;i<CAPSENSE_CHANNEL_COUNT;i++){
 		capsense_baseline[i] = 0;
 		capsense_freeze[i] = 0;
 
@@ -408,7 +406,7 @@ static void capsense_reset_runtime_state(void)
 		capsense_hold_peak_envelope[i] = 0;
 		capsense_hold_release_level[i] = 0;
 	}
-	capsense_procotl_version = 0;
+	capsense_protocol_version = 0;
 	capsense_checksum_last = 0;
 	capsense_legacy_payload_offset = 0;
 	capsense_protocol1_confirm_count = 0;
@@ -438,7 +436,7 @@ void capsense_init(){
 		capsense_request_link_reset();
 	}
 	osDelay(100);
-	for(uint8_t i = 0;i<34;i++){
+	for(uint8_t i = 0;i<CAPSENSE_CHANNEL_COUNT;i++){
 		capsense_baseline[i] = Touch.channel_raw[i];
 		capsense_freeze[i] = Touch.channel_raw[i];
 	}
@@ -447,96 +445,12 @@ void capsense_init(){
 	}
 }
 
-//	if(variance < CAPSENSE_BASELINE_VARIANCE){
-//		capsense_baseline[channel] = average;
-//	}
-//}
-
 void capsense_check(){
 	capsense_process_hold_block(0, 0);
 	capsense_process_standard_block(8, 8, CAPSENSE_BASELINE_VARIANCE_B);
 	capsense_process_standard_block(16, 2, CAPSENSE_BASELINE_VARIANCE_C);
 	capsense_process_hold_block(18, 8);
 	capsense_process_standard_block(26, 8, CAPSENSE_BASELINE_VARIANCE_E);
-
-//	//BLOCK A
-//	for(uint8_t i = 0;i<8;i++){
-//		if(capsense_duration[i] > 250){
-//			capsense_baseline[i] = capsense_orinigal[i];
-//		}
-//		if((capsense_baseline[Flash.touch_sheet[i]] + Flash.touch_threshold[i] < Touch.channel_raw[Flash.touch_sheet[i]]) || (Touch.channel_raw[Flash.touch_sheet[i]] >= 0xFF00)){
-//			capsense_touch_status[i] = 1;
-//			if(capsense_duration[i] < 65535){
-//				capsense_duration[i] ++;
-//			}
-//		}else{
-//			capsense_touch_status[i] = 0;
-//			capsense_duration[i] = 0;
-//		}
-//		if((Touch.channel_raw[Flash.touch_sheet[i]] + Flash.touch_threshold[i] < 0xFFF0) && capsense_duration[i] <= 250){
-//			float baseline = (capsense_baseline[Flash.touch_sheet[i]] * 0.85) + (Touch.channel_raw[Flash.touch_sheet[i]] * 0.15);
-//			if(capsense_touch_status[i]){
-//				if(baseline + Flash.touch_threshold[i]+ CAPSENSE_BASELINE_VARIANCE < Touch.channel_raw[Flash.touch_sheet[i]]){
-//					capsense_baseline[Flash.touch_sheet[i]] = baseline;
-//				}
-//			}else{
-//				capsense_baseline[Flash.touch_sheet[i]] = baseline;
-//			}
-//		}
-//	}
-//	//BLOCK B
-//	for(uint8_t i = 8;i<16;i++){
-//		if((capsense_baseline[Flash.touch_sheet[i]] + Flash.touch_threshold[i] < Touch.channel_raw[Flash.touch_sheet[i]]) || (Touch.channel_raw[Flash.touch_sheet[i]] >= 0xFF00)){
-//			capsense_touch_status[i] = 1;
-//		}else{
-//			capsense_touch_status[i] = 0;
-//		}
-//	}
-//	//BLOCK C
-//	for(uint8_t i = 16;i<18;i++){
-//		if((capsense_baseline[Flash.touch_sheet[i]] + Flash.touch_threshold[i] < Touch.channel_raw[Flash.touch_sheet[i]]) || (Touch.channel_raw[Flash.touch_sheet[i]] >= 0xFF00)){
-//			capsense_touch_status[i] = 1;
-//		}else{
-//			capsense_touch_status[i] = 0;
-//		}
-//	}
-//	//BLOCK D
-//	for(uint8_t i = 18;i<26;i++){
-//		if(capsense_duration[i] > 250){
-//			capsense_baseline[i] = capsense_orinigal[i];
-//		}
-//		if((capsense_baseline[Flash.touch_sheet[i]] + Flash.touch_threshold[i] < Touch.channel_raw[Flash.touch_sheet[i]]) || (Touch.channel_raw[Flash.touch_sheet[i]] >= 0xFF00)){
-//			capsense_touch_status[i] = 1;
-//			if(capsense_duration[i] < 65535){
-//				capsense_duration[i] ++;
-//			}
-//		}else{
-//			capsense_touch_status[i] = 0;
-//			capsense_duration[i] = 0;
-//		}
-//		if((Touch.channel_raw[Flash.touch_sheet[i]] + Flash.touch_threshold[i] < 0xFFF0) && capsense_duration[i] <= 250){
-//			float baseline = (capsense_baseline[Flash.touch_sheet[i]] * 0.85) + (Touch.channel_raw[Flash.touch_sheet[i]] * 0.15);
-//			if(capsense_touch_status[i]){
-//				if(baseline + Flash.touch_threshold[i]+ CAPSENSE_BASELINE_VARIANCE < Touch.channel_raw[Flash.touch_sheet[i]]){
-//					capsense_baseline[Flash.touch_sheet[i]] = baseline;
-//				}
-//			}else{
-//				capsense_baseline[Flash.touch_sheet[i]] = baseline;
-//			}
-//		}
-//	}
-//	//BLOCK E
-//	for(uint8_t i = 26;i<34;i++){
-//		if((capsense_baseline[Flash.touch_sheet[i]] + Flash.touch_threshold[i] < Touch.channel_raw[Flash.touch_sheet[i]]) || (Touch.channel_raw[Flash.touch_sheet[i]] >= 0xFF00)){
-//			capsense_touch_status[i] = 1;
-//		}else{
-//			capsense_touch_status[i] = 0;
-//		}
-//	}
-//	capsense_data_ready = 0;
-
-
-
 }
 
 

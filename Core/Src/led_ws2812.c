@@ -3,14 +3,11 @@
 #include "critical_section.h"
 #include <string.h>
 
-#define NUM_LED 16
-#define PRE_BUTTON_LED 2
-#define BUTTON_LED_COUNT (NUM_LED / PRE_BUTTON_LED)
 #define WS2812_HIGH 143
 #define WS2812_LOW 67
 #define LED_WS2812_DMA_LENGTH (64u + NUM_LED * 24u + 64u)
 
-const uint8_t gamma8[256] = {
+static const uint8_t gamma8[256] = {
   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   1,   1,   1,   1,
   2,   2,   2,   2,   2,   3,   3,   3,   4,   4,   4,   5,   5,   5,   6,   6,
   6,   7,   7,   7,   8,   8,   9,   9,   9,  10,  10,  11,  11,  12,  12,  13,

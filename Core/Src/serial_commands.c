@@ -23,6 +23,7 @@
 #include "byte_pack.h"
 #include "usbd_desc.h"
 #include "usbd_hid_custom_if.h"
+#include "usb_reporter.h"
 #include <string.h>
 
 #define BENCHMARK_EVENT_PAYLOAD 8u
@@ -109,10 +110,7 @@ static void handle_serial_cmd_led(const serial_command_context_t *ctx)
 	(void)rxBuffer;
 	(void)rxLen;
 	(void)dispatch_cycles;
-//				if(rxBuffer[2] != 27){
-//					return;
-//				}
-//				FET_LED_Update(rxBuffer[27],rxBuffer[28],rxBuffer[29]);
+				/* Intentional no-op ack: legacy LED opcode is accepted but not acted on. */
 				return;
 }
 
@@ -158,7 +156,9 @@ static void handle_serial_cmd_led_billboard(const serial_command_context_t *ctx)
 				if(rxBuffer[2] != 24){
 					return;
 				}
-				LED_SetBillboardFrame(rxBuffer + 3);
+				/* Accepted no-op: the billboard frame buffer was write-only and
+				 * never rendered, so the validated payload is intentionally
+				 * dropped. */
 				return;
 }
 
@@ -193,7 +193,7 @@ static void serial_send_led_status_response(uint8_t command, uint8_t ok)
 	cmd_tmp[7] = status.idle_brightness;
 	put_u16le(&cmd_tmp[8], status.host_timeout_ms);
 	put_u16le(&cmd_tmp[10], status.host_remaining_ms);
-	cmd_tmp[12] = serial_reports_checksum(cmd_tmp, 12u);
+	cmd_tmp[12] = serial_checksum_sum(cmd_tmp, 12u);
 	(void) serial_cdc_tx_enqueue_high(cmd_tmp, sizeof(cmd_tmp));
 }
 
@@ -541,6 +541,7 @@ static void handle_serial_cmd_scan_start(const serial_command_context_t *ctx)
 				if(rxBuffer[2] != 0){
 					return;
 				}
+				/* Intentional no-op ack: opcode is accepted but scanning is always on. */
 				return;
 }
 
@@ -555,6 +556,7 @@ static void handle_serial_cmd_scan_stop(const serial_command_context_t *ctx)
 				if(rxBuffer[2] != 0){
 					return;
 				}
+				/* Intentional no-op ack: opcode is accepted but scanning is always on. */
 				return;
 }
 
@@ -624,7 +626,6 @@ static void handle_serial_cmd_read_touch_sheet(const serial_command_context_t *c
 				for(uint8_t i = 0;i<TOUCH_CHANNEL_COUNT;i++){
 					cmd_tmp[i + 3] = Flash.touch_sheet[i];
 				}
-//				memcpy(cmd_tmp + 3,Flash.touch_sheet,34);
 				cmd_tmp[37] = serial_checksum_sum(cmd_tmp, 37u);
 				(void) serial_cdc_tx_enqueue_high(cmd_tmp, 38);
 				return;
@@ -728,7 +729,8 @@ static void handle_serial_cmd_reset(const serial_command_context_t *ctx)
 					return;
 				}
 				// Send acknowledge before reset
-				uint8_t cmd_tmp[5] = {0xff,0x10,1,1,0x11};
+				uint8_t cmd_tmp[5] = {0xff,0x10,1,1,0};
+				cmd_tmp[4] = serial_checksum_sum(cmd_tmp, 4u);
 				(void) serial_cdc_tx_enqueue_high(cmd_tmp, 5);
 				// Wait for transmission to complete
 				osDelay(100);

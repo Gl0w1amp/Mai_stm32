@@ -13,6 +13,8 @@
 
 //#define PSOC_DEBUG
 
+#define CAPSENSE_CHANNEL_COUNT 34u
+
 typedef union{
 	uint8_t data[68];
 	struct{
@@ -22,7 +24,7 @@ typedef union{
 
 extern packet_capsense_t Touch;
 extern uint8_t uart_dma_buffer[128];
-extern uint8_t capsense_touch_status[34];
+extern uint8_t capsense_touch_status[CAPSENSE_CHANNEL_COUNT];
 extern volatile uint8_t capsense_data_ready;
 
 void capsense_init();

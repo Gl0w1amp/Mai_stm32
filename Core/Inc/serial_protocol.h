@@ -70,8 +70,6 @@ uint8_t serial_command_feed_isr_transport(const uint8_t *data, uint16_t len,
 uint8_t serial_command_drain_rx_stream(void);
 uint8_t serial_command_pop(serial_frame_t *frame);
 uint8_t serial_command_stream_pending(void);
-void serial_command_set_response_transport(
-		serial_command_transport_t transport);
 uint8_t serial_protocol_frame_valid(const uint8_t *frame, uint8_t len);
 
 #endif /* INC_SERIAL_PROTOCOL_H_ */

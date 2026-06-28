@@ -20,15 +20,11 @@
 
 #include <stdint.h>
 
-#define CAPSENSE_BASELINE_VARIANCE 3000
-
 #define CAPSENSE_BASELINE_VARIANCE_A 1000
 
 #define CAPSENSE_BASELINE_VARIANCE_B 600
 
 #define CAPSENSE_BASELINE_VARIANCE_C 500
-
-#define CAPSENSE_BASELINE_VARIANCE_D 800
 
 #define CAPSENSE_BASELINE_VARIANCE_E 600
 
@@ -70,56 +66,6 @@
 
 #define CAPSENSE_DYNAMIC_FOLLOW_CAP_DENOMINATOR 8
 
-#define CAPSENSE_AUTO_THRESHOLD_SAMPLE_COUNT 128
-
-#define CAPSENSE_AUTO_THRESHOLD_FRAME_TIMEOUT_MS 20
-
-#define CAPSENSE_AUTO_THRESHOLD_TOTAL_TIMEOUT_MS 5000
-
-#define CAPSENSE_AUTO_THRESHOLD_STABLE_FRAMES 16
-
-#define CAPSENSE_AUTO_THRESHOLD_STEP_MAX 192
-
-#define CAPSENSE_AUTO_THRESHOLD_BASELINE_DELTA_MAX 320
-
-#define CAPSENSE_AUTO_THRESHOLD_TRIM_PERCENT 5
-
-#define CAPSENSE_AUTO_THRESHOLD_TRIM_MULTIPLIER 4
-
-#define CAPSENSE_AUTO_THRESHOLD_MIN 180
-
-#define CAPSENSE_AUTO_THRESHOLD_MAX 4000
-
-#define CAPSENSE_AUTO_THRESHOLD_P2P_CAP_MULTIPLIER 2
-
-#define CAPSENSE_AUTO_THRESHOLD_POS_MULTIPLIER 4
-
-#define CAPSENSE_AUTO_THRESHOLD_BATCH_CHANNELS 17
-
-#define CAPSENSE_CALIBRATION_IDLE_SAMPLE_COUNT 32
-
-#define CAPSENSE_CALIBRATION_IDLE_STABLE_FRAMES 12
-
-#define CAPSENSE_CALIBRATION_PRESS_CONFIRM_FRAMES 4
-
-#define CAPSENSE_CALIBRATION_PRESS_HOLD_FRAMES 24
-
-#define CAPSENSE_CALIBRATION_FRAME_TIMEOUT_MS 20
-
-#define CAPSENSE_CALIBRATION_TOTAL_TIMEOUT_MS 6000
-
-#define CAPSENSE_CALIBRATION_PRESS_START_MIN_DELTA 220
-
-#define CAPSENSE_CALIBRATION_RELEASE_DELTA 120
-
-#define CAPSENSE_CALIBRATION_CHANNEL_RATIO_STRICT_NUMERATOR 5
-
-#define CAPSENSE_CALIBRATION_CHANNEL_RATIO_STRICT_DENOMINATOR 4
-
-#define CAPSENSE_CALIBRATION_CHANNEL_RATIO_RELAXED_NUMERATOR 6
-
-#define CAPSENSE_CALIBRATION_CHANNEL_RATIO_RELAXED_DENOMINATOR 5
-
 #define CAPSENSE_DEBUG_FOCUS_FLOAT_COUNT 6u
 
 #define CAPSENSE_DEBUG_RAW_FLOAT_COUNT 34u
@@ -154,43 +100,19 @@ typedef union {
 
 } vofa_debug_chunk_t;
 
-typedef struct {
-
-	uint16_t samples[CAPSENSE_AUTO_THRESHOLD_BATCH_CHANNELS][CAPSENSE_AUTO_THRESHOLD_SAMPLE_COUNT];
-
-	uint16_t sorted[CAPSENSE_AUTO_THRESHOLD_SAMPLE_COUNT];
-
-} capsense_auto_threshold_workspace_t;
-
 extern packet_capsense_t capsense_rx_touch;
 
 extern uint16_t capsense_hold_duration[16];
 
-extern uint16_t capsense_level[8];
+extern uint16_t capsense_freeze[CAPSENSE_CHANNEL_COUNT];
 
-extern uint16_t capsense_freeze[34];
-
-extern uint16_t capsense_baseline[34];
-
-extern uint16_t capsense_hold_prev_raw[16];
-
-extern uint16_t capsense_hold_peak_envelope[16];
+extern uint16_t capsense_baseline[CAPSENSE_CHANNEL_COUNT];
 
 extern uint16_t capsense_hold_release_level[16];
 
-extern uint8_t capsense_hold_baseline_cooldown[16];
-
-extern uint8_t capsense_bit;
-
-extern uint8_t capsense_hold_enter_confirm[16];
-
-extern uint8_t capsense_hold_release_confirm[16];
-
-extern uint8_t capsense_hold_rearm_confirm[16];
-
 extern uint8_t capsense_hold_state[16];
 
-extern uint8_t capsense_procotl_version;
+extern uint8_t capsense_protocol_version;
 
 extern uint8_t capsense_checksum_last;
 

@@ -14,6 +14,9 @@
 
 extern DMA_HandleTypeDef hdma_uart4_rx;
 
+static bool capsense_data_proc(uint8_t *uart_dma_buffer);
+static bool capsense_data_proc_legacy(uint8_t *uart_dma_buffer);
+
 static uint8_t capsense_uart_stream_buffer[CAPSENSE_UART_STREAM_BUFFER_SIZE];
 static uint16_t capsense_uart_stream_head = 0;
 static uint16_t capsense_uart_stream_tail = 0;
@@ -72,13 +75,11 @@ static uint8_t capsense_uart_frame_is_empty(const uint8_t *frame)
 	return 1u;
 }
 
-uint8_t checksum = 0;
-
 static uint8_t capsense_accept_packet(const uint8_t *data, uint8_t lock_protocol, uint8_t rolling_checksum)
 {
 	memcpy(&capsense_rx_touch.data[0], data + 1, 68);
 	if(lock_protocol){
-		capsense_procotl_version = 1;
+		capsense_protocol_version = 1;
 	}
 	if (rolling_checksum) {
 		capsense_uart_stats.rolling_checksum_accept_count++;
@@ -95,8 +96,8 @@ static uint8_t capsense_accept_packet(const uint8_t *data, uint8_t lock_protocol
 static uint8_t capsense_accept_legacy_packet(const uint8_t *data, uint8_t payload_offset)
 {
 	memcpy(&capsense_rx_touch.data[0], data + payload_offset, 68);
-	if(capsense_procotl_version == 0){
-		capsense_procotl_version = 2;
+	if(capsense_protocol_version == 0){
+		capsense_protocol_version = 2;
 	}
 	capsense_uart_stats.legacy_accept_count++;
 	capsense_legacy_payload_offset = payload_offset;
@@ -113,7 +114,7 @@ static uint8_t capsense_score_legacy_payload(const uint8_t *data, uint8_t payloa
 	uint8_t low_nibble_zero_count = 0;
 	uint8_t non_zero_count = 0;
 
-	for (uint8_t i = 0; i < 34; i++) {
+	for (uint8_t i = 0; i < CAPSENSE_CHANNEL_COUNT; i++) {
 		uint16_t raw = (uint16_t) data[payload_offset + (i * 2)] |
 				((uint16_t) data[payload_offset + (i * 2) + 1] << 8);
 
@@ -278,66 +279,15 @@ void capsense_uart_on_error(void)
     capsense_uart_note_rx_failure();
 }
 
-//static inline void UART_ClearIdle(UART_HandleTypeDef *huart)
-//{
-//	//dont use on stm32F1/F2/F3/F4,them has usart v1
-//	huart->Instance->ICR = USART_ICR_IDLECF;
-//}
-
-
-//void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
-//{
-//    if (huart->Instance == UART4)
-//    {
-////    	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_15,1);
-////		HAL_UART_DMAStop(&huart4);
-//		uint8_t len = 70 - __HAL_DMA_GET_COUNTER(huart4.hdmarx);
-//		if(len ==70 ){
-//			uint8_t ret = 0;
-//			for(uint8_t i = 0;i<70;i++){
-//				if(uart_dma_buffer[i] == 0){
-//					ret++;
-//				}else{
-//					break;
-//				}
-//			}
-//			if(ret >= 69){
-//				uint8_t tes5 = 0x47;
-//						CDC_Transmit(0,&tes5,1);
-//				goto end;
-//			}
-//			if(!capsense_data_proc(uart_dma_buffer)){
-//				if(!capsense_data_proc_legacy(uart_dma_buffer)){
-//
-//				}
-//			}
-//		}else{
-//	    	uint8_t tes5[71] = {0x17};
-//	    				memcpy(tes5+1,uart_dma_buffer,70);
-//	    						CDC_Transmit(0,&tes5,71);
-//		}
-//	end:
-////		UART_ClearIdle(&huart4);
-//		HAL_UART_Receive_DMA(&huart4,uart_dma_buffer,70);
-//		return;
-//    }
-//}
-//
-//void Touch_UART_IDLE_Handler(){
-//	UART_ClearIdle(&huart4);
-//	HAL_UART_Receive_DMA(&huart4,uart_dma_buffer,70);
-//	__HAL_UART_DISABLE_IT(&huart4, UART_IT_IDLE);
-//}
-
-bool capsense_data_proc(uint8_t *uart_dma_buffer){
+static bool capsense_data_proc(uint8_t *uart_dma_buffer){
 	uint8_t strict_checksum;
 	uint8_t rolling_checksum;
 
-	if((capsense_procotl_version != 0) && (capsense_procotl_version != 1)){
+	if((capsense_protocol_version != 0) && (capsense_protocol_version != 1)){
 		return false;
 	}
     if(uart_dma_buffer[0] == 0){
-		if (capsense_procotl_version == 0) {
+		if (capsense_protocol_version == 0) {
 			uint8_t legacy_score_offset_2 = capsense_score_legacy_payload(uart_dma_buffer, 2);
 			uint8_t legacy_score_offset_1 = capsense_score_legacy_payload(uart_dma_buffer, 1);
 
@@ -352,7 +302,7 @@ bool capsense_data_proc(uint8_t *uart_dma_buffer){
 		strict_checksum = serial_checksum_sum(uart_dma_buffer, 69u);
 		if(strict_checksum == uart_dma_buffer[69]){
 			capsense_checksum_last = uart_dma_buffer[69];
-			if (capsense_procotl_version == 1) {
+			if (capsense_protocol_version == 1) {
 				capsense_protocol1_confirm_count = 0;
 				return capsense_accept_packet(uart_dma_buffer, 1, 0);
 			}
@@ -369,7 +319,7 @@ bool capsense_data_proc(uint8_t *uart_dma_buffer){
 		rolling_checksum = capsense_checksum_last + strict_checksum;
 		if(rolling_checksum == uart_dma_buffer[69]){
 			capsense_checksum_last = uart_dma_buffer[69];
-			if (capsense_procotl_version == 1) {
+			if (capsense_protocol_version == 1) {
 				capsense_protocol1_confirm_count = 0;
 				return capsense_accept_packet(uart_dma_buffer, 1, 1);
 			}
@@ -384,10 +334,10 @@ bool capsense_data_proc(uint8_t *uart_dma_buffer){
     return false;
 }
 
-bool capsense_data_proc_legacy(uint8_t *uart_dma_buffer){
+static bool capsense_data_proc_legacy(uint8_t *uart_dma_buffer){
 	uint8_t payload_offset;
 
-	if((capsense_procotl_version != 0) && (capsense_procotl_version != 2)){
+	if((capsense_protocol_version != 0) && (capsense_protocol_version != 2)){
 		return false;
 	}
     if((uart_dma_buffer[0] == 0 ) && (uart_dma_buffer[1] == 0)){
@@ -408,21 +358,21 @@ bool capsense_data_proc_legacy(uint8_t *uart_dma_buffer){
 uint8_t capsense_take_latest_snapshot(void)
 {
 	uint8_t snapshot_ready = 0;
-	uint32_t primask = __get_PRIMASK();
+	uint32_t primask;
 	capsense_sim_context_t sim_context = {
 		.rx_touch = &capsense_rx_touch,
 		.data_ready = &capsense_data_ready,
 		.last_good_frame_tick = &capsense_last_good_frame_tick,
 		.frame_counter = &capsense_frame_counter,
 		.last_real_frame_tick = capsense_last_real_frame_tick,
-		.protocol_version = &capsense_procotl_version,
+		.protocol_version = &capsense_protocol_version,
 		.uart_stats = &capsense_uart_stats,
 		.logical_to_channel = Flash.touch_sheet,
 	};
 
 	capsense_sim_maybe_generate(&sim_context, HAL_GetTick());
 
-	__disable_irq();
+	primask = critical_section_enter();
 	if (capsense_data_ready) {
 		memcpy(&Touch, &capsense_rx_touch, sizeof(Touch));
 		capsense_data_ready = 0;
@@ -457,14 +407,14 @@ void capsense_uart_stats_get(capsense_uart_stats_t *stats_out)
 	}
 
 	*stats_out = capsense_uart_stats;
-	stats_out->protocol_version = capsense_procotl_version;
+	stats_out->protocol_version = capsense_protocol_version;
 	stats_out->legacy_payload_offset = capsense_legacy_payload_offset;
 }
 
 void capsense_uart_stats_reset(void)
 {
 	memset(&capsense_uart_stats, 0, sizeof(capsense_uart_stats));
-	capsense_uart_stats.protocol_version = capsense_procotl_version;
+	capsense_uart_stats.protocol_version = capsense_protocol_version;
 	capsense_uart_stats.legacy_payload_offset = capsense_legacy_payload_offset;
 }
 
@@ -494,7 +444,7 @@ void capsense_uart_stats_note_auto_reset(void)
 void capsense_uart_stats_set_failure_streak(uint8_t streak)
 {
 	capsense_uart_stats.rx_failure_streak = streak;
-	capsense_uart_stats.protocol_version = capsense_procotl_version;
+	capsense_uart_stats.protocol_version = capsense_protocol_version;
 	capsense_uart_stats.legacy_payload_offset = capsense_legacy_payload_offset;
 }
 
@@ -507,7 +457,7 @@ void capsense_link_state_get(uint32_t *last_good_tick_out, uint32_t *last_error_
 		*last_error_tick_out = capsense_last_error_tick;
 	}
 	if (protocol_version_out != NULL) {
-		*protocol_version_out = capsense_procotl_version;
+		*protocol_version_out = capsense_protocol_version;
 	}
 }
 

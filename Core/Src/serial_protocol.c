@@ -32,8 +32,6 @@ static serial_rx_raw_byte_t serial_rx_raw_buffer[SERIAL_RX_RAW_BUFFER_SIZE];
 static volatile uint16_t serial_rx_raw_head = 0u;
 static volatile uint16_t serial_rx_raw_tail = 0u;
 static volatile uint16_t serial_rx_raw_count = 0u;
-static volatile serial_command_transport_t serial_response_transport =
-		SERIAL_COMMAND_TRANSPORT_CDC;
 
 static serial_command_transport_t serial_transport_normalize(
 		serial_command_transport_t transport)
@@ -192,7 +190,6 @@ void serial_command_init(void)
 	serial_rx_raw_head = 0u;
 	serial_rx_raw_tail = 0u;
 	serial_rx_raw_count = 0u;
-	serial_response_transport = SERIAL_COMMAND_TRANSPORT_CDC;
 
 	critical_section_exit(primask);
 }
@@ -384,9 +381,4 @@ uint8_t serial_command_stream_pending(void)
 		}
 	}
 	return (uint8_t)(serial_rx_raw_count != 0u);
-}
-
-void serial_command_set_response_transport(serial_command_transport_t transport)
-{
-	serial_response_transport = serial_transport_normalize(transport);
 }

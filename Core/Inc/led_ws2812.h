@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "tim.h"
+#include "led_types.h"
 
 void LED_set(uint8_t led_no,uint8_t r,uint8_t g,uint8_t b);
 void LED_refresh();
