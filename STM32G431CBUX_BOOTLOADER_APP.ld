@@ -17,6 +17,11 @@
 
 ENTRY(Reset_Handler)
 
+/* _estack sits at the top of the linker-managed RAM. RAM LENGTH below is
+ * deliberately 256 bytes short of the physical 32K so the topmost word
+ * (0x20007F00) is left outside this region for the DFU / Affine-bootloader
+ * reset marker (Core/Src/dfu_jump.c). Keeping _estack below the marker means the
+ * descending MSP stack cannot clobber it. */
 _estack = ORIGIN(RAM) + LENGTH(RAM);
 
 /* Reserved for rare newlib allocations such as lock bootstrap.
@@ -27,7 +32,7 @@ _Min_Stack_Size = 0x800;
 
 MEMORY
 {
-  RAM   (xrw) : ORIGIN = 0x20000000, LENGTH = 32K
+  RAM   (xrw) : ORIGIN = 0x20000000, LENGTH = 0x7F00  /* 32K - 256B reset-marker reserve */
   FLASH (rx)  : ORIGIN = 0x08006000, LENGTH = 92K
 }
 
