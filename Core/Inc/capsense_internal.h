@@ -112,7 +112,7 @@ extern uint16_t capsense_hold_release_level[16];
 
 extern uint8_t capsense_hold_state[16];
 
-extern uint8_t capsense_protocol_version;
+extern volatile uint8_t capsense_protocol_version;
 
 extern uint8_t capsense_checksum_last;
 

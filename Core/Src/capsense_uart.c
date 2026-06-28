@@ -402,13 +402,19 @@ uint8_t capsense_restart_uart4_rx(void)
 
 void capsense_uart_stats_get(capsense_uart_stats_t *stats_out)
 {
+	uint32_t primask;
+
 	if (stats_out == NULL) {
 		return;
 	}
 
+	/* Snapshot consistently: the UART4 RX ISR increments these counters, so an
+	 * unguarded whole-struct copy could mix pre/post-increment fields. */
+	primask = critical_section_enter();
 	*stats_out = capsense_uart_stats;
 	stats_out->protocol_version = capsense_protocol_version;
 	stats_out->legacy_payload_offset = capsense_legacy_payload_offset;
+	critical_section_exit(primask);
 }
 
 void capsense_uart_stats_reset(void)
