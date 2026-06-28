@@ -18,6 +18,50 @@
 #define RAW_DEBUG_SNAPSHOT_PARTS 2u
 #define RAW_DEBUG_SNAPSHOT_VALUES_PER_PART (34u / RAW_DEBUG_SNAPSHOT_PARTS)
 
+void sfb_begin(serial_frame_builder_t *b, uint8_t command)
+{
+	b->buf[0] = 0xffu;
+	b->buf[1] = command;
+	b->buf[2] = 0u;
+	b->idx = 3u;
+}
+
+void sfb_put(serial_frame_builder_t *b, const void *src, uint8_t n)
+{
+	if ((uint16_t)(b->idx + n) > (uint16_t)(SERIAL_FRAME_BUILDER_CAP - 1u)) {
+		return;
+	}
+	memcpy(&b->buf[b->idx], src, n);
+	b->idx = (uint8_t)(b->idx + n);
+}
+
+void sfb_put_u8(serial_frame_builder_t *b, uint8_t v)
+{
+	if (b->idx > (uint8_t)(SERIAL_FRAME_BUILDER_CAP - 2u)) {
+		return;
+	}
+	b->buf[b->idx] = v;
+	b->idx++;
+}
+
+void sfb_finish_emit(serial_frame_builder_t *b)
+{
+	b->buf[2] = (uint8_t)(b->idx - 3u);
+	b->buf[b->idx] = serial_checksum_sum(b->buf, b->idx);
+	(void) serial_cdc_tx_enqueue_high(b->buf, (uint16_t)(b->idx + 1u));
+}
+
+uint8_t serial_stats_reset_guard(const uint8_t *rx, void (*reset_fn)(void))
+{
+	if ((rx[2] > 1u) || ((rx[2] == 1u) && (rx[3] != 1u))) {
+		return 0u;
+	}
+	if ((rx[2] == 1u) && (rx[3] == 1u)) {
+		reset_fn();
+	}
+	return 1u;
+}
+
 uint8_t serial_reports_build_live_state_frame(uint8_t command,
 		const input_snapshot_t *snapshot, uint8_t *buf, uint8_t *len_out)
 {

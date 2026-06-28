@@ -22,4 +22,12 @@ uint8_t serial_capsense_debug_emit_focus(const float *focus_values, uint8_t coun
 		const uint8_t *vofa_tail, uint8_t tail_len);
 uint8_t serial_capsense_debug_emit_raw(const uint16_t *raw_values, uint8_t value_count);
 
+#define SERIAL_FRAME_BUILDER_CAP 72u  /* header(3)+payload+checksum(1); largest current frame = usb_cdc_stats 60B */
+typedef struct { uint8_t buf[SERIAL_FRAME_BUILDER_CAP]; uint8_t idx; } serial_frame_builder_t;
+void sfb_begin(serial_frame_builder_t *b, uint8_t command);
+void sfb_put(serial_frame_builder_t *b, const void *src, uint8_t n);
+void sfb_put_u8(serial_frame_builder_t *b, uint8_t v);
+void sfb_finish_emit(serial_frame_builder_t *b);
+uint8_t serial_stats_reset_guard(const uint8_t *rx, void (*reset_fn)(void));
+
 #endif /* INC_SERIAL_REPORTS_H_ */

@@ -208,45 +208,27 @@ static void handle_serial_cmd_get_capsense_uart_stats(const serial_command_conte
 {
 	const uint8_t *rxBuffer = ctx->data;
 	capsense_uart_stats_t stats;
-	uint8_t cmd_tmp[40] = {0};
-	uint8_t idx = 3;
+	serial_frame_builder_t b;
 
-	if ((rxBuffer[2] > 1) || ((rxBuffer[2] == 1) && (rxBuffer[3] != 1))) {
+	if (!serial_stats_reset_guard(rxBuffer, capsense_uart_stats_reset)) {
 		return;
-	}
-	if ((rxBuffer[2] == 1) && (rxBuffer[3] == 1)) {
-		capsense_uart_stats_reset();
 	}
 
 	capsense_uart_stats_get(&stats);
 
-	cmd_tmp[0] = 0xff;
-	cmd_tmp[1] = SERIAL_CMD_GET_CAPSENSE_UART_STATS;
-	cmd_tmp[2] = 35;
-
-	memcpy(&cmd_tmp[idx], &stats.checksum_accept_count, sizeof(stats.checksum_accept_count));
-	idx += sizeof(stats.checksum_accept_count);
-	memcpy(&cmd_tmp[idx], &stats.rolling_checksum_accept_count, sizeof(stats.rolling_checksum_accept_count));
-	idx += sizeof(stats.rolling_checksum_accept_count);
-	memcpy(&cmd_tmp[idx], &stats.legacy_accept_count, sizeof(stats.legacy_accept_count));
-	idx += sizeof(stats.legacy_accept_count);
-	memcpy(&cmd_tmp[idx], &stats.short_packet_count, sizeof(stats.short_packet_count));
-	idx += sizeof(stats.short_packet_count);
-	memcpy(&cmd_tmp[idx], &stats.empty_packet_count, sizeof(stats.empty_packet_count));
-	idx += sizeof(stats.empty_packet_count);
-	memcpy(&cmd_tmp[idx], &stats.parse_fail_count, sizeof(stats.parse_fail_count));
-	idx += sizeof(stats.parse_fail_count);
-	memcpy(&cmd_tmp[idx], &stats.uart_error_count, sizeof(stats.uart_error_count));
-	idx += sizeof(stats.uart_error_count);
-	memcpy(&cmd_tmp[idx], &stats.auto_reset_count, sizeof(stats.auto_reset_count));
-	idx += sizeof(stats.auto_reset_count);
-	cmd_tmp[idx++] = stats.protocol_version;
-	cmd_tmp[idx++] = stats.legacy_payload_offset;
-	cmd_tmp[idx++] = stats.rx_failure_streak;
-
-	cmd_tmp[idx] = serial_checksum_sum(cmd_tmp, idx);
-	(void) serial_cdc_tx_enqueue_high(cmd_tmp, (uint16_t) (idx + 1));
-	return;
+	sfb_begin(&b, SERIAL_CMD_GET_CAPSENSE_UART_STATS);
+	sfb_put(&b, &stats.checksum_accept_count, sizeof(stats.checksum_accept_count));
+	sfb_put(&b, &stats.rolling_checksum_accept_count, sizeof(stats.rolling_checksum_accept_count));
+	sfb_put(&b, &stats.legacy_accept_count, sizeof(stats.legacy_accept_count));
+	sfb_put(&b, &stats.short_packet_count, sizeof(stats.short_packet_count));
+	sfb_put(&b, &stats.empty_packet_count, sizeof(stats.empty_packet_count));
+	sfb_put(&b, &stats.parse_fail_count, sizeof(stats.parse_fail_count));
+	sfb_put(&b, &stats.uart_error_count, sizeof(stats.uart_error_count));
+	sfb_put(&b, &stats.auto_reset_count, sizeof(stats.auto_reset_count));
+	sfb_put_u8(&b, stats.protocol_version);
+	sfb_put_u8(&b, stats.legacy_payload_offset);
+	sfb_put_u8(&b, stats.rx_failure_streak);
+	sfb_finish_emit(&b);
 }
 
 static void handle_serial_cmd_get_usb_cdc_stats(const serial_command_context_t *ctx)
@@ -255,141 +237,85 @@ static void handle_serial_cmd_get_usb_cdc_stats(const serial_command_context_t *
 	usb_cdc_tx_stats_t stats;
 	uint32_t high_depth = 0;
 	uint32_t low_depth = 0;
-	uint8_t cmd_tmp[64] = {0};
-	uint8_t idx = 3;
+	serial_frame_builder_t b;
 
-	if ((rxBuffer[2] > 1) || ((rxBuffer[2] == 1) && (rxBuffer[3] != 1))) {
+	if (!serial_stats_reset_guard(rxBuffer, usb_cdc_tx_stats_reset)) {
 		return;
-	}
-	if ((rxBuffer[2] == 1) && (rxBuffer[3] == 1)) {
-		usb_cdc_tx_stats_reset();
 	}
 
 	usb_cdc_tx_stats_snapshot(&stats, &high_depth, &low_depth);
 
-	cmd_tmp[0] = 0xff;
-	cmd_tmp[1] = SERIAL_CMD_GET_USB_CDC_STATS;
-	cmd_tmp[2] = 56;
-
-	memcpy(&cmd_tmp[idx], &stats.high_enqueued_count, sizeof(stats.high_enqueued_count));
-	idx += sizeof(stats.high_enqueued_count);
-	memcpy(&cmd_tmp[idx], &stats.low_enqueued_count, sizeof(stats.low_enqueued_count));
-	idx += sizeof(stats.low_enqueued_count);
-	memcpy(&cmd_tmp[idx], &stats.high_drop_count, sizeof(stats.high_drop_count));
-	idx += sizeof(stats.high_drop_count);
-	memcpy(&cmd_tmp[idx], &stats.low_drop_count, sizeof(stats.low_drop_count));
-	idx += sizeof(stats.low_drop_count);
-	memcpy(&cmd_tmp[idx], &stats.tx_ok_count, sizeof(stats.tx_ok_count));
-	idx += sizeof(stats.tx_ok_count);
-	memcpy(&cmd_tmp[idx], &stats.tx_busy_retry_count, sizeof(stats.tx_busy_retry_count));
-	idx += sizeof(stats.tx_busy_retry_count);
-	memcpy(&cmd_tmp[idx], &stats.tx_fail_retry_count, sizeof(stats.tx_fail_retry_count));
-	idx += sizeof(stats.tx_fail_retry_count);
-	memcpy(&cmd_tmp[idx], &stats.tx_giveup_count, sizeof(stats.tx_giveup_count));
-	idx += sizeof(stats.tx_giveup_count);
-	memcpy(&cmd_tmp[idx], &stats.last_tx_latency_ms, sizeof(stats.last_tx_latency_ms));
-	idx += sizeof(stats.last_tx_latency_ms);
-	memcpy(&cmd_tmp[idx], &stats.max_tx_latency_ms, sizeof(stats.max_tx_latency_ms));
-	idx += sizeof(stats.max_tx_latency_ms);
-	memcpy(&cmd_tmp[idx], &stats.last_retry_count, sizeof(stats.last_retry_count));
-	idx += sizeof(stats.last_retry_count);
-	memcpy(&cmd_tmp[idx], &stats.max_retry_count, sizeof(stats.max_retry_count));
-	idx += sizeof(stats.max_retry_count);
-	memcpy(&cmd_tmp[idx], &high_depth, sizeof(high_depth));
-	idx += sizeof(high_depth);
-	memcpy(&cmd_tmp[idx], &low_depth, sizeof(low_depth));
-	idx += sizeof(low_depth);
-
-	cmd_tmp[idx] = serial_checksum_sum(cmd_tmp, idx);
-	(void) serial_cdc_tx_enqueue_high(cmd_tmp, (uint16_t) (idx + 1));
+	sfb_begin(&b, SERIAL_CMD_GET_USB_CDC_STATS);
+	sfb_put(&b, &stats.high_enqueued_count, sizeof(stats.high_enqueued_count));
+	sfb_put(&b, &stats.low_enqueued_count, sizeof(stats.low_enqueued_count));
+	sfb_put(&b, &stats.high_drop_count, sizeof(stats.high_drop_count));
+	sfb_put(&b, &stats.low_drop_count, sizeof(stats.low_drop_count));
+	sfb_put(&b, &stats.tx_ok_count, sizeof(stats.tx_ok_count));
+	sfb_put(&b, &stats.tx_busy_retry_count, sizeof(stats.tx_busy_retry_count));
+	sfb_put(&b, &stats.tx_fail_retry_count, sizeof(stats.tx_fail_retry_count));
+	sfb_put(&b, &stats.tx_giveup_count, sizeof(stats.tx_giveup_count));
+	sfb_put(&b, &stats.last_tx_latency_ms, sizeof(stats.last_tx_latency_ms));
+	sfb_put(&b, &stats.max_tx_latency_ms, sizeof(stats.max_tx_latency_ms));
+	sfb_put(&b, &stats.last_retry_count, sizeof(stats.last_retry_count));
+	sfb_put(&b, &stats.max_retry_count, sizeof(stats.max_retry_count));
+	sfb_put(&b, &high_depth, sizeof(high_depth));
+	sfb_put(&b, &low_depth, sizeof(low_depth));
+	sfb_finish_emit(&b);
 }
 
 static void handle_serial_cmd_get_touch_hid_stats(const serial_command_context_t *ctx)
 {
 	const uint8_t *rxBuffer = ctx->data;
 	usb_touch_hid_stats_t stats;
-	uint8_t cmd_tmp[64] = {0};
-	uint8_t idx = 3;
+	serial_frame_builder_t b;
 
-	if ((rxBuffer[2] > 1) || ((rxBuffer[2] == 1) && (rxBuffer[3] != 1))) {
+	if (!serial_stats_reset_guard(rxBuffer, usb_reporter_touch_hid_stats_reset)) {
 		return;
-	}
-	if ((rxBuffer[2] == 1) && (rxBuffer[3] == 1)) {
-		usb_reporter_touch_hid_stats_reset();
 	}
 
 	usb_reporter_touch_hid_stats_snapshot(&stats);
 
-	cmd_tmp[0] = 0xff;
-	cmd_tmp[1] = SERIAL_CMD_GET_TOUCH_HID_STATS;
-	cmd_tmp[2] = 48;
-
-	memcpy(&cmd_tmp[idx], &stats.frame_start_count, sizeof(stats.frame_start_count));
-	idx += sizeof(stats.frame_start_count);
-	memcpy(&cmd_tmp[idx], &stats.part_send_ok_count, sizeof(stats.part_send_ok_count));
-	idx += sizeof(stats.part_send_ok_count);
-	memcpy(&cmd_tmp[idx], &stats.busy_retry_count, sizeof(stats.busy_retry_count));
-	idx += sizeof(stats.busy_retry_count);
-	memcpy(&cmd_tmp[idx], &stats.not_ready_retry_count, sizeof(stats.not_ready_retry_count));
-	idx += sizeof(stats.not_ready_retry_count);
-	memcpy(&cmd_tmp[idx], &stats.send_fail_count, sizeof(stats.send_fail_count));
-	idx += sizeof(stats.send_fail_count);
-	memcpy(&cmd_tmp[idx], &stats.stale_drop_count, sizeof(stats.stale_drop_count));
-	idx += sizeof(stats.stale_drop_count);
-	memcpy(&cmd_tmp[idx], &stats.last_frame_interval_ms, sizeof(stats.last_frame_interval_ms));
-	idx += sizeof(stats.last_frame_interval_ms);
-	memcpy(&cmd_tmp[idx], &stats.max_frame_interval_ms, sizeof(stats.max_frame_interval_ms));
-	idx += sizeof(stats.max_frame_interval_ms);
-	memcpy(&cmd_tmp[idx], &stats.last_part_latency_ms, sizeof(stats.last_part_latency_ms));
-	idx += sizeof(stats.last_part_latency_ms);
-	memcpy(&cmd_tmp[idx], &stats.max_part_latency_ms, sizeof(stats.max_part_latency_ms));
-	idx += sizeof(stats.max_part_latency_ms);
-	memcpy(&cmd_tmp[idx], &stats.dropped_frames, sizeof(stats.dropped_frames));
-	idx += sizeof(stats.dropped_frames);
-	cmd_tmp[idx++] = stats.pending;
-	cmd_tmp[idx++] = stats.part_index;
-	cmd_tmp[idx++] = stats.in_ready;
-	cmd_tmp[idx++] = stats.reserved;
-
-	cmd_tmp[idx] = serial_checksum_sum(cmd_tmp, idx);
-	(void) serial_cdc_tx_enqueue_high(cmd_tmp, (uint16_t) (idx + 1));
+	sfb_begin(&b, SERIAL_CMD_GET_TOUCH_HID_STATS);
+	sfb_put(&b, &stats.frame_start_count, sizeof(stats.frame_start_count));
+	sfb_put(&b, &stats.part_send_ok_count, sizeof(stats.part_send_ok_count));
+	sfb_put(&b, &stats.busy_retry_count, sizeof(stats.busy_retry_count));
+	sfb_put(&b, &stats.not_ready_retry_count, sizeof(stats.not_ready_retry_count));
+	sfb_put(&b, &stats.send_fail_count, sizeof(stats.send_fail_count));
+	sfb_put(&b, &stats.stale_drop_count, sizeof(stats.stale_drop_count));
+	sfb_put(&b, &stats.last_frame_interval_ms, sizeof(stats.last_frame_interval_ms));
+	sfb_put(&b, &stats.max_frame_interval_ms, sizeof(stats.max_frame_interval_ms));
+	sfb_put(&b, &stats.last_part_latency_ms, sizeof(stats.last_part_latency_ms));
+	sfb_put(&b, &stats.max_part_latency_ms, sizeof(stats.max_part_latency_ms));
+	sfb_put(&b, &stats.dropped_frames, sizeof(stats.dropped_frames));
+	sfb_put_u8(&b, stats.pending);
+	sfb_put_u8(&b, stats.part_index);
+	sfb_put_u8(&b, stats.in_ready);
+	sfb_put_u8(&b, stats.reserved);
+	sfb_finish_emit(&b);
 }
 
 static void handle_serial_cmd_get_capsense_debug_stats(const serial_command_context_t *ctx)
 {
 	const uint8_t *rxBuffer = ctx->data;
 	capsense_debug_stats_t stats;
-	uint8_t cmd_tmp[32] = {0};
-	uint8_t idx = 3;
+	serial_frame_builder_t b;
 
-	if ((rxBuffer[2] > 1) || ((rxBuffer[2] == 1) && (rxBuffer[3] != 1))) {
+	if (!serial_stats_reset_guard(rxBuffer, capsense_debug_stats_reset)) {
 		return;
-	}
-	if ((rxBuffer[2] == 1) && (rxBuffer[3] == 1)) {
-		capsense_debug_stats_reset();
 	}
 
 	capsense_debug_stats_get(&stats);
 
-	cmd_tmp[0] = 0xff;
-	cmd_tmp[1] = SERIAL_CMD_GET_CAPSENSE_DEBUG_STATS;
-	cmd_tmp[2] = 20;
-
-	memcpy(&cmd_tmp[idx], &stats.service_call_count, sizeof(stats.service_call_count));
-	idx += sizeof(stats.service_call_count);
-	memcpy(&cmd_tmp[idx], &stats.emit_batch_count, sizeof(stats.emit_batch_count));
-	idx += sizeof(stats.emit_batch_count);
-	memcpy(&cmd_tmp[idx], &stats.enqueue_attempt_count, sizeof(stats.enqueue_attempt_count));
-	idx += sizeof(stats.enqueue_attempt_count);
-	memcpy(&cmd_tmp[idx], &stats.enqueue_success_count, sizeof(stats.enqueue_success_count));
-	idx += sizeof(stats.enqueue_success_count);
-	cmd_tmp[idx++] = stats.last_queue_slots;
-	cmd_tmp[idx++] = stats.last_debug_flag;
-	cmd_tmp[idx++] = stats.last_debug_stream_mode;
-	cmd_tmp[idx++] = stats.last_enqueue_success_mask;
-
-	cmd_tmp[idx] = serial_checksum_sum(cmd_tmp, idx);
-	(void) serial_cdc_tx_enqueue_high(cmd_tmp, (uint16_t) (idx + 1));
+	sfb_begin(&b, SERIAL_CMD_GET_CAPSENSE_DEBUG_STATS);
+	sfb_put(&b, &stats.service_call_count, sizeof(stats.service_call_count));
+	sfb_put(&b, &stats.emit_batch_count, sizeof(stats.emit_batch_count));
+	sfb_put(&b, &stats.enqueue_attempt_count, sizeof(stats.enqueue_attempt_count));
+	sfb_put(&b, &stats.enqueue_success_count, sizeof(stats.enqueue_success_count));
+	sfb_put_u8(&b, stats.last_queue_slots);
+	sfb_put_u8(&b, stats.last_debug_flag);
+	sfb_put_u8(&b, stats.last_debug_stream_mode);
+	sfb_put_u8(&b, stats.last_enqueue_success_mask);
+	sfb_finish_emit(&b);
 }
 
 static void handle_serial_cmd_get_controller_role(const serial_command_context_t *ctx)
@@ -792,28 +718,16 @@ static void handle_serial_cmd_get_board_info(const serial_command_context_t *ctx
 	uid[2] = HAL_GetUIDw2();
 	uint8_t uid_len = 12;
 
-	uint8_t data_len = 1 + version_len + 1 + name_len + 1 + uid_len;
-	uint8_t cmd_tmp[64];
+	serial_frame_builder_t b;
 
-	cmd_tmp[0] = 0xFF;
-	cmd_tmp[1] = SERIAL_CMD_GET_BOARD_INFO;
-	cmd_tmp[2] = data_len;
-
-	uint8_t idx = 3;
-	cmd_tmp[idx++] = version_len;
-	memcpy(&cmd_tmp[idx], VERSION, version_len);
-	idx += version_len;
-
-	cmd_tmp[idx++] = name_len;
-	memcpy(&cmd_tmp[idx], board_name, name_len);
-	idx += name_len;
-
-	cmd_tmp[idx++] = uid_len;
-	memcpy(&cmd_tmp[idx], uid, uid_len);
-	idx += uid_len;
-
-	cmd_tmp[idx] = serial_checksum_sum(cmd_tmp, idx);
-	(void) serial_cdc_tx_enqueue_high(cmd_tmp, idx + 1);
+	sfb_begin(&b, SERIAL_CMD_GET_BOARD_INFO);
+	sfb_put_u8(&b, version_len);
+	sfb_put(&b, VERSION, version_len);
+	sfb_put_u8(&b, name_len);
+	sfb_put(&b, board_name, name_len);
+	sfb_put_u8(&b, uid_len);
+	sfb_put(&b, uid, 12u);
+	sfb_finish_emit(&b);
 }
 
 static const serial_command_entry_t serial_command_table[] = {
