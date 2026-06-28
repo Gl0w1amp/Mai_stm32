@@ -119,6 +119,10 @@ jobs:
                 ../Core/Src/gpio.c \
                 ../Core/Src/input_snapshot.c \
                 ../Core/Src/LED.c \
+                ../Core/Src/led_fet.c \
+                ../Core/Src/led_ws2812.c \
+                ../Core/Src/led_state.c \
+                ../Core/Src/mai2led.c \
                 ../Core/Src/serial_commands.c \
                 ../Core/Src/serial_protocol.c \
                 ../Core/Src/serial_reports.c \
