@@ -106,8 +106,6 @@ static usb_reporter_custom_endpoint_t custom_ep = {0};
 static usb_reporter_vendor_endpoint_t vendor_ep = {0};
 static usb_reporter_touch_endpoint_t touch_ep = {0};
 static uint8_t last_keyboard_report[USB_REPORTER_KEYBOARD_REPORT_SIZE] = {0};
-static uint8_t last_custom_buttons0 = 0xFFu;
-static uint8_t last_custom_io_status = 0xFFu;
 static uint8_t cdc_in_ready = 1u;
 static uint8_t custom_hid_in_ready = 1u;
 static uint8_t vendor_hid_in_ready = 1u;
@@ -448,8 +446,13 @@ static void usb_reporter_maybe_enqueue_custom_buttons(uint8_t debug_flag,
 	if (input_snapshot_get_latest(&snapshot) == 0u) {
 		return;
 	}
-	if ((snapshot.button_bits[0] == last_custom_buttons0) &&
-			(snapshot.button_bits[1] == last_custom_io_status)) {
+	/* Always report the current button state (continuous), but keep at most one
+	 * custom frame outstanding so reports self-pace to the host poll rate without
+	 * building a backlog of stale states or starving the other custom reports
+	 * that share this endpoint. */
+	if ((custom_hid_queue == NULL) ||
+			(uxQueueMessagesWaiting(custom_hid_queue) != 0u) ||
+			(custom_ep.pending != 0u)) {
 		return;
 	}
 
@@ -458,8 +461,6 @@ static void usb_reporter_maybe_enqueue_custom_buttons(uint8_t debug_flag,
 	put_u16le(&report[2], sequence);
 	if (usb_reporter_custom_hid_enqueue(report, sizeof(report)) != 0u) {
 		sequence++;
-		last_custom_buttons0 = snapshot.button_bits[0];
-		last_custom_io_status = snapshot.button_bits[1];
 	}
 }
 
@@ -686,8 +687,6 @@ void usb_reporter_reset(void)
 	memset(&vendor_ep, 0, sizeof(vendor_ep));
 	memset(&touch_ep, 0, sizeof(touch_ep));
 	memset(last_keyboard_report, 0, sizeof(last_keyboard_report));
-	last_custom_buttons0 = 0xFFu;
-	last_custom_io_status = 0xFFu;
 	cdc_in_ready = 1u;
 	cdc_in_flight_start_tick = 0u;
 	cdc_live_last_enqueue_tick = 0u;
