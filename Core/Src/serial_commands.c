@@ -159,21 +159,17 @@ static void handle_serial_cmd_led_pwm(const serial_command_context_t *ctx)
 static void serial_send_led_status_response(uint8_t command, uint8_t ok)
 {
 	LED_Status status;
-	uint8_t cmd_tmp[13] = {0};
+	uint8_t p[9] = {0};
 
 	LED_StatusSnapshot(&status, HAL_GetTick());
-	cmd_tmp[0] = 0xff;
-	cmd_tmp[1] = command;
-	cmd_tmp[2] = 9u;
-	cmd_tmp[3] = ok;
-	cmd_tmp[4] = status.mode;
-	cmd_tmp[5] = status.host_active;
-	cmd_tmp[6] = status.idle_effect;
-	cmd_tmp[7] = status.idle_brightness;
-	put_u16le(&cmd_tmp[8], status.host_timeout_ms);
-	put_u16le(&cmd_tmp[10], status.host_remaining_ms);
-	cmd_tmp[12] = serial_checksum_sum(cmd_tmp, 12u);
-	(void) serial_cdc_tx_enqueue_high(cmd_tmp, sizeof(cmd_tmp));
+	p[0] = ok;
+	p[1] = status.mode;
+	p[2] = status.host_active;
+	p[3] = status.idle_effect;
+	p[4] = status.idle_brightness;
+	put_u16le(&p[5], status.host_timeout_ms);
+	put_u16le(&p[7], status.host_remaining_ms);
+	serial_reply_emit(command, p, 9u);
 }
 
 static void handle_serial_cmd_led_mode(const serial_command_context_t *ctx)
@@ -399,18 +395,13 @@ static void handle_serial_cmd_get_capsense_debug_stats(const serial_command_cont
 static void handle_serial_cmd_get_controller_role(const serial_command_context_t *ctx)
 {
 	uint16_t pid = USBD_GetControllerPid();
-	uint8_t cmd_tmp[7] = {
-		0xff,
-			SERIAL_CMD_GET_CONTROLLER_ROLE,
-			3,
-			controller_role_normalize(Flash.controller_role),
-			(uint8_t) (pid & 0xFFu),
-			(uint8_t) ((pid >> 8) & 0xFFu),
-			0
+	uint8_t p[3] = {
+		controller_role_normalize(Flash.controller_role),
+		(uint8_t) (pid & 0xFFu),
+		(uint8_t) ((pid >> 8) & 0xFFu)
 	};
 
-	cmd_tmp[6] = serial_checksum_sum(cmd_tmp, 6u);
-	(void) serial_cdc_tx_enqueue_high(cmd_tmp, sizeof(cmd_tmp));
+	serial_reply_emit(SERIAL_CMD_GET_CONTROLLER_ROLE, p, 3u);
 }
 
 static void handle_serial_cmd_set_controller_role(const serial_command_context_t *ctx)
@@ -419,7 +410,7 @@ static void handle_serial_cmd_set_controller_role(const serial_command_context_t
 	uint8_t requested_role;
 	uint8_t applied_role;
 	uint8_t ok = 0;
-	uint8_t cmd_tmp[6] = {0xff, SERIAL_CMD_SET_CONTROLLER_ROLE, 2, 0, 0, 0};
+	uint8_t p[2] = {0, 0};
 
 	if(rxBuffer[2] != 1){
 		return;
@@ -432,19 +423,18 @@ static void handle_serial_cmd_set_controller_role(const serial_command_context_t
 			player = applied_role;
 			USBD_SetControllerRole(applied_role);
 			ok = 1u;
-			cmd_tmp[3] = applied_role;
-			cmd_tmp[4] = ok;
+			p[0] = applied_role;
+			p[1] = ok;
 		} else {
-			cmd_tmp[3] = requested_role;
-			cmd_tmp[4] = ok;
+			p[0] = requested_role;
+			p[1] = ok;
 		}
 	} else {
-		cmd_tmp[3] = requested_role;
-		cmd_tmp[4] = ok;
+		p[0] = requested_role;
+		p[1] = ok;
 	}
 
-	cmd_tmp[5] = serial_checksum_sum(cmd_tmp, 5u);
-	(void) serial_cdc_tx_enqueue_high(cmd_tmp, sizeof(cmd_tmp));
+	serial_reply_emit(SERIAL_CMD_SET_CONTROLLER_ROLE, p, 2u);
 
 	if (ok != 0u) {
 		osDelay(100);
@@ -483,11 +473,10 @@ static void handle_serial_cmd_read_mono_threshold(const serial_command_context_t
 		serial_send_simple_status(SERIAL_CMD_READ_MONO_THRESHOLD, 0u);
 		return;
 	}
-	uint8_t cmd_tmp[7] = {0xff,5,3,0,0,0,0};
-	cmd_tmp[3] = rxBuffer[3];
-	memcpy(cmd_tmp + 4,&Flash.touch_threshold[cmd_tmp[3]],2);
-	cmd_tmp[6] = serial_checksum_sum(cmd_tmp, 6u);
-	(void) serial_cdc_tx_enqueue_high(cmd_tmp, 7);
+	uint8_t p[3] = {0,0,0};
+	p[0] = rxBuffer[3];
+	memcpy(p + 1,&Flash.touch_threshold[p[0]],2);
+	serial_reply_emit(SERIAL_CMD_READ_MONO_THRESHOLD, p, 3u);
 }
 
 static void handle_serial_cmd_write_mono_threshold(const serial_command_context_t *ctx)
@@ -513,12 +502,11 @@ static void handle_serial_cmd_read_touch_sheet(const serial_command_context_t *c
 	if(rxBuffer[2] != 0){
 		return;
 	}
-	uint8_t cmd_tmp[38] = {0xff,7,34};
+	uint8_t p[34] = {0};
 	for(uint8_t i = 0;i<TOUCH_CHANNEL_COUNT;i++){
-		cmd_tmp[i + 3] = Flash.touch_sheet[i];
+		p[i] = Flash.touch_sheet[i];
 	}
-	cmd_tmp[37] = serial_checksum_sum(cmd_tmp, 37u);
-	(void) serial_cdc_tx_enqueue_high(cmd_tmp, 38);
+	serial_reply_emit(SERIAL_CMD_READ_TOUCH_SHEET, p, 34u);
 }
 
 static void handle_serial_cmd_write_touch_sheet(const serial_command_context_t *ctx)
@@ -545,11 +533,10 @@ static void handle_serial_cmd_read_delay_setting(const serial_command_context_t 
 			serial_send_simple_status(SERIAL_CMD_READ_DELAY_SETTING, 0u);
 			return;
 		}
-		uint8_t cmd_tmp[6] = {0xff,0x12,2};
-		cmd_tmp[3] = rxBuffer[3];
-		cmd_tmp[4] = Flash.delay_setting[rxBuffer[3]];
-		cmd_tmp[5] = serial_checksum_sum(cmd_tmp, 5u);
-		(void) serial_cdc_tx_enqueue_high(cmd_tmp, 6);
+		uint8_t p[2];
+		p[0] = rxBuffer[3];
+		p[1] = Flash.delay_setting[rxBuffer[3]];
+		serial_reply_emit(SERIAL_CMD_READ_DELAY_SETTING, p, 2u);
 		return;
 	}
 }
@@ -562,21 +549,17 @@ static void handle_serial_cmd_write_delay_setting(const serial_command_context_t
 	}else{
 		if((rxBuffer[3] >= DELAY_SETTING_COUNT) ||
 			(rxBuffer[4] > DELAY_SETTING_MAX)){
-			uint8_t cmd_tmp[6] = {0xff,0x13,2,rxBuffer[3],0,0};
-			cmd_tmp[5] = serial_checksum_sum(cmd_tmp, 5u);
-			(void) serial_cdc_tx_enqueue_high(cmd_tmp, 6);
+			uint8_t p[2] = {rxBuffer[3],0};
+			serial_reply_emit(SERIAL_CMD_WRITE_DELAY_SETTING, p, 2u);
 			return;
 		}
 		uint8_t index = rxBuffer[3];
 		if (flash_set_delay_setting(index, rxBuffer[4]) != 0u) {
-			uint8_t cmd_tmp[5] = {0xff,0x13,1};
-			cmd_tmp[3] = index;
-			cmd_tmp[4] = serial_checksum_sum(cmd_tmp, 4u);
-			(void) serial_cdc_tx_enqueue_high(cmd_tmp, 5);
+			uint8_t p[1] = {index};
+			serial_reply_emit(SERIAL_CMD_WRITE_DELAY_SETTING, p, 1u);
 		} else {
-			uint8_t cmd_tmp[6] = {0xff,0x13,2,index,0,0};
-			cmd_tmp[5] = serial_checksum_sum(cmd_tmp, 5u);
-			(void) serial_cdc_tx_enqueue_high(cmd_tmp, 6);
+			uint8_t p[2] = {index,0};
+			serial_reply_emit(SERIAL_CMD_WRITE_DELAY_SETTING, p, 2u);
 		}
 		return;
 	}
@@ -589,9 +572,8 @@ static void handle_serial_cmd_reset(const serial_command_context_t *ctx)
 		return;
 	}
 	// Send acknowledge before reset
-	uint8_t cmd_tmp[5] = {0xff,0x10,1,1,0};
-	cmd_tmp[4] = serial_checksum_sum(cmd_tmp, 4u);
-	(void) serial_cdc_tx_enqueue_high(cmd_tmp, 5);
+	uint8_t one = 1u;
+	serial_reply_emit(SERIAL_CMD_RESET, &one, 1u);
 	// Wait for transmission to complete
 	osDelay(100);
 	// Perform software reset
@@ -606,8 +588,8 @@ static void handle_serial_cmd_jump_to_dfu(const serial_command_context_t *ctx)
 		return;
 	}
 	// Send acknowledge before jumping to DFU
-	uint8_t cmd_tmp[5] = {0xff,0x21,1,1,0x22};
-	(void) serial_cdc_tx_enqueue_high(cmd_tmp, 5);
+	uint8_t one = 1u;
+	serial_reply_emit(SERIAL_CMD_JUMP_TO_DFU, &one, 1u);
 	// Wait for transmission to complete
 	osDelay(200);  // Increased delay
 
@@ -621,9 +603,8 @@ static void handle_serial_cmd_jump_to_bootloader(const serial_command_context_t 
 	if(rxBuffer[2] != 0){
 		return;
 	}
-	uint8_t cmd_tmp[5] = {0xff, SERIAL_CMD_JUMP_TO_BOOTLOADER, 1, 1, 0};
-	cmd_tmp[4] = serial_checksum_sum(cmd_tmp, 4u);
-	(void) serial_cdc_tx_enqueue_high(cmd_tmp, sizeof(cmd_tmp));
+	uint8_t one = 1u;
+	serial_reply_emit(SERIAL_CMD_JUMP_TO_BOOTLOADER, &one, 1u);
 	osDelay(200);
 	Request_Affine_Bootloader_And_Reset();
 }
@@ -698,7 +679,6 @@ static void handle_serial_cmd_to_debug_mode(const serial_command_context_t *ctx)
 	const uint8_t *rxBuffer = ctx->data;
 	uint8_t requested_mode = SERIAL_DEBUG_STREAM_MODE_FOCUS;
 	uint8_t ok = 0u;
-	uint8_t ack_cmd[5] = {0xff, SERIAL_CMD_TO_DEBUG_MODE, 1, 0, 0};
 
 	if(rxBuffer[2] == 0u){
 		ok = 1u;
@@ -714,28 +694,25 @@ static void handle_serial_cmd_to_debug_mode(const serial_command_context_t *ctx)
 		debug_flag = 1;
 		(void)LED_SetMode(LED_MODE_DIAGNOSTIC, HAL_GetTick());
 	}
-	ack_cmd[3] = ok;
-	ack_cmd[4] = serial_checksum_sum(ack_cmd, 4u);
-	(void) serial_cdc_tx_enqueue_high(ack_cmd, 5);
+	serial_reply_emit(SERIAL_CMD_TO_DEBUG_MODE, &ok, 1u);
 	return;
 }
 
 static void handle_serial_cmd_set_debug_channel(const serial_command_context_t *ctx)
 {
 	const uint8_t *rxBuffer = ctx->data;
-	uint8_t cmd_tmp[6] = {0xff, SERIAL_CMD_SET_DEBUG_CHANNEL, 2, 0, 0, 0};
+	uint8_t p[2] = {0, 0};
 	if(rxBuffer[2] != 1){
-		cmd_tmp[4] = 0;
+		p[1] = 0;
 	}else if(rxBuffer[3] < 34){
 		debug_channel = rxBuffer[3];
-		cmd_tmp[3] = debug_channel;
-		cmd_tmp[4] = 1;
+		p[0] = debug_channel;
+		p[1] = 1;
 	}else{
-		cmd_tmp[3] = rxBuffer[3];
-		cmd_tmp[4] = 0;
+		p[0] = rxBuffer[3];
+		p[1] = 0;
 	}
-	cmd_tmp[5] = serial_checksum_sum(cmd_tmp, 5u);
-	(void) serial_cdc_tx_enqueue_high(cmd_tmp, 6);
+	serial_reply_emit(SERIAL_CMD_SET_DEBUG_CHANNEL, p, 2u);
 }
 
 static void handle_serial_cmd_exit_debug_mode(const serial_command_context_t *ctx)
@@ -754,9 +731,8 @@ static void handle_serial_cmd_exit_debug_mode(const serial_command_context_t *ct
 	mai2_hid_raw_debug_reset();
 	(void)LED_SetMode(LED_MODE_AUTO, HAL_GetTick());
 	{
-		uint8_t ack_cmd[5] = {0xff, SERIAL_CMD_EXIT_DEBUG_MODE, 1, 1, 0};
-		ack_cmd[4] = serial_checksum_sum(ack_cmd, 4u);
-		(void) serial_cdc_tx_enqueue_high(ack_cmd, 5);
+		uint8_t one = 1u;
+		serial_reply_emit(SERIAL_CMD_EXIT_DEBUG_MODE, &one, 1u);
 	}
 }
 

@@ -80,12 +80,22 @@ uint8_t serial_reports_build_touch_scan_frame(const input_snapshot_t *snapshot,
 	return 1u;
 }
 
+/* Build + enqueue a standard reply frame {0xff,command,len,payload...,checksum}. */
+void serial_reply_emit(uint8_t command, const uint8_t *payload, uint8_t payload_len)
+{
+	uint8_t cmd_tmp[64];
+	if (payload_len > (uint8_t)(sizeof(cmd_tmp) - 4u)) { return; }
+	cmd_tmp[0] = 0xffu;
+	cmd_tmp[1] = command;
+	cmd_tmp[2] = payload_len;
+	if ((payload != NULL) && (payload_len != 0u)) { memcpy(&cmd_tmp[3], payload, payload_len); }
+	cmd_tmp[3u + payload_len] = serial_checksum_sum(cmd_tmp, (uint8_t)(3u + payload_len));
+	(void) serial_cdc_tx_enqueue_high(cmd_tmp, (uint16_t)(3u + payload_len + 1u));
+}
+
 void serial_send_simple_status(uint8_t command, uint8_t ok)
 {
-	uint8_t cmd_tmp[5] = {0xff, command, 1u, ok, 0u};
-
-	cmd_tmp[4] = serial_checksum_sum(cmd_tmp, 4u);
-	(void) serial_cdc_tx_enqueue_high(cmd_tmp, sizeof(cmd_tmp));
+	serial_reply_emit(command, &ok, 1u);
 }
 
 uint8_t serial_send_raw_debug_snapshot(uint8_t sequence, uint8_t part_index)
