@@ -8,6 +8,8 @@
 #include "capsense_sim.h"
 #include "usart.h"
 #include "cmsis_os.h"
+#include "serial_checksum.h"
+#include "critical_section.h"
 #include "string.h"
 
 extern DMA_HandleTypeDef hdma_uart4_rx;
@@ -312,10 +314,7 @@ bool capsense_data_proc(uint8_t *uart_dma_buffer){
 			}
 		}
 
-		strict_checksum = 0;
-		for(uint8_t i = 0;i<69;i++){
-			strict_checksum += uart_dma_buffer[i];
-		}
+		strict_checksum = serial_checksum_sum(uart_dma_buffer, 69u);
 		if(strict_checksum == uart_dma_buffer[69]){
 			capsense_checksum_last = uart_dma_buffer[69];
 			if (capsense_procotl_version == 1) {
@@ -394,9 +393,7 @@ uint8_t capsense_take_latest_snapshot(void)
 		capsense_data_ready = 0;
 		snapshot_ready = 1;
 	}
-	if (primask == 0u) {
-		__enable_irq();
-	}
+	critical_section_exit(primask);
 
 	return snapshot_ready;
 }
@@ -497,14 +494,11 @@ void capsense_service_pending_reset(void)
 		return;
 	}
 
-	primask = __get_PRIMASK();
-	__disable_irq();
+	primask = critical_section_enter();
 	if (capsense_reset_pending != 0u) {
 		capsense_reset_pending = 0;
 	}
-	if (primask == 0u) {
-		__enable_irq();
-	}
+	critical_section_exit(primask);
 
 	(void) HAL_UART_DMAStop(&huart4);
 	Boot_Buttom_IRQHandler();

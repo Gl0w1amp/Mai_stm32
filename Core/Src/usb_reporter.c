@@ -11,6 +11,7 @@
 #include "input_snapshot.h"
 #include "queue.h"
 #include "serial_reports.h"
+#include "byte_pack.h"
 #include "slider.h"
 #include "task.h"
 #include "usbd_cdc_acm_if.h"
@@ -458,8 +459,7 @@ static void usb_reporter_maybe_enqueue_custom_buttons(uint8_t debug_flag,
 
 	report[0] = snapshot.button_bits[0];
 	report[1] = snapshot.button_bits[1];
-	report[2] = (uint8_t)(sequence & 0xFFu);
-	report[3] = (uint8_t)((sequence >> 8) & 0xFFu);
+	put_u16le(&report[2], sequence);
 	if (usb_reporter_custom_hid_enqueue(report, sizeof(report)) != 0u) {
 		sequence++;
 		last_custom_buttons0 = snapshot.button_bits[0];
@@ -552,10 +552,7 @@ static void usb_reporter_touch_build_part(void)
 	touch_ep.report_buffer[5] = USB_TOUCH_REPORT_PART_COUNT;
 	touch_ep.report_buffer[6] = first_logical;
 	touch_ep.report_buffer[7] = value_count;
-	touch_ep.report_buffer[8] = (uint8_t)(touch_ep.active_snapshot.tick_ms & 0xFFu);
-	touch_ep.report_buffer[9] = (uint8_t)((touch_ep.active_snapshot.tick_ms >> 8) & 0xFFu);
-	touch_ep.report_buffer[10] = (uint8_t)((touch_ep.active_snapshot.tick_ms >> 16) & 0xFFu);
-	touch_ep.report_buffer[11] = (uint8_t)((touch_ep.active_snapshot.tick_ms >> 24) & 0xFFu);
+	put_u32le(&touch_ep.report_buffer[8], touch_ep.active_snapshot.tick_ms);
 	touch_ep.report_buffer[12] = USB_TOUCH_REPORT_FLAG_DELTA |
 			USB_TOUCH_REPORT_FLAG_LOGICAL_ORDER |
 			USB_TOUCH_REPORT_FLAG_TOUCH_BITS_VALID;
@@ -564,20 +561,14 @@ static void usb_reporter_touch_build_part(void)
 
 	for (uint8_t i = 0u; i < value_count; i++) {
 		uint16_t value = touch_ep.active_snapshot.touch_strength[first_logical + i];
-		touch_ep.report_buffer[16u + (i * 2u)] = (uint8_t)(value & 0xFFu);
-		touch_ep.report_buffer[17u + (i * 2u)] = (uint8_t)((value >> 8) & 0xFFu);
+		put_u16le(&touch_ep.report_buffer[16u + (i * 2u)], value);
 	}
 
 	memcpy(&touch_ep.report_buffer[50], touch_ep.active_snapshot.touch_bits,
 			INPUT_SNAPSHOT_TOUCH_BITS_SIZE);
-	touch_ep.report_buffer[55] = (uint8_t)(touch_ep.dropped_frames & 0xFFu);
-	touch_ep.report_buffer[56] = (uint8_t)((touch_ep.dropped_frames >> 8) & 0xFFu);
-	touch_ep.report_buffer[57] = (uint8_t)(touch_ep.active_snapshot.seq & 0xFFu);
-	touch_ep.report_buffer[58] = (uint8_t)((touch_ep.active_snapshot.seq >> 8) & 0xFFu);
-	touch_ep.report_buffer[59] = (uint8_t)((touch_ep.active_snapshot.seq >> 16) & 0xFFu);
-	touch_ep.report_buffer[60] = (uint8_t)((touch_ep.active_snapshot.seq >> 24) & 0xFFu);
-	touch_ep.report_buffer[61] = (uint8_t)(touch_hid_stats.last_frame_interval_ms & 0xFFu);
-	touch_ep.report_buffer[62] = (uint8_t)((touch_hid_stats.last_frame_interval_ms >> 8) & 0xFFu);
+	put_u16le(&touch_ep.report_buffer[55], (uint16_t)touch_ep.dropped_frames);
+	put_u32le(&touch_ep.report_buffer[57], touch_ep.active_snapshot.seq);
+	put_u16le(&touch_ep.report_buffer[61], (uint16_t)touch_hid_stats.last_frame_interval_ms);
 }
 
 static uint8_t usb_reporter_touch_try_send_part(void)

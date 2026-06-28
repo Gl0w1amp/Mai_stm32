@@ -92,48 +92,6 @@ const FirmwareHeader_t fw_header = {
     .reserved = {0} 
 };
 
-/* DFU jump function */
-void Jump_To_DFU_Bootloader(void)
-{
-    uint32_t i;
-    void (*SysMemBootJump)(void);
-    
-    /* Disable all interrupts */
-    __disable_irq();
-    
-    /* Set the clock to the default state */
-    HAL_RCC_DeInit();
-    
-    /* Clear Interrupt Enable Register & Interrupt Pending Register */
-    for (i = 0; i < 5; i++)
-    {
-        NVIC->ICER[i] = 0xFFFFFFFF;
-        NVIC->ICPR[i] = 0xFFFFFFFF;
-    }
-    
-    /* Enable the SYSCFG peripheral clock*/
-    __HAL_RCC_SYSCFG_CLK_ENABLE();
-    
-    /* Remap system memory to address 0x0000 0000 in address space */
-    __HAL_SYSCFG_REMAPMEMORY_SYSTEMFLASH();
-    
-    /* Set jump memory location for system memory */
-    /* Use address with 4 bytes offset as reset location is 0x0000 0004 */
-    SysMemBootJump = (void (*)(void)) (*((uint32_t *)(0x1FFF0000 + 4)));
-    
-    /* Set the main stack pointer to the system memory value */
-    __set_MSP(*(uint32_t *)0x1FFF0000);
-    
-    /* Call the function to jump to system memory */
-    SysMemBootJump();
-    
-    /* Jump is done successfully */
-    while (1)
-    {
-        /* Code should not reach this loop */
-    }
-}
-
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/

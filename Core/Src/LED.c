@@ -3,6 +3,7 @@
 #include "stdio.h"
 #include "usart.h"
 #include "stdbool.h"
+#include "critical_section.h"
 #include <string.h>
 
 #define NUM_LED 16
@@ -126,21 +127,6 @@ static uint8_t led_uart_start_receive_to_idle(void)
 	return 1u;
 }
 
-static uint32_t led_lock_irq(void)
-{
-    uint32_t primask = __get_PRIMASK();
-
-    __disable_irq();
-    return primask;
-}
-
-static void led_unlock_irq(uint32_t primask)
-{
-    if (primask == 0u) {
-        __enable_irq();
-    }
-}
-
 static uint8_t led_rx_frame_pop(LedRxFrame *frame)
 {
     uint32_t primask;
@@ -149,16 +135,16 @@ static uint8_t led_rx_frame_pop(LedRxFrame *frame)
         return 0;
     }
 
-    primask = led_lock_irq();
+    primask = critical_section_enter();
     if (led_rx_count == 0u) {
-        led_unlock_irq(primask);
+        critical_section_exit(primask);
         return 0;
     }
 
     *frame = led_rx_queue[led_rx_tail];
     led_rx_tail = (uint8_t) ((led_rx_tail + 1u) % LED_RX_QUEUE_LENGTH);
     led_rx_count--;
-    led_unlock_irq(primask);
+    critical_section_exit(primask);
 
     return 1;
 }
@@ -198,14 +184,14 @@ static void led_try_start_refresh(void)
 	HAL_StatusTypeDef status;
 	uint32_t primask;
 
-	primask = led_lock_irq();
+	primask = critical_section_enter();
 	if ((led_refresh_pending == 0u) || (led_dma_active != 0u)) {
-		led_unlock_irq(primask);
+		critical_section_exit(primask);
 		return;
 	}
 	led_dma_active = 1u;
 	led_refresh_pending = 0u;
-	led_unlock_irq(primask);
+	critical_section_exit(primask);
 
 	led_build_dma_buffer();
 	status = HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_2,
@@ -214,20 +200,20 @@ static void led_try_start_refresh(void)
 		return;
 	}
 
-	primask = led_lock_irq();
+	primask = critical_section_enter();
 	led_refresh_pending = 1u;
 	if (status != HAL_BUSY) {
 		led_dma_active = 0u;
 	}
-	led_unlock_irq(primask);
+	critical_section_exit(primask);
 }
 
 void LED_refresh(void)
 {
-	uint32_t primask = led_lock_irq();
+	uint32_t primask = critical_section_enter();
 
 	led_refresh_pending = 1u;
-	led_unlock_irq(primask);
+	critical_section_exit(primask);
 }
 
 void LED_ServiceRefresh(void)
@@ -872,9 +858,9 @@ uint8_t LED_RxFramePush(const uint8_t *data, uint16_t len)
         return 0;
     }
 
-    primask = led_lock_irq();
+    primask = critical_section_enter();
     if (led_rx_count >= LED_RX_QUEUE_LENGTH) {
-        led_unlock_irq(primask);
+        critical_section_exit(primask);
         return 0;
     }
 
@@ -883,7 +869,7 @@ uint8_t LED_RxFramePush(const uint8_t *data, uint16_t len)
     memcpy(frame->data, data, len);
     led_rx_head = (uint8_t) ((led_rx_head + 1u) % LED_RX_QUEUE_LENGTH);
     led_rx_count++;
-    led_unlock_irq(primask);
+    critical_section_exit(primask);
 
     return 1;
 }
