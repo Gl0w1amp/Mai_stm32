@@ -419,9 +419,16 @@ void capsense_uart_stats_get(capsense_uart_stats_t *stats_out)
 
 void capsense_uart_stats_reset(void)
 {
+	/* Guard against the UART4 RX ISR that increments these counters (same race the
+	 * getter guards). Also clear the live consecutive-failure counter: the reported
+	 * streak is derived from this static, not from the struct, so without this a
+	 * "reset stats" would leave the streak able to snap back on the next failure. */
+	uint32_t primask = critical_section_enter();
 	memset(&capsense_uart_stats, 0, sizeof(capsense_uart_stats));
 	capsense_uart_stats.protocol_version = capsense_protocol_version;
 	capsense_uart_stats.legacy_payload_offset = capsense_legacy_payload_offset;
+	capsense_rx_failure_count = 0u;
+	critical_section_exit(primask);
 }
 
 void capsense_uart_stats_note_empty_packet(void)

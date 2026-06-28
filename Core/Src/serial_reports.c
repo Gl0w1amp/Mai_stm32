@@ -17,7 +17,9 @@
 #include <string.h>
 
 #define RAW_DEBUG_SNAPSHOT_PARTS 2u
-#define RAW_DEBUG_SNAPSHOT_VALUES_PER_PART (34u / RAW_DEBUG_SNAPSHOT_PARTS)
+#define RAW_DEBUG_SNAPSHOT_VALUES_PER_PART (CAPSENSE_CHANNEL_COUNT / RAW_DEBUG_SNAPSHOT_PARTS)
+_Static_assert((CAPSENSE_CHANNEL_COUNT % RAW_DEBUG_SNAPSHOT_PARTS) == 0u,
+		"raw-debug parts must evenly divide the channel count");
 
 void sfb_begin(serial_frame_builder_t *b, uint8_t command)
 {
@@ -25,11 +27,13 @@ void sfb_begin(serial_frame_builder_t *b, uint8_t command)
 	b->buf[1] = command;
 	b->buf[2] = 0u;
 	b->idx = 3u;
+	b->overflow = 0u;
 }
 
 void sfb_put(serial_frame_builder_t *b, const void *src, uint8_t n)
 {
 	if ((uint16_t)(b->idx + n) > (uint16_t)(SERIAL_FRAME_BUILDER_CAP - 1u)) {
+		b->overflow = 1u;
 		return;
 	}
 	memcpy(&b->buf[b->idx], src, n);
@@ -39,6 +43,7 @@ void sfb_put(serial_frame_builder_t *b, const void *src, uint8_t n)
 void sfb_put_u8(serial_frame_builder_t *b, uint8_t v)
 {
 	if (b->idx > (uint8_t)(SERIAL_FRAME_BUILDER_CAP - 2u)) {
+		b->overflow = 1u;
 		return;
 	}
 	b->buf[b->idx] = v;
@@ -47,6 +52,12 @@ void sfb_put_u8(serial_frame_builder_t *b, uint8_t v)
 
 void sfb_finish_emit(serial_frame_builder_t *b)
 {
+	if (b->overflow != 0u) {
+		/* A field exceeded SERIAL_FRAME_BUILDER_CAP. Refuse to emit a truncated,
+		 * self-consistent-but-missing-fields frame; this is a programming error
+		 * (a reply outgrew the builder - raise SERIAL_FRAME_BUILDER_CAP). */
+		return;
+	}
 	b->buf[2] = (uint8_t)(b->idx - 3u);
 	b->buf[b->idx] = serial_checksum_sum(b->buf, b->idx);
 	(void) serial_cdc_tx_enqueue_high(b->buf, (uint16_t)(b->idx + 1u));
