@@ -794,6 +794,9 @@ void serial_commands_process_legacy_ascii(const uint8_t *rxBuffer,
 {
 	char cmd_tmp[6] = "(RSET)";
 
+	/* Legacy maimai command acks must echo back on the CDC serial port - the game
+	 * reads the reply there. Use usb_reporter_cdc_enqueue_high (-> CDC IN), NOT
+	 * serial_cdc_tx_enqueue_high, which routes binary command replies to Vendor HID. */
 	if ((rxBuffer == NULL) || (rxLen != 6u) || (rxBuffer[0] != 0x7Bu)) {
 		return;
 	}
@@ -816,7 +819,7 @@ void serial_commands_process_legacy_ascii(const uint8_t *rxBuffer,
 			player = 2u;
 			memcpy(cmd_tmp + 1, rxBuffer + 1, 4);
 		}
-		(void)serial_cdc_tx_enqueue_high((uint8_t *)cmd_tmp, 6u);
+		(void)usb_reporter_cdc_enqueue_high((uint8_t *)cmd_tmp, 6u);
 		break;
 	case 0x4c:
 		touch_scan_flag = 0u;
@@ -826,7 +829,7 @@ void serial_commands_process_legacy_ascii(const uint8_t *rxBuffer,
 		} else if (rxBuffer[3] == 0x6bu) {
 			memcpy(cmd_tmp + 1, rxBuffer + 1, 4);
 		}
-		(void)serial_cdc_tx_enqueue_high((uint8_t *)cmd_tmp, 6u);
+		(void)usb_reporter_cdc_enqueue_high((uint8_t *)cmd_tmp, 6u);
 		break;
 	default:
 		break;
