@@ -424,6 +424,15 @@ jobs:
 
         TIMESTAMPED_BIN=$(cat firmware_filename.txt)
 
+        # Release channel from the tag: vX.Y.Z = stable; -beta/-rc = beta;
+        # -dev/-alpha = dev. Drives whether latest.json is overwritten below.
+        case "$tag" in
+          *-beta*|*-rc*)   channel=beta ;;
+          *-dev*|*-alpha*) channel=dev ;;
+          *)               channel=stable ;;
+        esac
+        echo "Release channel: $channel"
+
         base="s3://${R2_BUCKET}/public/firmwares/mai2"
         dest="${base}/${tag}/"
 
@@ -492,9 +501,97 @@ jobs:
           --endpoint-url "${R2_ENDPOINT}" \
           --cache-control "public,max-age=31536000,immutable"
 
-        # Upload latest.json to base directory
-        cp "manifest.json" "latest.json"
-        aws s3 cp "latest.json" "${base}/latest.json" \
-          --endpoint-url "${R2_ENDPOINT}" \
-          --cache-control "public,max-age=60"
+        # latest.json is what the updater treats as the latest STABLE build, so
+        # only a stable release overwrites it — a beta/dev tag must not become a
+        # forced update for everyone.
+        if [ "$channel" = "stable" ]; then
+          cp "manifest.json" "latest.json"
+          aws s3 cp "latest.json" "${base}/latest.json" \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --cache-control "public,max-age=60"
+        else
+          echo "channel=$channel - leaving latest.json on the current stable build"
+        fi
+
+    - name: Publish to Hub firmware catalog
+      if: github.event_name == 'release' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
+      working-directory: Release
+      env:
+        HUB_FIRMWARE_PUBLISH_TOKEN: ${{ secrets.HUB_FIRMWARE_PUBLISH_TOKEN }}
+        CATALOG_URL: https://api.universals.io/hub/v1/admin/firmware
+        CDN_BASE: https://cdn.affinelab.org
+      run: |
+        if [ -z "$HUB_FIRMWARE_PUBLISH_TOKEN" ]; then
+          echo "::error::HUB_FIRMWARE_PUBLISH_TOKEN is not set; cannot publish to the firmware catalog."
+          exit 1
+        fi
+
+        if [ "${{ github.event_name }}" = "release" ]; then
+          tag="${{ github.event.release.tag_name }}"
+        else
+          tag="${{ github.ref_name }}"
+        fi
+        bin=$(cat firmware_filename.txt)
+
+        # semver -> u32 feature version (major*65536 + minor*256 + patch), the
+        # Hub catalog's ordering key. Anchored so junk like "release-v1.2.3" or
+        # "v1.2.3.4" is rejected; an optional -prerelease/+build suffix is allowed
+        # (e.g. v1.6.0-beta.1). minor/patch are 8-bit fields in the encoding.
+        if [[ "$tag" =~ ^v?([0-9]+)\.([0-9]+)\.([0-9]+)([-+][0-9A-Za-z.-]+)?$ ]]; then
+          major=${BASH_REMATCH[1]}; minor=${BASH_REMATCH[2]}; patch=${BASH_REMATCH[3]}
+          if (( major > 65535 || minor > 255 || patch > 255 )); then
+            echo "::error::version $major.$minor.$patch is out of range (major<=65535, minor/patch<=255)."
+            exit 1
+          fi
+          ver=$(( major * 65536 + minor * 256 + patch ))
+        else
+          echo "::error::tag '$tag' is not a vMAJOR.MINOR.PATCH(-prerelease)? tag; cannot derive a catalog version."
+          exit 1
+        fi
+
+        case "$tag" in
+          *-beta*|*-rc*)   channel=beta;   key_id=1 ;;
+          *-dev*|*-alpha*) channel=dev;    key_id=2 ;;
+          *)               channel=stable; key_id=1 ;;
+        esac
+
+        sha=$(sha256sum "$bin" | awk '{print $1}')
+        size=$(stat -c%s "$bin")
+        url="${CDN_BASE}/public/firmwares/mai2/${tag}/${bin}"
+
+        # Boot identity for G431/curva (boot_target_ids.h): G431 / MAI1 / G43A.
+        # security_version/flags/crc32 stay 0 until the signed-OTA pipeline lands
+        # (flash is unsigned/CRC32 today; the Hub recomputes CRC32 at flash time).
+        cat > catalog-entry.json << JSON
+        {
+          "family": "mai",
+          "channel": "${channel}",
+          "version": ${ver},
+          "display": "${tag}",
+          "security_version": 0,
+          "min_source_version": 0,
+          "target_id": 1194022705,
+          "board_id": 1296123697,
+          "flash_layout_id": 1194023233,
+          "key_id": ${key_id},
+          "flags": 0,
+          "image": { "url": "${url}", "sha256": "${sha}", "size": ${size}, "crc32": 0 }
+        }
+        JSON
+
+        # Idempotent upsert (the endpoint replaces the same channel+version and
+        # keeps its first created_at_ms), so it is safe that this step — like the
+        # R2 upload above — can run on both the tag-push and release events: every
+        # run writes the catalog AND latest.json together (last run wins), so the
+        # two never drift to different builds. Bounded timeouts + retries so a
+        # network stall can't hang the job or fail on a transient error.
+        echo "Publishing ${tag} (version=${ver}, channel=${channel}) to the Hub firmware catalog..."
+        curl -fsS -X POST "$CATALOG_URL" \
+          --connect-timeout 10 --max-time 60 \
+          --retry 3 --retry-delay 5 --retry-connrefused \
+          -H "Authorization: Bearer ${HUB_FIRMWARE_PUBLISH_TOKEN}" \
+          -H "Content-Type: application/json" \
+          --data @catalog-entry.json
+        echo
+        echo "Catalog publish OK ($channel v$ver)."
 
