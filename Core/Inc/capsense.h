@@ -29,6 +29,7 @@ extern volatile uint8_t capsense_data_ready;
 
 void capsense_init();
 void capsense_check();
+uint8_t capsense_handle_link_stale(uint32_t now);
 void capsense_input_snapshot_publish(void);
 void capsense_on_boot_button(void);
 

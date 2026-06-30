@@ -240,6 +240,12 @@ void Touch_Task(void const * argument)
 			capsense_check();
 			stack_flow_touch(current_touch_status);
 			capsense_input_snapshot_publish();
+		} else if(capsense_handle_link_stale(HAL_GetTick())){
+			/* No fresh frame: if the link went silent while a contact was held,
+			 * release it so it does not latch forever (capsense_check only runs on
+			 * a fresh frame). */
+			stack_flow_touch(current_touch_status);
+			capsense_input_snapshot_publish();
 		}
 		capsense_debug_service();
 		capsense_update_link_led();

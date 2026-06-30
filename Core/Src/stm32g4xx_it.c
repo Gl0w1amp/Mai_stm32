@@ -250,7 +250,19 @@ void EXTI9_5_IRQHandler(void)
   /* USER CODE END EXTI9_5_IRQn 0 */
   HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_8);
   /* USER CODE BEGIN EXTI9_5_IRQn 1 */
-  capsense_on_boot_button();
+  /* Boot button: only flag a reset here. Running the full capsense_reset_runtime_state()
+   * in ISR context raced Touch_Task's reads/writes of the same baseline/touch arrays and
+   * could produce a torn single-frame false touch. capsense_service_pending_reset() picks
+   * the flag up in Touch_Task context (and serializes the UART4 DMA restart). Debounce so a
+   * single mechanical bounce does not queue a storm of resets. */
+  {
+    static uint32_t last_boot_button_tick = 0u;
+    uint32_t now = HAL_GetTick();
+    if ((uint32_t)(now - last_boot_button_tick) >= 50u) {
+      last_boot_button_tick = now;
+      capsense_request_link_reset();
+    }
+  }
   /* USER CODE END EXTI9_5_IRQn 1 */
 }
 

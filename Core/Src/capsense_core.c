@@ -289,7 +289,14 @@ static void capsense_process_hold_block(uint8_t logical_start, uint8_t hold_offs
 				capsense_freeze[channel] = capsense_baseline[channel];
 				continue;
 			}
-			if((variance_idle > (int) enter_threshold) || (raw >= 0xFF00)){
+			/* Enter on variance-vs-baseline only. The old `|| raw >= 0xFF00`
+			 * absolute-saturation override forced touch whenever a channel read
+			 * near full-scale regardless of its own baseline. With the PSoC idle
+			 * value normalized to ~0xB333 that left only ~30% headroom, so any
+			 * common-mode lift / saturated or faulty channel latched all A/D zones
+			 * "touched". A genuine touch already yields variance_idle >> enter_threshold,
+			 * so real detection is preserved. */
+			if(variance_idle > (int) enter_threshold){
 				if(capsense_hold_enter_confirm[hold_index] < 0xFF){
 					capsense_hold_enter_confirm[hold_index]++;
 				}
@@ -332,7 +339,11 @@ static void capsense_process_hold_block(uint8_t logical_start, uint8_t hold_offs
 			release_confirm_required = CAPSENSE_LONG_HOLD_RELEASE_CONFIRM_SAMPLES;
 		}
 
-		if((delta_freeze < release_threshold) && (raw < 0xFF00)){
+		/* Release purely on the signal dropping below the release threshold. The
+		 * old `&& raw < 0xFF00` clause blocked release while the channel read
+		 * saturated, which permanently locked a held A/D contact whenever raw sat
+		 * high (the same saturation pathology as the enter path above). */
+		if(delta_freeze < release_threshold){
 			if(capsense_hold_release_confirm[hold_index] < 0xFF){
 				capsense_hold_release_confirm[hold_index]++;
 			}
@@ -376,7 +387,9 @@ static void capsense_process_standard_block(uint8_t logical_start, uint8_t count
 			capsense_baseline[channel] = baseline;
 		}
 		variance = raw - capsense_baseline[channel];
-		if((variance > Flash.touch_threshold[logical]) || (raw >= 0xFF00)){
+		/* Variance-vs-threshold only; the absolute-saturation override was the same
+		 * false-latching pathology as in the hold block (see note there). */
+		if(variance > Flash.touch_threshold[logical]){
 			capsense_touch_status[logical] = 1;
 		}
 		else{
@@ -451,6 +464,52 @@ void capsense_check(){
 	capsense_process_standard_block(16, 2, CAPSENSE_BASELINE_VARIANCE_C);
 	capsense_process_hold_block(18, 8);
 	capsense_process_standard_block(26, 8, CAPSENSE_BASELINE_VARIANCE_E);
+}
+
+/* Link-staleness watchdog. capsense_check() (and therefore the hold-block release
+ * state machine) only runs when a fresh PSoC frame was accepted, so a contact that
+ * was held at the instant the link went silent (cable pull, PSoC reset, scan stall,
+ * sustained checksum failure) would latch "touched" forever while the host keeps
+ * re-sending the last snapshot. When no real frame has arrived for
+ * CAPSENSE_LINK_STALE_RELEASE_MS, force-release every contact and re-arm the hold
+ * machines so the link resumes cleanly. Returns 1 if anything was released (caller
+ * should publish). The threshold is well above the PSoC slow-scan period (200ms),
+ * and a held contact keeps the PSoC in 30ms fast scan, so this never fires mid-touch. */
+uint8_t capsense_handle_link_stale(uint32_t now)
+{
+	uint8_t released = 0;
+
+	if ((uint32_t)(now - capsense_last_real_frame_tick) < CAPSENSE_LINK_STALE_RELEASE_MS) {
+		return 0;
+	}
+
+	for (uint8_t logical = 0; logical < CAPSENSE_CHANNEL_COUNT; logical++) {
+		if (capsense_touch_status[logical] != 0) {
+			capsense_touch_status[logical] = 0;
+			released = 1;
+		}
+	}
+
+	if (released) {
+		/* Clear the full per-hold machine state (matching capsense_reset_runtime_state's
+		 * hold loop) so the link resumes from a pristine IDLE and no stale rearm-inhibit,
+		 * cooldown, peak-envelope or release-level carries over. The learned
+		 * capsense_baseline / capsense_freeze are deliberately kept so touch sensing does
+		 * not have to re-settle after a brief link blip. */
+		for (uint8_t i = 0; i < 16; i++) {
+			capsense_hold_state[i] = CAPSENSE_HOLD_STATE_IDLE;
+			capsense_hold_duration[i] = 0;
+			capsense_hold_enter_confirm[i] = 0;
+			capsense_hold_release_confirm[i] = 0;
+			capsense_hold_rearm_confirm[i] = 0;
+			capsense_hold_baseline_cooldown[i] = 0;
+			capsense_hold_prev_raw[i] = 0;
+			capsense_hold_peak_envelope[i] = 0;
+			capsense_hold_release_level[i] = 0;
+		}
+	}
+
+	return released;
 }
 
 

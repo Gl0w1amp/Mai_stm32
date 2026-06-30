@@ -493,9 +493,23 @@ void capsense_service_pending_reset(void)
 	}
 	critical_section_exit(primask);
 
+	/* Serialize this non-reentrant DMAStop + ReceiveToIdle sequence against the UART4
+	 * RX-event/error and RX-DMA (DMA2_Channel1) ISRs, which re-arm the same huart4
+	 * handle. Mask at the NVIC (not PRIMASK) so the RTOS SysTick/scheduler and any
+	 * blocking HAL poll stay live during the sequence. Clear any stale pending edge
+	 * that latched while masked before re-enabling, so it cannot re-arm on top of the
+	 * freshly-started receive. */
+	HAL_NVIC_DisableIRQ(UART4_IRQn);
+	HAL_NVIC_DisableIRQ(DMA2_Channel1_IRQn);
+
 	(void) HAL_UART_DMAStop(&huart4);
 	capsense_on_boot_button();
 	if (capsense_restart_uart4_rx() == 0u) {
 		capsense_request_link_reset();
 	}
+
+	HAL_NVIC_ClearPendingIRQ(UART4_IRQn);
+	HAL_NVIC_ClearPendingIRQ(DMA2_Channel1_IRQn);
+	HAL_NVIC_EnableIRQ(UART4_IRQn);
+	HAL_NVIC_EnableIRQ(DMA2_Channel1_IRQn);
 }
