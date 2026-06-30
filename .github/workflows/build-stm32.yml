@@ -570,9 +570,9 @@ jobs:
           "display": "${tag}",
           "security_version": 0,
           "min_source_version": 0,
-          "target_id": 1194022705,
-          "board_id": 1296123697,
-          "flash_layout_id": 1194023233,
+          "target_id": 1194603313,
+          "board_id": 1296124209,
+          "flash_layout_id": 1194603329,
           "key_id": ${key_id},
           "flags": 0,
           "image": { "url": "${url}", "sha256": "${sha}", "size": ${size}, "crc32": 0 }
