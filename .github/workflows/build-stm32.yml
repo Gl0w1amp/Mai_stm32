@@ -328,6 +328,22 @@ jobs:
         DEV_KEY_B64="${{ secrets.DEV_FW_SIGNING_PRIV_PEM_B64 }}"
         REL_KEY_B64="${{ secrets.REL_FW_SIGNING_PRIV_PEM_B64 }}"
 
+        # Release channel from the tag, mirroring the R2/catalog publish steps
+        # below: vX.Y.Z = stable; -beta/-rc = beta; -dev/-alpha = dev. Only a
+        # STABLE tag is signed with the release key; beta/dev prereleases (and
+        # branch / workflow_dispatch builds) use the dev key so the release key
+        # never signs an untested build.
+        if [ "$GITHUB_EVENT_NAME" = "release" ]; then
+          TAG="${{ github.event.release.tag_name }}"
+        else
+          TAG="${GITHUB_REF_NAME}"
+        fi
+        case "$TAG" in
+          *-beta*|*-rc*)   channel=beta ;;
+          *-dev*|*-alpha*) channel=dev ;;
+          *)               channel=stable ;;
+        esac
+
         IS_TAG_OR_RELEASE=0
         if [ "$GITHUB_EVENT_NAME" = "release" ] || [[ "$GITHUB_REF" == refs/tags/* ]]; then
           IS_TAG_OR_RELEASE=1
@@ -335,7 +351,7 @@ jobs:
 
         umask 077
 
-        if [ "$IS_TAG_OR_RELEASE" -eq 1 ] && [ -n "$REL_KEY_B64" ]; then
+        if [ "$IS_TAG_OR_RELEASE" -eq 1 ] && [ "$channel" = "stable" ] && [ -n "$REL_KEY_B64" ]; then
           echo "Signing as RELEASE -> ${TIMESTAMPED_BIN}.sig"
           echo "$REL_KEY_B64" | base64 -d > rel_priv.pem
           openssl dgst -sha256 -sign rel_priv.pem -out "${TIMESTAMPED_BIN}.sig" "${TIMESTAMPED_BIN}"
