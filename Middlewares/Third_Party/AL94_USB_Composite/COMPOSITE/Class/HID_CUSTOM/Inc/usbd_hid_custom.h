@@ -14,7 +14,7 @@ extern "C" {
 
 #include "usbd_ioreq.h"
 
-#define CUSTOM_HID_STR_DESC                          "Curva Mai Buttons"
+#define CUSTOM_HID_STR_DESC                          "Curva Mai Input"
 
 #define CUSTOM_HID_EPIN_SIZE                         0x18U
 #define CUSTOM_HID_EPOUT_SIZE                        0x18U

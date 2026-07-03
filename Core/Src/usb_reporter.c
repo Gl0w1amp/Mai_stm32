@@ -464,6 +464,10 @@ static void usb_reporter_maybe_enqueue_custom_buttons(uint8_t debug_flag,
 	report[0] = snapshot.button_bits[0];
 	report[1] = snapshot.button_bits[1];
 	put_u16le(&report[2], sequence);
+	/* Piggyback the 34-channel touch bitmap in the reserved bytes so a host can
+	 * take touch from this high-rate input report instead of the separate touch
+	 * HID stream. report[4..9) = touch_bits[5]; [9..24) remain reserved. */
+	memcpy(&report[4], snapshot.touch_bits, INPUT_SNAPSHOT_TOUCH_BITS_SIZE);
 	if (usb_reporter_custom_hid_enqueue(report, sizeof(report)) != 0u) {
 		sequence++;
 	}
