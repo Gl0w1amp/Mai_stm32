@@ -470,16 +470,18 @@ void capsense_check(){
  * state machine) only runs when a fresh PSoC frame was accepted, so a contact that
  * was held at the instant the link went silent (cable pull, PSoC reset, scan stall,
  * sustained checksum failure) would latch "touched" forever while the host keeps
- * re-sending the last snapshot. When no real frame has arrived for
+ * re-sending the last snapshot. When no frame has arrived for
  * CAPSENSE_LINK_STALE_RELEASE_MS, force-release every contact and re-arm the hold
  * machines so the link resumes cleanly. Returns 1 if anything was released (caller
  * should publish). The threshold is well above the PSoC slow-scan period (200ms),
- * and a held contact keeps the PSoC in 30ms fast scan, so this never fires mid-touch. */
+ * and a held contact keeps the PSoC in 30ms fast scan, so this never fires mid-touch.
+ * Keys on last_good_frame_tick (set by real AND simulated frames) so it does not
+ * spuriously fire in sim mode, which never updates last_real_frame_tick. */
 uint8_t capsense_handle_link_stale(uint32_t now)
 {
 	uint8_t released = 0;
 
-	if ((uint32_t)(now - capsense_last_real_frame_tick) < CAPSENSE_LINK_STALE_RELEASE_MS) {
+	if ((uint32_t)(now - capsense_last_good_frame_tick) < CAPSENSE_LINK_STALE_RELEASE_MS) {
 		return 0;
 	}
 
