@@ -421,6 +421,22 @@ uint8_t USBD_CUSTOM_HID_SendReport(USBD_HandleTypeDef *pdev, uint8_t *report, ui
   return (uint8_t)status;
 }
 
+/* Recover a stranded IN transfer: flush the endpoint and force the class state
+ * back to IDLE. Called by the reporter's in-flight watchdog when a DataIn
+ * completion is lost (bus reset / re-enumeration / peripheral fault) so the
+ * button+touch path does not wedge forever. */
+uint8_t USBD_CUSTOM_HID_AbortIn(USBD_HandleTypeDef *pdev)
+{
+  if ((pdev == NULL) || (pdev->pClassData_HID_Custom == NULL))
+  {
+    return (uint8_t)USBD_FAIL;
+  }
+
+  (void)USBD_LL_FlushEP(pdev, CUSTOM_HID_IN_EP);
+  ((USBD_CUSTOM_HID_HandleTypeDef *)pdev->pClassData_HID_Custom)->state = CUSTOM_HID_IDLE;
+  return (uint8_t)USBD_OK;
+}
+
 static uint8_t *USBD_CUSTOM_HID_GetFSCfgDesc(uint16_t *length)
 {
   *length = (uint16_t)sizeof(USBD_CUSTOM_HID_CfgFSDesc);

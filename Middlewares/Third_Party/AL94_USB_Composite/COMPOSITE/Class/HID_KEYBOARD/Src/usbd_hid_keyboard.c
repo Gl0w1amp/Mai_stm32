@@ -610,6 +610,21 @@ uint8_t USBD_HID_Keyboard_IsReady(USBD_HandleTypeDef *pdev)
   return (uint8_t)(hhid->state == KEYBOARD_HID_IDLE);
 }
 
+/* Recover a stranded IN transfer: flush the endpoint and force the class state
+ * back to IDLE. Called by the reporter's in-flight watchdog when a DataIn
+ * completion is lost (bus reset / re-enumeration / peripheral fault). */
+uint8_t USBD_HID_Keyboard_AbortIn(USBD_HandleTypeDef *pdev)
+{
+  if ((pdev == NULL) || (pdev->pClassData_HID_Keyboard == NULL))
+  {
+    return (uint8_t)USBD_FAIL;
+  }
+
+  (void)USBD_LL_FlushEP(pdev, HID_KEYBOARD_IN_EP);
+  ((USBD_HID_Keyboard_HandleTypeDef *)pdev->pClassData_HID_Keyboard)->state = KEYBOARD_HID_IDLE;
+  return (uint8_t)USBD_OK;
+}
+
 /**
   * @brief  USBD_HID_GetPollingInterval
   *         return polling interval from endpoint descriptor

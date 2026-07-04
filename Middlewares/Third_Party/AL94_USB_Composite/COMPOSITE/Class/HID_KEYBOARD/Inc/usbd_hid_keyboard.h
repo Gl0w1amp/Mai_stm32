@@ -121,6 +121,7 @@ extern uint8_t HID_KEYBOARD_STR_DESC_IDX;
   */
 uint8_t USBD_HID_Keybaord_SendReport(USBD_HandleTypeDef *pdev, uint8_t *report, uint16_t len);
 uint8_t USBD_HID_Keyboard_IsReady(USBD_HandleTypeDef *pdev);
+uint8_t USBD_HID_Keyboard_AbortIn(USBD_HandleTypeDef *pdev);
 uint32_t USBD_HID_Keyboard_GetPollingInterval(USBD_HandleTypeDef *pdev);
 
 void USBD_Update_HID_KBD_DESC(uint8_t *desc, uint8_t itf_no, uint8_t in_ep, uint8_t str_idx);

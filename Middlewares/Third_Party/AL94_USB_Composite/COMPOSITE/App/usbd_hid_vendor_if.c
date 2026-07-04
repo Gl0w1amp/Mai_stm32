@@ -77,3 +77,16 @@ uint8_t mai2_hid_vendor_send_report(uint8_t *report, uint16_t len)
   UsbTxGuard_Give();
   return status;
 }
+
+uint8_t mai2_hid_vendor_abort(void)
+{
+  uint8_t status;
+
+  if (UsbTxGuard_Take(0u) == 0u) {
+    return (uint8_t)USBD_BUSY;
+  }
+
+  status = USBD_VENDOR_HID_AbortIn(&hUsbDevice);
+  UsbTxGuard_Give();
+  return status;
+}

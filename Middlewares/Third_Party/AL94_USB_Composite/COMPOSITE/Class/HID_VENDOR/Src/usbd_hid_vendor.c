@@ -440,6 +440,21 @@ uint8_t USBD_VENDOR_HID_SendReport(USBD_HandleTypeDef *pdev, uint8_t *report, ui
   return (uint8_t)status;
 }
 
+/* Recover a stranded IN transfer: flush the endpoint and force the class state
+ * back to IDLE. Called by the reporter's in-flight watchdog when a DataIn
+ * completion is lost (bus reset / re-enumeration / peripheral fault). */
+uint8_t USBD_VENDOR_HID_AbortIn(USBD_HandleTypeDef *pdev)
+{
+  if ((pdev == NULL) || (pdev->pClassData_HID_Vendor == NULL))
+  {
+    return (uint8_t)USBD_FAIL;
+  }
+
+  (void)USBD_LL_FlushEP(pdev, VENDOR_HID_IN_EP);
+  ((USBD_VENDOR_HID_HandleTypeDef *)pdev->pClassData_HID_Vendor)->state = VENDOR_HID_IDLE;
+  return (uint8_t)USBD_OK;
+}
+
 static uint8_t *USBD_VENDOR_HID_GetFSCfgDesc(uint16_t *length)
 {
   *length = (uint16_t)sizeof(USBD_VENDOR_HID_CfgFSDesc);

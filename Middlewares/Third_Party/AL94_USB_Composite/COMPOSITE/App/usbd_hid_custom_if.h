@@ -20,6 +20,7 @@ extern USBD_CUSTOM_HID_ItfTypeDef USBD_CustomHID_fops;
 
 uint8_t mai2_hid_custom_ready(void);
 uint8_t mai2_hid_custom_send_report(uint8_t *report, uint16_t len);
+uint8_t mai2_hid_custom_abort(void);
 uint8_t mai2_hid_benchmark_send_report(uint16_t sequence, uint64_t event_cycles, uint64_t tx_cycles, uint32_t core_hz);
 void mai2_hid_raw_debug_reset(void);
 uint8_t mai2_hid_raw_debug_stream(const uint16_t *raw_values, uint8_t value_count);

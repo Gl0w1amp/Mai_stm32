@@ -81,6 +81,7 @@ extern uint8_t VENDOR_HID_STR_DESC_IDX;
 
 uint8_t USBD_VENDOR_HID_SendReport(USBD_HandleTypeDef *pdev, uint8_t *report, uint16_t len);
 uint8_t USBD_VENDOR_HID_IsReady(USBD_HandleTypeDef *pdev);
+uint8_t USBD_VENDOR_HID_AbortIn(USBD_HandleTypeDef *pdev);
 uint8_t USBD_VENDOR_HID_ReceivePacket(USBD_HandleTypeDef *pdev);
 uint8_t USBD_VENDOR_HID_RegisterInterface(USBD_HandleTypeDef *pdev, USBD_VENDOR_HID_ItfTypeDef *fops);
 void USBD_Update_HID_Vendor_DESC(uint8_t *desc, uint8_t itf_no, uint8_t in_ep, uint8_t out_ep, uint8_t str_idx);

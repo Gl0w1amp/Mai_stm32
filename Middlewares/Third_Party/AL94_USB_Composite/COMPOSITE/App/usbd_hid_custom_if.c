@@ -83,6 +83,19 @@ uint8_t mai2_hid_custom_send_report(uint8_t *report, uint16_t len)
   return status;
 }
 
+uint8_t mai2_hid_custom_abort(void)
+{
+  uint8_t status;
+
+  if (UsbTxGuard_Take(0u) == 0u) {
+    return (uint8_t)USBD_BUSY;
+  }
+
+  status = USBD_CUSTOM_HID_AbortIn(&hUsbDevice);
+  UsbTxGuard_Give();
+  return status;
+}
+
 uint8_t mai2_hid_benchmark_send_report(uint16_t sequence, uint64_t event_cycles, uint64_t tx_cycles, uint32_t core_hz)
 {
   uint8_t report[MAI2_HID_REPORT_SIZE] = {0};

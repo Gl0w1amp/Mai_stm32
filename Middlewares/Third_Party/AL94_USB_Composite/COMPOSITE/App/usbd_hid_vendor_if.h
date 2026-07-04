@@ -18,6 +18,7 @@ extern USBD_VENDOR_HID_ItfTypeDef USBD_VendorHID_fops;
 
 uint8_t mai2_hid_vendor_ready(void);
 uint8_t mai2_hid_vendor_send_report(uint8_t *report, uint16_t len);
+uint8_t mai2_hid_vendor_abort(void);
 
 #ifdef __cplusplus
 }
