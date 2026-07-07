@@ -407,9 +407,14 @@ static void usb_reporter_custom_service_endpoint(void)
 			(custom_in_flight_start_tick != 0u) &&
 			((uint32_t)(now - custom_in_flight_start_tick) >=
 			USB_REPORTER_HID_RETRY_GIVEUP_MS)) {
-		(void)mai2_hid_custom_abort();
-		custom_hid_in_ready = 1u;
-		custom_in_flight_start_tick = 0u;
+		/* Re-arm ONLY on a successful abort. If the tx guard is momentarily held
+		 * (abort returns BUSY) the class is still BUSY; keep the tick set so the
+		 * watchdog retries next cycle instead of disarming itself and leaving the
+		 * endpoint wedged. */
+		if (mai2_hid_custom_abort() == (uint8_t)USBD_OK) {
+			custom_hid_in_ready = 1u;
+			custom_in_flight_start_tick = 0u;
+		}
 	}
 
 	if (custom_ep.pending == 0u) {
@@ -445,9 +450,11 @@ static void usb_reporter_vendor_service_endpoint(void)
 			(vendor_in_flight_start_tick != 0u) &&
 			((uint32_t)(now - vendor_in_flight_start_tick) >=
 			USB_REPORTER_HID_RETRY_GIVEUP_MS)) {
-		(void)mai2_hid_vendor_abort();
-		vendor_hid_in_ready = 1u;
-		vendor_in_flight_start_tick = 0u;
+		/* Re-arm only on a successful abort (see custom endpoint). */
+		if (mai2_hid_vendor_abort() == (uint8_t)USBD_OK) {
+			vendor_hid_in_ready = 1u;
+			vendor_in_flight_start_tick = 0u;
+		}
 	}
 
 	if (vendor_ep.pending == 0u) {
@@ -548,12 +555,16 @@ static void usb_reporter_keyboard_service(uint8_t heartbeat_active)
 			(keyboard_in_flight_start_tick != 0u) &&
 			((uint32_t)(now - keyboard_in_flight_start_tick) >=
 			USB_REPORTER_HID_RETRY_GIVEUP_MS)) {
+		/* Re-arm only after a successful abort (see custom endpoint). If the tx
+		 * guard is held we issue no abort and leave the tick set to retry. */
 		if (UsbTxGuard_Take(0u) != 0u) {
-			(void)USBD_HID_Keyboard_AbortIn(&hUsbDevice);
+			uint8_t abort_status = USBD_HID_Keyboard_AbortIn(&hUsbDevice);
 			UsbTxGuard_Give();
+			if (abort_status == (uint8_t)USBD_OK) {
+				keyboard_hid_in_ready = 1u;
+				keyboard_in_flight_start_tick = 0u;
+			}
 		}
-		keyboard_hid_in_ready = 1u;
-		keyboard_in_flight_start_tick = 0u;
 	}
 
 	if (capsense_sim_is_enabled() != 0u) {
