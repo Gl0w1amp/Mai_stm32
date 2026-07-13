@@ -113,12 +113,18 @@ static void handle_serial_cmd_led_button(const serial_command_context_t *ctx)
 	const uint8_t *rxBuffer = ctx->data;
 
 	if (rxBuffer[2] == 56u) {
-		LED_update_button_rgb_fade(rxBuffer + 3, 8u);
+		if (LED_StateLock() != 0u) {
+			LED_update_button_rgb_fade(rxBuffer + 3, 8u);
+			LED_StateUnlock();
+		}
 		return;
 	}
 
 	if (rxBuffer[2] == 32u) {
-		LED_update_button_rgb_speed(rxBuffer + 3, 8u);
+		if (LED_StateLock() != 0u) {
+			LED_update_button_rgb_speed(rxBuffer + 3, 8u);
+			LED_StateUnlock();
+		}
 		return;
 	}
 
@@ -126,11 +132,14 @@ static void handle_serial_cmd_led_button(const serial_command_context_t *ctx)
 	if(rxBuffer[2] < 24u){
 		return;
 	}
-	LED_SetButtonFrame(rxBuffer + 3);
-	if (rxBuffer[2] >= 25u) {
-		speed = rxBuffer[27];
+	if (LED_StateLock() != 0u) {
+		LED_SetButtonFrame(rxBuffer + 3);
+		if (rxBuffer[2] >= 25u) {
+			speed = rxBuffer[27];
+		}
+		LED_update_button(speed);
+		LED_StateUnlock();
 	}
-	LED_update_button(speed);
 	return;
 }
 
@@ -152,7 +161,10 @@ static void handle_serial_cmd_led_pwm(const serial_command_context_t *ctx)
 	if(rxBuffer[2] < 3){
 		return;
 	}
-	FET_LED_Update(rxBuffer[3],rxBuffer[4],rxBuffer[5]);
+	if (LED_StateLock() != 0u) {
+		FET_LED_Update(rxBuffer[3],rxBuffer[4],rxBuffer[5]);
+		LED_StateUnlock();
+	}
 	return;
 }
 
@@ -161,7 +173,13 @@ static void serial_send_led_status_response(uint8_t command, uint8_t ok)
 	LED_Status status;
 	uint8_t p[9] = {0};
 
-	LED_StatusSnapshot(&status, HAL_GetTick());
+	if (LED_StateLock() != 0u) {
+		LED_StatusSnapshot(&status, HAL_GetTick());
+		LED_StateUnlock();
+	} else {
+		memset(&status, 0, sizeof(status));
+		ok = 0u;
+	}
 	p[0] = ok;
 	p[1] = status.mode;
 	p[2] = status.host_active;
@@ -179,7 +197,12 @@ static void handle_serial_cmd_led_mode(const serial_command_context_t *ctx)
 	uint8_t ok = 1u;
 
 	if (payload_len == 1u) {
-		ok = LED_SetMode(rxBuffer[3], HAL_GetTick());
+		if (LED_StateLock() != 0u) {
+			ok = LED_SetMode(rxBuffer[3], HAL_GetTick());
+			LED_StateUnlock();
+		} else {
+			ok = 0u;
+		}
 	} else if (payload_len != 0u) {
 		ok = 0u;
 	}
@@ -196,7 +219,12 @@ static void handle_serial_cmd_led_config(const serial_command_context_t *ctx)
 	if (payload_len == 4u) {
 		uint16_t timeout_ms = (uint16_t)rxBuffer[5] |
 				(uint16_t)((uint16_t)rxBuffer[6] << 8);
-		ok = LED_ConfigSet(rxBuffer[3], rxBuffer[4], timeout_ms);
+		if (LED_StateLock() != 0u) {
+			ok = LED_ConfigSet(rxBuffer[3], rxBuffer[4], timeout_ms);
+			LED_StateUnlock();
+		} else {
+			ok = 0u;
+		}
 	} else if (payload_len != 0u) {
 		ok = 0u;
 	}
@@ -618,7 +646,10 @@ static void handle_serial_cmd_to_debug_mode(const serial_command_context_t *ctx)
 		mai2_hid_raw_debug_reset();
 		debug_stream_mode = requested_mode;
 		debug_flag = 1;
-		(void)LED_SetMode(LED_MODE_DIAGNOSTIC, HAL_GetTick());
+		if (LED_StateLock() != 0u) {
+			(void)LED_SetMode(LED_MODE_DIAGNOSTIC, HAL_GetTick());
+			LED_StateUnlock();
+		}
 	}
 	serial_reply_emit(SERIAL_CMD_TO_DEBUG_MODE, &ok, 1u);
 	return;
@@ -655,7 +686,10 @@ static void handle_serial_cmd_exit_debug_mode(const serial_command_context_t *ct
 	debug_flag = 0u;
 	debug_stream_mode = SERIAL_DEBUG_STREAM_MODE_FOCUS;
 	mai2_hid_raw_debug_reset();
-	(void)LED_SetMode(LED_MODE_AUTO, HAL_GetTick());
+	if (LED_StateLock() != 0u) {
+		(void)LED_SetMode(LED_MODE_AUTO, HAL_GetTick());
+		LED_StateUnlock();
+	}
 	{
 		uint8_t one = 1u;
 		serial_reply_emit(SERIAL_CMD_EXIT_DEBUG_MODE, &one, 1u);

@@ -193,6 +193,8 @@ static void flash_load_defaults(void)
 
 uint8_t flash_touch_sheet_valid(const uint8_t *sheet)
 {
+	uint8_t seen[TOUCH_CHANNEL_COUNT] = {0};
+
 	if (sheet == NULL) {
 		return 0u;
 	}
@@ -200,6 +202,13 @@ uint8_t flash_touch_sheet_valid(const uint8_t *sheet)
 		if (sheet[i] >= TOUCH_CHANNEL_COUNT) {
 			return 0u;
 		}
+		/* The sheet is a logical-to-physical permutation, not merely a list of
+		 * in-range indices. Duplicates make channels unreachable and previously
+		 * allowed an all-zero mapping to be persisted. */
+		if (seen[sheet[i]] != 0u) {
+			return 0u;
+		}
+		seen[sheet[i]] = 1u;
 	}
 	return 1u;
 }

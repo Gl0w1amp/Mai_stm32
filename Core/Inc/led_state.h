@@ -5,6 +5,9 @@
 #include "led_types.h"
 
 /* State-machine / fade-engine public API */
+uint8_t LED_StateLockInit(void);
+uint8_t LED_StateLock(void);
+void LED_StateUnlock(void);
 void LED_update_button(uint8_t speed);
 void LED_update_button_rgb_speed(const uint8_t *rgb_speed, uint8_t count);
 void LED_update_button_rgb_fade(const uint8_t *rgb_fade, uint8_t count);

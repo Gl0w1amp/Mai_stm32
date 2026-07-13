@@ -25,7 +25,7 @@ Mouse, audio, MSC, DFU, and printer classes are disabled in this firmware.
 |:--|:--|:--|:--|:--|:--|
 | `0x00` / `0x80` | OUT / IN | Control EP0 | Control | 64 bytes | USB enumeration, descriptors, and class control requests |
 | `0x81` | IN | Keyboard HID | Interrupt | 14-byte report | Keyboard/button emulation reports |
-| `0x82` | IN | Custom HID | Interrupt | 24-byte firmware payload, 25-byte host input report | Legacy button/debug/benchmark input collection, usage page `0xFFCA`, usage `0x0001` |
+| `0x82` | IN | Custom HID | Interrupt | 24-byte firmware payload, 25-byte host input report | Button bitmap, sequence, piggybacked 34-channel touch bitmap, and benchmark reports; usage page `0xFFCA`, usage `0x0001` |
 | `0x83` | IN | Vendor HID Command | Interrupt | 64-byte firmware report, 65-byte Windows HID report | Command responses, usage page `0xFFCA`, usage `0x0002` |
 | `0x01` | OUT | Vendor HID Command | Interrupt | 64-byte firmware report, 65-byte Windows HID report | Host command input, usage page `0xFFCA`, usage `0x0002` |
 | `0x84` | IN | CDC ACM Data | Bulk | 64 bytes | Legacy/live CDC output only |

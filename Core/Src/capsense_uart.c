@@ -78,6 +78,7 @@ static uint8_t capsense_uart_frame_is_empty(const uint8_t *frame)
 static uint8_t capsense_accept_packet(const uint8_t *data, uint8_t lock_protocol, uint8_t rolling_checksum)
 {
 	memcpy(&capsense_rx_touch.data[0], data + 1, 68);
+	capsense_protocol2_confirm_count = 0u;
 	if(lock_protocol){
 		capsense_protocol_version = 1;
 	}
@@ -97,7 +98,12 @@ static uint8_t capsense_accept_legacy_packet(const uint8_t *data, uint8_t payloa
 {
 	memcpy(&capsense_rx_touch.data[0], data + payload_offset, 68);
 	if(capsense_protocol_version == 0){
-		capsense_protocol_version = 2;
+		if (capsense_protocol2_confirm_count < 0xFFu) {
+			capsense_protocol2_confirm_count++;
+		}
+		if (capsense_protocol2_confirm_count >= 2u) {
+			capsense_protocol_version = 2;
+		}
 	}
 	capsense_uart_stats.legacy_accept_count++;
 	capsense_legacy_payload_offset = payload_offset;
@@ -133,6 +139,22 @@ static uint8_t capsense_score_legacy_payload(const uint8_t *data, uint8_t payloa
 	return low_nibble_zero_count;
 }
 
+static uint8_t capsense_legacy_payload_plausible(const uint8_t *data,
+		uint8_t payload_offset)
+{
+	uint8_t non_zero_count = 0u;
+
+	for (uint8_t i = 0u; i < CAPSENSE_CHANNEL_COUNT; i++) {
+		uint16_t raw = (uint16_t)data[payload_offset + (i * 2u)] |
+				((uint16_t)data[payload_offset + (i * 2u) + 1u] << 8);
+		if (raw != 0u) {
+			non_zero_count++;
+		}
+	}
+
+	return (uint8_t)(non_zero_count >= 24u);
+}
+
 static uint8_t capsense_detect_legacy_payload_offset(const uint8_t *data)
 {
 	uint8_t score_offset_2 = capsense_score_legacy_payload(data, 2);
@@ -147,11 +169,20 @@ static uint8_t capsense_detect_legacy_payload_offset(const uint8_t *data)
 			return 1;
 		}
 	}
+	/* Some legacy sensors do not preserve the low-nibble alignment strongly
+	 * enough for the score threshold. Keep the committed offset-2 layout when
+	 * its payload is otherwise populated, but never accept an empty/corrupt
+	 * 00 00 frame on header alone. Protocol lock still requires two frames. */
+	if (capsense_legacy_payload_plausible(data, 2u) != 0u) {
+		return 2u;
+	}
+	if (capsense_legacy_payload_plausible(data, 1u) != 0u) {
+		return 1u;
+	}
 
-	/* Current committed PSoC firmware still lands on the legacy 2-byte header
-	 * layout because the packet struct is naturally aligned.
-	 */
-	return 2;
+	/* A 00 00 prefix alone is ambiguous with a checksum-v1 frame whose first
+	 * channel low byte is zero. Do not accept an unscored frame as legacy. */
+	return 0u;
 }
 
 void capsense_uart_stream_reset(void)
@@ -207,19 +238,19 @@ void capsense_uart_stream_feed(const uint8_t *data, uint16_t len,
 			continue;
 		}
 
-		if ((frame[0] == 0u) && (frame[1] == 0u)) {
-			packet_ok = (uint8_t) (capsense_data_proc_legacy(frame) ||
-					capsense_data_proc(frame));
-		} else {
-			packet_ok = (uint8_t) (capsense_data_proc(frame) ||
-					capsense_data_proc_legacy(frame));
-		}
+		/* A valid checksum is decisive. Always try v1 first: v1 payload byte zero
+		 * produces the same 00 00 prefix as legacy and must not be locked to v2. */
+		packet_ok = (uint8_t) (capsense_data_proc(frame) ||
+				capsense_data_proc_legacy(frame));
 
 		if (packet_ok != 0u) {
 			accepted_frames++;
 			capsense_uart_stream_drop(CAPSENSE_UART_FRAME_SIZE);
 		} else {
 			rejected_frames++;
+			if (capsense_protocol_version == 0u) {
+				capsense_protocol2_confirm_count = 0u;
+			}
 			capsense_uart_stats_note_parse_fail();
 			capsense_uart_stream_drop(1u);
 		}
@@ -286,19 +317,7 @@ static bool capsense_data_proc(uint8_t *uart_dma_buffer){
 	if((capsense_protocol_version != 0) && (capsense_protocol_version != 1)){
 		return false;
 	}
-    if(uart_dma_buffer[0] == 0){
-		if (capsense_protocol_version == 0) {
-			uint8_t legacy_score_offset_2 = capsense_score_legacy_payload(uart_dma_buffer, 2);
-			uint8_t legacy_score_offset_1 = capsense_score_legacy_payload(uart_dma_buffer, 1);
-
-			if ((uart_dma_buffer[1] == 0u) &&
-					(legacy_score_offset_2 >= 24u) &&
-					(legacy_score_offset_2 >= (uint8_t) (legacy_score_offset_1 + 4u))) {
-				capsense_protocol1_confirm_count = 0;
-				return false;
-			}
-		}
-
+	if(uart_dma_buffer[0] == 0){
 		strict_checksum = serial_checksum_sum(uart_dma_buffer, 69u);
 		if(strict_checksum == uart_dma_buffer[69]){
 			capsense_checksum_last = uart_dma_buffer[69];
@@ -336,6 +355,7 @@ static bool capsense_data_proc(uint8_t *uart_dma_buffer){
 
 static bool capsense_data_proc_legacy(uint8_t *uart_dma_buffer){
 	uint8_t payload_offset;
+	uint8_t payload_score;
 
 	if((capsense_protocol_version != 0) && (capsense_protocol_version != 2)){
 		return false;
@@ -345,10 +365,13 @@ static bool capsense_data_proc_legacy(uint8_t *uart_dma_buffer){
 		if ((payload_offset != 1u) && (payload_offset != 2u)) {
 			payload_offset = capsense_detect_legacy_payload_offset(uart_dma_buffer);
 		} else {
-			uint8_t locked_score = capsense_score_legacy_payload(uart_dma_buffer, payload_offset);
-			if (locked_score < 16u) {
+			payload_score = capsense_score_legacy_payload(uart_dma_buffer, payload_offset);
+			if (payload_score < 16u) {
 				payload_offset = capsense_detect_legacy_payload_offset(uart_dma_buffer);
 			}
+		}
+		if (payload_offset == 0u) {
+			return false;
 		}
 		return capsense_accept_legacy_packet(uart_dma_buffer, payload_offset);
     }

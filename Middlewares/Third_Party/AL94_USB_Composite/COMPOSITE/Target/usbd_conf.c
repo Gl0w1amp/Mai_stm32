@@ -25,6 +25,7 @@
 
 /* USER CODE BEGIN Includes */
 #include "usbd_composite.h"
+#include "usb_reporter.h"
 #if (STM32F1_DEVICE) /** for STM32F1 or similar */
 #include "usb.h"
 #else
@@ -177,6 +178,7 @@ void HAL_PCD_ResetCallback(PCD_HandleTypeDef *hpcd)
 
   /* Reset Device. */
   USBD_LL_Reset((USBD_HandleTypeDef *)hpcd->pData);
+  usb_reporter_notify_bus_reset_from_isr();
 }
 
 /**

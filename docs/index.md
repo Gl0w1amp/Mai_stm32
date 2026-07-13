@@ -13,9 +13,14 @@ touch and buttons, drives LED outputs, and exposes USB CDC + HID interfaces.
 
 ## Quick start
 
-1. Open `Curva_G431_Mai.ioc` in STM32CubeIDE or STM32CubeMX.
-2. Generate code if needed, then build using the included project files.
-3. Flash via ST-LINK, or use the DFU jump command after the device enumerates.
+1. Import the existing STM32CubeIDE project and build the checked-in sources.
+2. Do **not** regenerate the project from `Curva_G431_Mai.ioc`: it records the
+   MCU pin/peripheral setup, but the custom HID/Vendor/Touch composite USB
+   extension is maintained in checked-in code and is not fully expressible by
+   the CubeMX plugin.
+3. For the reproducible local path, run
+   `powershell -ExecutionPolicy Bypass -File scripts/build_firmware.ps1`.
+4. Flash via ST-LINK, or use the DFU jump command after the device enumerates.
 
 ## Documentation
 

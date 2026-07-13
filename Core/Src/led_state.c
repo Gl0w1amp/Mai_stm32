@@ -1,6 +1,8 @@
 #include "led_state.h"
 #include "led_ws2812.h"
 #include "input_snapshot.h"
+#include "FreeRTOS.h"
+#include "semphr.h"
 #include <string.h>
 
 #define LED_BOOT_DURATION_MS 1600u
@@ -34,6 +36,7 @@ static volatile uint16_t led_host_timeout_ms = LED_HOST_TIMEOUT_MS_DEFAULT;
 static volatile uint32_t led_host_deadline_ms = 0u;
 static uint32_t led_boot_start_ms = 0u;
 static uint32_t led_effect_last_ms = 0u;
+static SemaphoreHandle_t led_state_mutex = NULL;
 
 static void set_led_fade_explicit(uint8_t index,
 		uint8_t start_r, uint8_t start_g, uint8_t start_b,
@@ -46,6 +49,29 @@ static void led_render_idle(uint32_t now);
 static void led_render_input_reactive(uint32_t now,
 		const input_snapshot_t *snapshot);
 static void led_render_off(void);
+
+uint8_t LED_StateLockInit(void)
+{
+	if (led_state_mutex == NULL) {
+		led_state_mutex = xSemaphoreCreateMutex();
+	}
+	return (uint8_t)(led_state_mutex != NULL);
+}
+
+uint8_t LED_StateLock(void)
+{
+	if (led_state_mutex == NULL) {
+		return 0u;
+	}
+	return (uint8_t)(xSemaphoreTake(led_state_mutex, portMAX_DELAY) == pdTRUE);
+}
+
+void LED_StateUnlock(void)
+{
+	if (led_state_mutex != NULL) {
+		(void)xSemaphoreGive(led_state_mutex);
+	}
+}
 
 static uint8_t led_time_reached(uint32_t now, uint32_t deadline)
 {

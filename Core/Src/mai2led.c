@@ -8,11 +8,12 @@
 #include <stdbool.h>
 
 #define LED_RX_QUEUE_LENGTH 4u
+#define LED_TX_QUEUE_LENGTH 8u
+#define LED_STREAM_BUFFER_SIZE 128u
 
 extern UART_HandleTypeDef huart1;
 extern DMA_HandleTypeDef hdma_usart1_rx;
 extern DMA_HandleTypeDef hdma_usart1_tx;
-uint8_t led_write_buffer[64];
 uint8_t dummyEEPRom[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 PacketReq req;
 PacketRes res;
@@ -24,11 +25,23 @@ typedef struct {
     uint8_t data[64];
 } LedRxFrame;
 
+typedef struct {
+    uint8_t len;
+    uint8_t data[64];
+} LedTxFrame;
+
 static LedRxFrame led_rx_queue[LED_RX_QUEUE_LENGTH];
 static volatile uint8_t led_rx_head = 0;
 static volatile uint8_t led_rx_tail = 0;
 static volatile uint8_t led_rx_count = 0;
 static volatile uint8_t led_uart_rx_restart_pending = 0u;
+static LedTxFrame led_tx_queue[LED_TX_QUEUE_LENGTH];
+static volatile uint8_t led_tx_head = 0u;
+static volatile uint8_t led_tx_tail = 0u;
+static volatile uint8_t led_tx_count = 0u;
+static volatile uint8_t led_uart_tx_active = 0u;
+static uint8_t led_stream_buffer[LED_STREAM_BUFFER_SIZE];
+static uint16_t led_stream_len = 0u;
 
 static uint8_t led_uart_start_receive_to_idle(void)
 {
@@ -71,9 +84,83 @@ void LED_UART_Init(){
 	led_rx_tail = 0;
 	led_rx_count = 0;
 	led_uart_rx_restart_pending = 0u;
+	led_tx_head = 0u;
+	led_tx_tail = 0u;
+	led_tx_count = 0u;
+	led_uart_tx_active = 0u;
+	led_stream_len = 0u;
 	if (led_uart_start_receive_to_idle() == 0u) {
 		led_uart_rx_restart_pending = 1u;
 	}
+}
+
+static uint8_t led_tx_enqueue(const uint8_t *data, uint8_t len)
+{
+	uint32_t primask;
+	LedTxFrame *frame;
+
+	if ((data == NULL) || (len == 0u) || (len > sizeof(led_tx_queue[0].data))) {
+		return 0u;
+	}
+
+	primask = critical_section_enter();
+	if (led_tx_count >= LED_TX_QUEUE_LENGTH) {
+		critical_section_exit(primask);
+		return 0u;
+	}
+	frame = &led_tx_queue[led_tx_head];
+	frame->len = len;
+	memcpy(frame->data, data, len);
+	led_tx_head = (uint8_t)((led_tx_head + 1u) % LED_TX_QUEUE_LENGTH);
+	led_tx_count++;
+	critical_section_exit(primask);
+	return 1u;
+}
+
+static void led_uart_service_tx(void)
+{
+	HAL_StatusTypeDef status;
+	LedTxFrame *frame;
+	uint32_t primask;
+
+	primask = critical_section_enter();
+	if ((led_uart_tx_active != 0u) || (led_tx_count == 0u)) {
+		critical_section_exit(primask);
+		return;
+	}
+	frame = &led_tx_queue[led_tx_tail];
+	led_uart_tx_active = 1u;
+	critical_section_exit(primask);
+
+	/* The queue tail remains owned until TxCplt, so DMA never observes a buffer
+	 * being rebuilt for a later response. */
+	status = HAL_UART_Transmit_DMA(&huart1, frame->data, frame->len);
+	if (status != HAL_OK) {
+		primask = critical_section_enter();
+		led_uart_tx_active = 0u;
+		critical_section_exit(primask);
+	}
+}
+
+void LED_UART_NotifyTxComplete(void)
+{
+	uint32_t primask = critical_section_enter();
+
+	if ((led_uart_tx_active != 0u) && (led_tx_count != 0u)) {
+		led_tx_tail = (uint8_t)((led_tx_tail + 1u) % LED_TX_QUEUE_LENGTH);
+		led_tx_count--;
+	}
+	led_uart_tx_active = 0u;
+	critical_section_exit(primask);
+}
+
+void LED_UART_NotifyTxAbort(void)
+{
+	uint32_t primask = critical_section_enter();
+
+	/* Keep the queue tail for a task-context retry after HAL_UART_DMAStop(). */
+	led_uart_tx_active = 0u;
+	critical_section_exit(primask);
 }
 
 void LED_UART_RequestRxRestart(void)
@@ -84,6 +171,7 @@ void LED_UART_RequestRxRestart(void)
 uint8_t led_packet_check(uint8_t* data, uint8_t len, uint8_t* consumed) {
 	bool escape = false;
 	uint8_t raw_pos = 0;
+	uint8_t sync_pos;
 	uint8_t req_pos = 0;
 	uint8_t checksum = 0;
 	uint8_t expected_len = 0xFF;
@@ -97,14 +185,20 @@ uint8_t led_packet_check(uint8_t* data, uint8_t len, uint8_t* consumed) {
 		*consumed = len;
 		return 0;
 	}
+	sync_pos = raw_pos;
 	raw_pos++; // skip Sync
+	memset(&req, 0, sizeof(req));
 
 	/* decode payload */
 	while(raw_pos < len){
-		if(data[raw_pos] == Marker){
+		if((escape == false) && (data[raw_pos] == Marker)){
 			escape = true;
 			raw_pos++;
 			continue;
+		}
+		if (req_pos >= sizeof(req.bytes)) {
+			*consumed = raw_pos;
+			return 0;
 		}
 		uint8_t byte = data[raw_pos];
 		if(escape){
@@ -131,7 +225,9 @@ uint8_t led_packet_check(uint8_t* data, uint8_t len, uint8_t* consumed) {
 	}
 
 	if(raw_pos >= len || expected_len == 0xFF){
-		*consumed = raw_pos;
+		/* Preserve a frame split across ReceiveToIdle callbacks. Bytes before
+		 * Sync are disposable; bytes from Sync onward remain in the stream. */
+		*consumed = sync_pos;
 		return 0;
 	}
 
@@ -139,7 +235,7 @@ uint8_t led_packet_check(uint8_t* data, uint8_t len, uint8_t* consumed) {
 	if(data[raw_pos] == Marker){
 		raw_pos++;
 		if(raw_pos >= len){
-			*consumed = raw_pos;
+			*consumed = sync_pos;
 			return 0;
 		}
 		req.bytes[req_pos] = data[raw_pos] + 1;
@@ -152,14 +248,15 @@ uint8_t led_packet_check(uint8_t* data, uint8_t len, uint8_t* consumed) {
 	return (checksum == req.bytes[expected_len + 3]) ? req.cmd : 0;
 }
 
-void led_packet_write() {
+uint8_t led_packet_write(void) {
   uint8_t checksum = 0, len = 0;
+  uint8_t write_buffer[64] = {0};
+  uint8_t current_pos = 1u;
+  uint8_t queued = 0u;
   if (res.cmd == 0) {
-    return;
+    return 0u;
   }
-  memset(led_write_buffer,0,sizeof(led_write_buffer));
-  led_write_buffer[0] = 0xE0;
-  uint8_t current_pos = 0;
+  write_buffer[0] = Sync;
   while (len <= res.length + 3) {
     uint8_t w;
     if (len == res.length + 3) {
@@ -169,16 +266,24 @@ void led_packet_write() {
       checksum += w;
     }
     if (w == 0xE0 || w == 0xD0) {
-    	led_write_buffer[++current_pos] = 0xD0;
-    	led_write_buffer[++current_pos] = --w;
+		if ((uint16_t)current_pos + 2u > sizeof(write_buffer)) {
+			goto done;
+		}
+		write_buffer[current_pos++] = Marker;
+		write_buffer[current_pos++] = (uint8_t)(w - 1u);
     } else {
-    	led_write_buffer[++current_pos] = w;
+		if (current_pos >= sizeof(write_buffer)) {
+			goto done;
+		}
+		write_buffer[current_pos++] = w;
     }
     len++;
   }
+  queued = led_tx_enqueue(write_buffer, current_pos);
+done:
   res.cmd = 0;
-  HAL_UART_Transmit_DMA(&huart1, led_write_buffer, ++current_pos);
   memset(res.bytes,0,sizeof(res.bytes));
+  return queued;
 }
 
 void res_init(uint8_t length, uint8_t status, uint8_t report) {
@@ -215,17 +320,67 @@ uint8_t LED_RxFramePush(const uint8_t *data, uint16_t len)
     return 1;
 }
 
+static uint8_t led_command_expected_length(uint8_t cmd)
+{
+	switch (cmd) {
+	case SetLedGs8Bit: return 5u;
+	case SetLedGs8BitMulti: return 7u;
+	case SetLedGs8BitMultiFade: return 8u;
+	case SetLedFet: return 4u;
+	case SetLedGsUpdate: return 1u;
+	case SetEEPRom: return 3u;
+	case GetEEPRom: return 2u;
+	case GetBoardInfo:
+	case GetBoardStatus:
+	case GetFirmSum:
+	case GetProtocolVersion:
+		return 1u;
+	default:
+		return 0u;
+	}
+}
+
 void LED_Task_Process(const uint8_t *data, uint16_t len){
-	uint8_t offset = 0;
-	while(offset < len){
+	uint16_t offset = 0u;
+
+	if ((data == NULL) || (len == 0u)) {
+		return;
+	}
+	if (len > LED_STREAM_BUFFER_SIZE) {
+		data += len - LED_STREAM_BUFFER_SIZE;
+		len = LED_STREAM_BUFFER_SIZE;
+	}
+	if ((led_stream_len + len) > LED_STREAM_BUFFER_SIZE) {
+		uint16_t drop = (uint16_t)(led_stream_len + len - LED_STREAM_BUFFER_SIZE);
+		memmove(led_stream_buffer, led_stream_buffer + drop, led_stream_len - drop);
+		led_stream_len = (uint16_t)(led_stream_len - drop);
+	}
+	memcpy(led_stream_buffer + led_stream_len, data, len);
+	led_stream_len = (uint16_t)(led_stream_len + len);
+
+	while(offset < led_stream_len){
 		uint8_t consumed = 0;
-		uint8_t cmd = led_packet_check((uint8_t *) data + offset, len - offset, &consumed);
+		uint8_t cmd = led_packet_check(led_stream_buffer + offset,
+				(uint8_t)(led_stream_len - offset), &consumed);
 		offset += consumed;
 		if(consumed == 0){
 			break;
 		}
 		if(cmd == 0){
 			continue;
+		}
+		{
+			uint8_t expected_len = led_command_expected_length(cmd);
+			if (expected_len == 0u) {
+				res_init(0u, AckStatus_Ok, AckReport_CommandUnknown);
+				(void)led_packet_write();
+				continue;
+			}
+			if (req.length != expected_len) {
+				res_init(0u, AckStatus_Ok, AckReport_ParamError);
+				(void)led_packet_write();
+				continue;
+			}
 		}
 		switch(cmd){
 		case SetLedGs8Bit:
@@ -317,15 +472,24 @@ void LED_Task_Process(const uint8_t *data, uint16_t len){
 			res_init(3,AckStatus_Ok,AckReport_Ok);
 			break;
 		default:
-			res_init(0,AckStatus_Ok,AckReport_Ok);
+			res_init(0,AckStatus_Ok,AckReport_CommandUnknown);
 		}
-		led_packet_write();
+		(void)led_packet_write();
 	}
+
+	if (offset != 0u) {
+		memmove(led_stream_buffer, led_stream_buffer + offset,
+				led_stream_len - offset);
+		led_stream_len = (uint16_t)(led_stream_len - offset);
+	}
+	led_uart_service_tx();
 }
 
 void LED_Task_ProcessPending(void)
 {
     LedRxFrame frame;
+
+	led_uart_service_tx();
 
     if (led_uart_rx_restart_pending != 0u) {
         if (led_uart_start_receive_to_idle() != 0u) {
@@ -336,4 +500,5 @@ void LED_Task_ProcessPending(void)
     while (led_rx_frame_pop(&frame)) {
         LED_Task_Process(frame.data, frame.len);
     }
+	led_uart_service_tx();
 }

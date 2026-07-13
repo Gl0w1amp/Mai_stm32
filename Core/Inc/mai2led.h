@@ -125,12 +125,14 @@ extern PacketRes res;
 extern uint8_t led_uart_buffer_rx[64];
 
 uint8_t led_packet_check(uint8_t* data, uint8_t len, uint8_t* consumed);
-void led_packet_write();
+uint8_t led_packet_write(void);
 void res_init(uint8_t length, uint8_t status, uint8_t report);
 uint8_t LED_RxFramePush(const uint8_t *data, uint16_t len);
 void LED_Task_Process(const uint8_t *data, uint16_t len);
 void LED_Task_ProcessPending(void);
 void LED_UART_Init();
 void LED_UART_RequestRxRestart(void);
+void LED_UART_NotifyTxComplete(void);
+void LED_UART_NotifyTxAbort(void);
 
 #endif /* INC_MAI2LED_H_ */

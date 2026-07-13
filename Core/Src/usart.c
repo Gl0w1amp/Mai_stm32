@@ -375,6 +375,7 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 
     if (huart->Instance == USART1)
     {
+		LED_UART_NotifyTxAbort();
         if (usart1_start_receive_to_idle() == 0u) {
         	LED_UART_RequestRxRestart();
         }
@@ -385,6 +386,13 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     		capsense_request_link_reset();
     	}
     }
+}
+
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+{
+	if ((huart != NULL) && (huart->Instance == USART1)) {
+		LED_UART_NotifyTxComplete();
+	}
 }
 
 /* USER CODE END 1 */

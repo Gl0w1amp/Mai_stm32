@@ -72,6 +72,7 @@ extern uint8_t TOUCH_HID_STR_DESC_IDX;
 
 uint8_t USBD_TOUCH_HID_IsReady(USBD_HandleTypeDef *pdev);
 uint8_t USBD_TOUCH_HID_SendReport(USBD_HandleTypeDef *pdev, uint8_t *report, uint16_t len);
+uint8_t USBD_TOUCH_HID_AbortIn(USBD_HandleTypeDef *pdev);
 void USBD_Update_HID_Touch_DESC(uint8_t *desc, uint8_t itf_no, uint8_t in_ep, uint8_t str_idx);
 
 #ifdef __cplusplus

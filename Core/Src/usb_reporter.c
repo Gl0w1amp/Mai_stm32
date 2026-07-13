@@ -111,18 +111,21 @@ static usb_reporter_custom_endpoint_t custom_ep = {0};
 static usb_reporter_vendor_endpoint_t vendor_ep = {0};
 static usb_reporter_touch_endpoint_t touch_ep = {0};
 static uint8_t last_keyboard_report[USB_REPORTER_KEYBOARD_REPORT_SIZE] = {0};
-static uint8_t cdc_in_ready = 1u;
-static uint8_t custom_hid_in_ready = 1u;
-static uint8_t vendor_hid_in_ready = 1u;
-static uint8_t keyboard_hid_in_ready = 1u;
-static uint8_t touch_hid_in_ready = 1u;
-static uint32_t cdc_in_flight_start_tick = 0u;
+static uint8_t last_keyboard_report_valid = 0u;
+static volatile uint8_t cdc_in_ready = 1u;
+static volatile uint8_t custom_hid_in_ready = 1u;
+static volatile uint8_t vendor_hid_in_ready = 1u;
+static volatile uint8_t keyboard_hid_in_ready = 1u;
+static volatile uint8_t touch_hid_in_ready = 1u;
+static volatile uint32_t cdc_in_flight_start_tick = 0u;
 static uint32_t cdc_live_last_enqueue_tick = 0u;
 /* Tick at which the current in-flight HID IN transfer was submitted (0 = idle).
  * Drives the per-endpoint in-flight watchdog that recovers a stranded gate. */
-static uint32_t custom_in_flight_start_tick = 0u;
-static uint32_t vendor_in_flight_start_tick = 0u;
-static uint32_t keyboard_in_flight_start_tick = 0u;
+static volatile uint32_t custom_in_flight_start_tick = 0u;
+static volatile uint32_t vendor_in_flight_start_tick = 0u;
+static volatile uint32_t keyboard_in_flight_start_tick = 0u;
+static volatile uint32_t touch_in_flight_start_tick = 0u;
+static volatile uint8_t usb_bus_reset_pending = 0u;
 
 static uint8_t usb_reporter_cdc_enqueue(QueueHandle_t queue,
 		const uint8_t *buf, uint16_t len)
@@ -430,11 +433,17 @@ static void usb_reporter_custom_service_endpoint(void)
 		return;
 	}
 
+	/* Arm the software gate before submitting. A very fast DataIn interrupt may
+	 * complete before the send function returns; post-submit arming would then
+	 * overwrite the callback's ready=1 notification and strand the endpoint. */
+	custom_hid_in_ready = 0u;
+	custom_in_flight_start_tick = now;
 	status = mai2_hid_custom_send_report(custom_ep.data, custom_ep.len);
 	if (status == (uint8_t)USBD_OK) {
-		custom_hid_in_ready = 0u;
-		custom_in_flight_start_tick = now;
 		memset(&custom_ep, 0, sizeof(custom_ep));
+	} else {
+		custom_hid_in_ready = 1u;
+		custom_in_flight_start_tick = 0u;
 	}
 }
 
@@ -470,11 +479,14 @@ static void usb_reporter_vendor_service_endpoint(void)
 		return;
 	}
 
+	vendor_hid_in_ready = 0u;
+	vendor_in_flight_start_tick = now;
 	status = mai2_hid_vendor_send_report(vendor_ep.data, vendor_ep.len);
 	if (status == (uint8_t)USBD_OK) {
-		vendor_hid_in_ready = 0u;
-		vendor_in_flight_start_tick = now;
 		memset(&vendor_ep, 0, sizeof(vendor_ep));
+	} else {
+		vendor_hid_in_ready = 1u;
+		vendor_in_flight_start_tick = 0u;
 	}
 }
 
@@ -563,12 +575,14 @@ static void usb_reporter_keyboard_service(uint8_t heartbeat_active)
 			if (abort_status == (uint8_t)USBD_OK) {
 				keyboard_hid_in_ready = 1u;
 				keyboard_in_flight_start_tick = 0u;
+				last_keyboard_report_valid = 0u;
 			}
 		}
 	}
 
 	if (capsense_sim_is_enabled() != 0u) {
 		memset(last_keyboard_report, 0, sizeof(last_keyboard_report));
+		last_keyboard_report_valid = 0u;
 		keyboard_hid_in_ready = 1u;
 		keyboard_in_flight_start_tick = 0u;
 		return;
@@ -579,7 +593,8 @@ static void usb_reporter_keyboard_service(uint8_t heartbeat_active)
 	}
 
 	usb_reporter_build_keyboard_report(&snapshot, heartbeat_active, report);
-	if (memcmp(last_keyboard_report, report, sizeof(report)) == 0) {
+	if ((last_keyboard_report_valid != 0u) &&
+			(memcmp(last_keyboard_report, report, sizeof(report)) == 0)) {
 		return;
 	}
 	if ((keyboard_hid_in_ready == 0u) ||
@@ -589,12 +604,16 @@ static void usb_reporter_keyboard_service(uint8_t heartbeat_active)
 	if (UsbTxGuard_Take(0u) == 0u) {
 		return;
 	}
+	keyboard_hid_in_ready = 0u;
+	keyboard_in_flight_start_tick = now;
 	status = USBD_HID_Keybaord_SendReport(&hUsbDevice, report, sizeof(report));
 	UsbTxGuard_Give();
 	if (status == (uint8_t)USBD_OK) {
-		keyboard_hid_in_ready = 0u;
-		keyboard_in_flight_start_tick = now;
 		memcpy(last_keyboard_report, report, sizeof(report));
+		last_keyboard_report_valid = 1u;
+	} else {
+		keyboard_hid_in_ready = 1u;
+		keyboard_in_flight_start_tick = 0u;
 	}
 }
 
@@ -658,6 +677,8 @@ static uint8_t usb_reporter_touch_try_send_part(void)
 	}
 
 	usb_reporter_touch_build_part();
+	touch_hid_in_ready = 0u;
+	touch_in_flight_start_tick = HAL_GetTick();
 	status = mai2_hid_touch_send_report(touch_ep.report_buffer,
 			sizeof(touch_ep.report_buffer));
 	if (status == (uint8_t)USBD_OK) {
@@ -667,7 +688,6 @@ static uint8_t usb_reporter_touch_try_send_part(void)
 		if (part_latency_ms > touch_hid_stats.max_part_latency_ms) {
 			touch_hid_stats.max_part_latency_ms = part_latency_ms;
 		}
-		touch_hid_in_ready = 0u;
 		touch_ep.part_index++;
 		if (touch_ep.part_index >= USB_TOUCH_REPORT_PART_COUNT) {
 			touch_ep.frame_pending = 0u;
@@ -676,6 +696,9 @@ static uint8_t usb_reporter_touch_try_send_part(void)
 		}
 		return 1u;
 	}
+
+	touch_hid_in_ready = 1u;
+	touch_in_flight_start_tick = 0u;
 
 	if (status == (uint8_t)USBD_BUSY) {
 		touch_hid_stats.busy_retry_count++;
@@ -691,6 +714,25 @@ static uint8_t usb_reporter_touch_try_send_part(void)
 static void usb_reporter_touch_service(void)
 {
 	uint32_t now = HAL_GetTick();
+
+	if ((touch_hid_in_ready == 0u) &&
+			(touch_in_flight_start_tick != 0u) &&
+			((uint32_t)(now - touch_in_flight_start_tick) >=
+			USB_REPORTER_HID_RETRY_GIVEUP_MS)) {
+		if (mai2_hid_touch_abort() == (uint8_t)USBD_OK) {
+			touch_hid_in_ready = 1u;
+			touch_in_flight_start_tick = 0u;
+			/* part_index advances on submit. A missing completion means the host
+			 * may have an incomplete multipart frame, so discard it and begin a
+			 * fresh frame instead of resuming at the next part. */
+			if (touch_ep.frame_pending != 0u) {
+				usb_reporter_touch_drop_pending();
+			} else {
+				touch_ep.dropped_frames++;
+				touch_hid_stats.dropped_frames = touch_ep.dropped_frames;
+			}
+		}
+	}
 
 	if (touch_ep.frame_pending != 0u) {
 		(void)usb_reporter_touch_try_send_part();
@@ -763,6 +805,7 @@ void usb_reporter_reset(void)
 	memset(&vendor_ep, 0, sizeof(vendor_ep));
 	memset(&touch_ep, 0, sizeof(touch_ep));
 	memset(last_keyboard_report, 0, sizeof(last_keyboard_report));
+	last_keyboard_report_valid = 0u;
 	cdc_in_ready = 1u;
 	cdc_in_flight_start_tick = 0u;
 	cdc_live_last_enqueue_tick = 0u;
@@ -773,6 +816,8 @@ void usb_reporter_reset(void)
 	custom_in_flight_start_tick = 0u;
 	vendor_in_flight_start_tick = 0u;
 	keyboard_in_flight_start_tick = 0u;
+	touch_in_flight_start_tick = 0u;
+	usb_bus_reset_pending = 0u;
 	if (cdc_high_queue != NULL) {
 		(void)xQueueReset(cdc_high_queue);
 	}
@@ -791,6 +836,34 @@ void usb_reporter_service(uint8_t debug_flag, uint8_t debug_stream_mode,
 		uint8_t heartbeat_active, uint8_t touch_scan_enabled,
 		uint8_t benchmark_quiet)
 {
+	uint8_t bus_reset;
+
+	taskENTER_CRITICAL();
+	bus_reset = usb_bus_reset_pending;
+	usb_bus_reset_pending = 0u;
+	taskEXIT_CRITICAL();
+	if (bus_reset != 0u) {
+		uint8_t touch_was_in_flight = (uint8_t)(touch_hid_in_ready == 0u);
+
+		cdc_in_ready = 1u;
+		custom_hid_in_ready = 1u;
+		vendor_hid_in_ready = 1u;
+		keyboard_hid_in_ready = 1u;
+		touch_hid_in_ready = 1u;
+		cdc_in_flight_start_tick = 0u;
+		custom_in_flight_start_tick = 0u;
+		vendor_in_flight_start_tick = 0u;
+		keyboard_in_flight_start_tick = 0u;
+		touch_in_flight_start_tick = 0u;
+		last_keyboard_report_valid = 0u;
+		if (touch_ep.frame_pending != 0u) {
+			usb_reporter_touch_drop_pending();
+		} else if (touch_was_in_flight != 0u) {
+			touch_ep.dropped_frames++;
+			touch_hid_stats.dropped_frames = touch_ep.dropped_frames;
+		}
+	}
+
 	usb_reporter_maybe_enqueue_cdc_live(debug_flag, debug_stream_mode,
 			heartbeat_active, touch_scan_enabled, benchmark_quiet);
 	usb_reporter_maybe_enqueue_custom_buttons(debug_flag, debug_stream_mode);
@@ -942,6 +1015,12 @@ void usb_reporter_notify_keyboard_hid_in_complete(void)
 void usb_reporter_notify_touch_hid_in_complete(void)
 {
 	touch_hid_in_ready = 1u;
+	touch_in_flight_start_tick = 0u;
+}
+
+void usb_reporter_notify_bus_reset_from_isr(void)
+{
+	usb_bus_reset_pending = 1u;
 }
 
 uint8_t serial_cdc_tx_enqueue_high(const uint8_t *buf, uint16_t len)

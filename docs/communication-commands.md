@@ -55,7 +55,7 @@ Control the on-board LEDs and external lighting.
 |:-----|:-----|:--------|:------------|
 | `0x02` | `LED` | *Reserved* | Reserved for future use. |
 | `0x14` | `LED_BUTTON` | 24 bytes + 1 byte optional, 32 bytes, or 56 bytes | Update Button LEDs (8 LEDs).<br>**Legacy payload**: 24 bytes RGB data (8 x 3 bytes) + 1 byte global Speed (optional).<br>**RGBS payload**: 32 bytes RGBS data (8 x 4 bytes), one Speed per button; fade starts from current firmware color.<br>**Explicit fade payload**: 56 bytes start RGB + target RGB + Speed (8 x 7 bytes), matching the official start-color then fade-target semantics.<br>If Speed is non-zero, LEDs fade to target color. |
-| `0x15` | `LED_BILLBOARD` | 24 bytes | Update Billboard LEDs.<br>**Payload**: 24 bytes RGB data. |
+| `0x15` | `LED_BILLBOARD` | 24 bytes | Compatibility no-op. The payload is validated and discarded because this board has no rendered billboard output. |
 | `0x16` | `LED_PWM` | 3 bytes | Control PWM channels (FETs).<br>**Payload**: `[BodyLed, ExtLed, SideLed]` (0-255). |
 | `0x2A` | `LED_MODE` | None or 1 byte | Query or set the local button LED mode.<br>**Payload**: omitted = query, `[mode]` = set mode.<br>**Response**: `FF 2A 09 [ok] [mode] [host_active] [idle_effect] [idle_brightness] [timeout_L] [timeout_H] [remaining_L] [remaining_H] [CS]`. |
 | `0x2B` | `LED_CONFIG` | None or 4 bytes | Query or set the local idle effect configuration.<br>**Payload**: omitted = query, or `[idle_effect] [idle_brightness] [timeout_L] [timeout_H]`.<br>**Response**: `FF 2B 09 [ok] [mode] [host_active] [idle_effect] [idle_brightness] [timeout_L] [timeout_H] [remaining_L] [remaining_H] [CS]`. |
@@ -80,23 +80,21 @@ Configure touch sensor parameters and read raw data.
 
 | Cmd  | Name | Payload | Response | Description |
 |:-----|:-----|:--------|:---------|:------------|
-| `0x03` | `SCAN_START` | None | None | Start touch scanning (internal flag). |
-| `0x04` | `SCAN_STOP` | None | None | Stop touch scanning. |
+| `0x03` | `SCAN_START` | None | None | Compatibility no-op; capsense scanning is always active. |
+| `0x04` | `SCAN_STOP` | None | None | Compatibility no-op; capsense scanning is always active. |
 | `0x05` | `READ_MONO_THRESHOLD` | 1 byte (`idx`) | `FF 05 03 [idx] [val_L] [val_H] [CS]` | Read threshold for sensor `idx` (0-33). |
 | `0x06` | `WRITE_MONO_THRESHOLD` | 3 bytes (`idx`, `val_L`, `val_H`) | `FF 06 01 01 [CS]` | Write threshold for sensor `idx`. |
 | `0x07` | `READ_TOUCH_SHEET` | None | `FF 07 22 [34 bytes] [CS]` | Read the 34-entry logical-to-physical touch mapping table. |
-| `0x08` | `WRITE_TOUCH_SHEET` | 34 bytes | `FF 08 01 01 [CS]` | Write the 34-entry logical-to-physical touch mapping table. |
+| `0x08` | `WRITE_TOUCH_SHEET` | 34 bytes | `FF 08 01 01 [CS]` | Write the logical-to-physical mapping. The payload must be a permutation of `0..33`; duplicate or missing physical channels are rejected. |
 | `0x09` | `TO_DEBUG_MODE` | Optional 1 byte (`mode`) | `FF 09 01 [ok] [CS]` then `FF 09 02 02 [capsense_data_ready] [CS]` on success | Enable VOFA/debug streaming. Omitting `mode` keeps the legacy single-channel focus stream. `mode=0` selects the legacy focus stream, while `mode=1` selects RAW JustFloat streaming for all 34 `Touch.channel_raw[]` values at once. |
 | `0x0A` | `SET_DEBUG_CHANNEL` | 1 byte (`channel`) | `FF 0A 02 [channel] [ok] [CS]` | Select the logical touch channel (0-33) used by the legacy single-channel VOFA/debug stream. |
 | `0x0B` | `EXIT_DEBUG_MODE` | None | `FF 0B 01 01 [CS]` | Exit VOFA/debug streaming and return to the normal runtime/report path without rebooting the board. |
 | `0x12` | `READ_DELAY_SETTING` | 1 byte (`idx`) | `FF 12 02 [idx] [val] [CS]` | Read delay setting `idx` (0-1). |
 | `0x13` | `WRITE_DELAY_SETTING` | 2 bytes (`idx`, `val`) | `FF 13 01 [idx] [CS]` | Write delay setting `idx`. |
-| `0x17` | `AUTO_CALIBRATE_THRESHOLD` | None | `FF 17 06 [ok] [34] [min_L] [min_H] [max_L] [max_H] [CS]` then `FF 17 [2+2N] [start] [count] [thresholds...] [CS]` | Capture idle-noise samples, compute all 34 thresholds, save them to Flash, and report the results in chunks. Run this only when no fingers are touching the panel. |
-| `0x1C` | `CALIBRATION_BEGIN` | None | `FF 1C 01 01 [CS]` | Start guided calibration. The firmware copies the current mapping and threshold tables into RAM staging buffers. |
-| `0x1D` | `CALIBRATION_CAPTURE` | 1-2 bytes (`logical`[, `flags`]) | `FF 1D 0A [ok] [logical] [best_channel] [confidence] [threshold_L] [threshold_H] [peak_L] [peak_H] [idle_L] [idle_H] [CS]` | Capture one guided calibration sample. The MCU waits for an idle window, then for a clear press on the requested logical area, detects the strongest physical channel, computes a threshold candidate, and stores both into the RAM staging buffers. When `flags & 0x01 != 0`, the capture uses a relaxed channel-separation check for that sample only. |
-| `0x1E` | `CALIBRATION_COMMIT` | None | `FF 1E 01 01 [CS]` | Commit the staged mapping and threshold tables to Flash in one write. |
-| `0x1F` | `CALIBRATION_ABORT` | None | `FF 1F 01 01 [CS]` | Abort guided calibration and discard the staged RAM-only values. |
-| `0x20` | `CALIBRATION_CANCEL_CAPTURE` | None | `FF 20 01 01 [CS]` | Request cancellation of the currently running guided calibration capture without aborting the whole calibration session. The active `CALIBRATION_CAPTURE` returns early, and the cancel command is ACKed once the command task drains the queued request. |
+
+Commands `0x17` and `0x1C`-`0x20` belonged to the removed on-device calibration
+subsystem and are not accepted by the current firmware. Use the raw-34 debug
+stream plus `WRITE_MONO_THRESHOLD` / `WRITE_TOUCH_SHEET` from host tooling.
 
 ### System Commands
 
@@ -105,7 +103,7 @@ System management and information.
 | Cmd  | Name | Payload | Response | Description |
 |:-----|:-----|:--------|:---------|:------------|
 | `0x10` | `RESET` | None | `FF 10 01 01 [CS]` | Software reset (MCU reboot). |
-| `0x11` | `HEART_BEAT` | None | None | Compatibility keepalive. Refreshes the host-active window used by the keyboard-emulation path; it does not enable CDC gameplay streaming. |
+| `0x11` | `HEART_BEAT` | None | None | Compatibility keepalive. Refreshes the host-active window used by keyboard emulation and enables periodic CDC `AUTO_SCAN` reports while active. |
 | `0x1A` | `GET_CONTROLLER_ROLE` | None | `FF 1A 03 [role] [pid_L] [pid_H] [CS]` | Read the persisted controller role. `role=1` means 1P, `role=2` means 2P. The returned PID matches the active USB identity. |
 | `0x1B` | `SET_CONTROLLER_ROLE` | 1 byte (`role`) | `FF 1B 02 [role] [ok] [CS]` | Set controller role to 1P (`1`) or 2P (`2`). On success the role is saved to Flash and the MCU reboots so USB re-enumerates with the matching PID. |
 | `0x21` | `JUMP_TO_DFU` | None | `FF 21 01 01 [CS]` | Jump to System Bootloader (DFU mode). |
@@ -170,7 +168,14 @@ host should parse the first valid `0xFF` frame and ignore trailing zero padding.
 
 ### Custom HID Notes
 
-The Custom HID interface remains available for button and benchmark reports. Controller role is distinguished by USB PID:
+The normal 24-byte Custom HID input report is laid out as follows:
+
+- bytes `0..1`: button bitmap
+- bytes `2..3`: little-endian sequence number
+- bytes `4..8`: 34-channel touch bitmap
+- bytes `9..23`: reserved
+
+The interface also remains available for benchmark reports. Controller role is distinguished by USB PID:
 
 - `0x52A5`: Controller 1P
 - `0x52A6`: Controller 2P

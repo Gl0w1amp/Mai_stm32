@@ -65,6 +65,9 @@ def verify_signature(firmware_path, sig_path, pubkey_path, sig_requested):
 
     openssl_path = shutil.which("openssl")
     if not openssl_path:
+        if sig_requested:
+            print("Signature Check: FAILED (openssl not found on PATH)")
+            return False
         print("Signature Check: SKIPPED (openssl not found on PATH)")
         return None
 
@@ -101,7 +104,7 @@ def verify_signature(firmware_path, sig_path, pubkey_path, sig_requested):
 def verify_firmware(file_path, signature_path=None, pubkey_path=None):
     if not os.path.exists(file_path):
         print(f"Error: File '{file_path}' not found.")
-        sys.exit(1)
+        return False
 
     print(f"Verifying firmware: {file_path}")
     with open(file_path, "rb") as f:
@@ -110,13 +113,13 @@ def verify_firmware(file_path, signature_path=None, pubkey_path=None):
     offset = data.find(MAGIC)
     if offset == -1:
         print("Verification Failed: Magic 'AFFI' not found!")
-        return
+        return False
 
     print(f"Found Header at offset: 0x{offset:X}")
 
     if offset + HEADER_SIZE > len(data):
         print("Parse Error: Header is truncated.")
-        return
+        return False
 
     try:
         header_data = data[offset : offset + HEADER_SIZE]
@@ -125,11 +128,13 @@ def verify_firmware(file_path, signature_path=None, pubkey_path=None):
         )
     except struct.error as exc:
         print(f"Parse Error: {exc}")
-        return
+        return False
 
     if magic_val != MAGIC:
         print("Parse Error: Header magic mismatch.")
-        return
+        return False
+
+    valid = True
 
     git_hash_str = git_hash.decode("utf-8", errors="ignore").strip("\x00")
     time_str = time.decode("utf-8", errors="ignore").strip("\x00")
@@ -143,16 +148,20 @@ def verify_firmware(file_path, signature_path=None, pubkey_path=None):
     if size == len(data):
         print("Size Check: PASSED")
     elif size == 0:
-        print("Size Check: SKIPPED (size is 0, maybe not patched yet?)")
+        print("Size Check: FAILED (size is 0; firmware is not patched)")
+        valid = False
     else:
         print(f"Size Check: FAILED (header says {size}, actual is {len(data)})")
+        valid = False
 
     if crc == 0:
-        print("CRC32 Check: SKIPPED (CRC is 0, maybe not patched yet?)")
+        print("CRC32 Check: FAILED (CRC is 0; firmware is not patched)")
+        valid = False
     else:
         crc_field_offset = offset + CRC_FIELD_OFFSET
         if crc_field_offset + 4 > len(data):
             print("CRC32 Check: FAILED (CRC field out of range)")
+            valid = False
         else:
             data_mutable = bytearray(data)
             data_mutable[crc_field_offset : crc_field_offset + 4] = b"\x00\x00\x00\x00"
@@ -165,11 +174,18 @@ def verify_firmware(file_path, signature_path=None, pubkey_path=None):
                     "CRC32 Check: FAILED "
                     f"(header: 0x{crc:08X}, calculated: 0x{calc_crc:08X})"
                 )
+                valid = False
 
     sig_requested = signature_path is not None
     sig_path = resolve_signature_path(file_path, signature_path)
     pubkey_path = resolve_pubkey_path(sig_path, pubkey_path)
-    verify_signature(file_path, sig_path, pubkey_path, sig_requested)
+    signature_result = verify_signature(
+        file_path, sig_path, pubkey_path, sig_requested
+    )
+    if signature_result is False:
+        valid = False
+
+    return valid
 
 
 def main():
@@ -183,8 +199,9 @@ def main():
     parser.add_argument("--pubkey", help="Public key PEM for signature verification")
     args = parser.parse_args()
 
-    verify_firmware(args.firmware_bin, args.signature, args.pubkey)
+    verified = verify_firmware(args.firmware_bin, args.signature, args.pubkey)
+    return 0 if verified else 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -406,6 +406,18 @@ uint8_t USBD_TOUCH_HID_SendReport(USBD_HandleTypeDef *pdev, uint8_t *report, uin
   return (uint8_t)status;
 }
 
+uint8_t USBD_TOUCH_HID_AbortIn(USBD_HandleTypeDef *pdev)
+{
+  if (pdev == NULL)
+  {
+    return (uint8_t)USBD_FAIL;
+  }
+
+  (void)USBD_LL_FlushEP(pdev, TOUCH_HID_IN_EP);
+  TOUCH_HID_Instance.state = TOUCH_HID_IDLE;
+  return (uint8_t)USBD_OK;
+}
+
 static uint8_t *USBD_TOUCH_HID_GetFSCfgDesc(uint16_t *length)
 {
   *length = (uint16_t)sizeof(USBD_TOUCH_HID_CfgFSDesc);

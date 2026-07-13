@@ -29,6 +29,47 @@ jobs:
       with:
         submodules: recursive
         fetch-depth: 0
+
+    - name: Validate release tag and classify channel
+      shell: bash
+      run: |
+        channel=dev
+        key_id=2
+        tag=""
+
+        if [ "$GITHUB_EVENT_NAME" = "release" ]; then
+          tag="${{ github.event.release.tag_name }}"
+        elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+          tag="$GITHUB_REF_NAME"
+        fi
+
+        if [ -n "$tag" ]; then
+          if [[ ! "$tag" =~ ^v?([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::tag '$tag' must be vMAJOR.MINOR.PATCH with an optional supported prerelease suffix."
+            exit 1
+          fi
+          major="${BASH_REMATCH[1]}"
+          minor="${BASH_REMATCH[2]}"
+          patch="${BASH_REMATCH[3]}"
+          prerelease="${BASH_REMATCH[4]}"
+          if (( major > 65535 || minor > 255 || patch > 255 )); then
+            echo "::error::version $major.$minor.$patch is out of range (major<=65535, minor/patch<=255)."
+            exit 1
+          fi
+          case "$prerelease" in
+            "")                           channel=stable; key_id=1 ;;
+            -beta|-beta.*|-rc|-rc.*)       channel=beta;   key_id=2 ;;
+            -dev|-dev.*|-alpha|-alpha.*)   channel=dev;    key_id=2 ;;
+            *)
+              echo "::error::unsupported prerelease suffix '$prerelease'; use beta, rc, dev, or alpha."
+              exit 1
+              ;;
+          esac
+        fi
+
+        echo "RELEASE_CHANNEL=$channel" >> "$GITHUB_ENV"
+        echo "SIGNING_KEY_ID=$key_id" >> "$GITHUB_ENV"
+        echo "Release channel: $channel (key_id=$key_id)"
     
     - name: Install ARM GCC toolchain
       run: |
@@ -40,6 +81,9 @@ jobs:
         arm-none-eabi-gcc --version
         arm-none-eabi-objcopy --version
         arm-none-eabi-size --version
+
+    - name: Run host-side regression tests
+      run: python3 -m unittest discover -s tests -p "test_*.py"
 
     - name: Generate version header
       run: |
@@ -183,7 +227,7 @@ jobs:
         
         # Compiler flags for Release build
         CFLAGS = -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard \
-                 -std=gnu11 -Os -ffunction-sections -fdata-sections \
+                 -std=gnu18 -Os -ffunction-sections -fdata-sections \
                  -Wall -fstack-usage --specs=nano.specs $(DEFINES) $(INCLUDES)
         
         # Assembly flags
@@ -310,6 +354,7 @@ jobs:
       run: |
         cd Release
         TIMESTAMPED_BIN=$(cat firmware_filename.txt)
+        python3 ../scripts/verify_firmware.py "$TIMESTAMPED_BIN"
         
         if [ -f "$TIMESTAMPED_BIN" ]; then
           echo "✓ Timestamped binary file generated successfully: $TIMESTAMPED_BIN"
@@ -333,16 +378,7 @@ jobs:
         # STABLE tag is signed with the release key; beta/dev prereleases (and
         # branch / workflow_dispatch builds) use the dev key so the release key
         # never signs an untested build.
-        if [ "$GITHUB_EVENT_NAME" = "release" ]; then
-          TAG="${{ github.event.release.tag_name }}"
-        else
-          TAG="${GITHUB_REF_NAME}"
-        fi
-        case "$TAG" in
-          *-beta*|*-rc*)   channel=beta ;;
-          *-dev*|*-alpha*) channel=dev ;;
-          *)               channel=stable ;;
-        esac
+        channel="$RELEASE_CHANNEL"
 
         IS_TAG_OR_RELEASE=0
         if [ "$GITHUB_EVENT_NAME" = "release" ] || [[ "$GITHUB_REF" == refs/tags/* ]]; then
@@ -360,6 +396,9 @@ jobs:
           fi
           rm -f rel_priv.pem
           ls -lh "${TIMESTAMPED_BIN}.sig"
+        elif [ "$IS_TAG_OR_RELEASE" -eq 1 ] && [ "$channel" = "stable" ]; then
+          echo "::error::REL_FW_SIGNING_PRIV_PEM_B64 is required for a stable release."
+          exit 1
         elif [ -n "$DEV_KEY_B64" ]; then
           echo "Signing as DEV -> ${TIMESTAMPED_BIN}.dev.sig"
           echo "$DEV_KEY_B64" | base64 -d > dev_priv.pem
@@ -369,6 +408,9 @@ jobs:
           fi
           rm -f dev_priv.pem
           ls -lh "${TIMESTAMPED_BIN}.dev.sig"
+        elif [ "$IS_TAG_OR_RELEASE" -eq 1 ]; then
+          echo "::error::DEV_FW_SIGNING_PRIV_PEM_B64 is required for beta/dev releases."
+          exit 1
         else
           echo "No signing key configured; skipping OpenSSL signing."
         fi
@@ -440,13 +482,9 @@ jobs:
 
         TIMESTAMPED_BIN=$(cat firmware_filename.txt)
 
-        # Release channel from the tag: vX.Y.Z = stable; -beta/-rc = beta;
-        # -dev/-alpha = dev. Drives whether latest.json is overwritten below.
-        case "$tag" in
-          *-beta*|*-rc*)   channel=beta ;;
-          *-dev*|*-alpha*) channel=dev ;;
-          *)               channel=stable ;;
-        esac
+        # Classification was validated before the build; reuse it so upload,
+        # signing and catalog metadata cannot disagree.
+        channel="$RELEASE_CHANNEL"
         echo "Release channel: $channel"
 
         base="s3://${R2_BUCKET}/public/firmwares/mai2"
@@ -565,11 +603,8 @@ jobs:
           exit 1
         fi
 
-        case "$tag" in
-          *-beta*|*-rc*)   channel=beta;   key_id=1 ;;
-          *-dev*|*-alpha*) channel=dev;    key_id=2 ;;
-          *)               channel=stable; key_id=1 ;;
-        esac
+        channel="$RELEASE_CHANNEL"
+        key_id="$SIGNING_KEY_ID"
 
         sha=$(sha256sum "$bin" | awk '{print $1}')
         size=$(stat -c%s "$bin")

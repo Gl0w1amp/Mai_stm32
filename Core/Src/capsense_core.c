@@ -38,6 +38,7 @@ volatile uint8_t capsense_protocol_version = 0;  /* ISR-written, multi-task read
 uint8_t capsense_checksum_last = 0;
 uint8_t capsense_legacy_payload_offset = 0;
 uint8_t capsense_protocol1_confirm_count = 0;
+uint8_t capsense_protocol2_confirm_count = 0;
 volatile uint32_t capsense_frame_counter = 0;
 capsense_uart_stats_t capsense_uart_stats = {0};
 capsense_debug_stats_t capsense_debug_stats = {0};
@@ -174,7 +175,13 @@ void capsense_input_snapshot_publish(void)
 	link_state.last_good_tick = capsense_last_good_frame_tick;
 	link_state.last_error_tick = capsense_last_error_tick;
 	link_state.protocol_version = capsense_protocol_version;
-	if (capsense_protocol_version != 0u) {
+	/* A remembered protocol is not enough to call the link online. The PSoC can
+	 * disappear after protocol lock while ButtonTask keeps refreshing the shared
+	 * snapshot timestamp, so derive ONLINE from the last accepted touch frame. */
+	if ((capsense_protocol_version != 0u) &&
+			(capsense_last_good_frame_tick != 0u) &&
+			((uint32_t)(now - capsense_last_good_frame_tick) <
+			CAPSENSE_LINK_STALE_RELEASE_MS)) {
 		link_state.flags |= INPUT_LINK_FLAG_ONLINE;
 	}
 	if ((capsense_last_error_tick != 0u) &&
@@ -423,6 +430,7 @@ static void capsense_reset_runtime_state(void)
 	capsense_checksum_last = 0;
 	capsense_legacy_payload_offset = 0;
 	capsense_protocol1_confirm_count = 0;
+	capsense_protocol2_confirm_count = 0;
 	capsense_data_ready = 0;
 	capsense_uart_stats.protocol_version = 0;
 	capsense_uart_stats.legacy_payload_offset = 0;
@@ -441,6 +449,10 @@ void capsense_on_boot_button(){
 	Board_TouchResetLine_Set(0u);
 	capsense_reset_runtime_state();
 	Board_TouchResetLine_Set(1u);
+	/* Publish the reset atomically as an offline, all-released touch snapshot.
+	 * Without this, reset clears capsense_touch_status before the stale-link
+	 * handler can notice the old press and the shared snapshot retains it. */
+	capsense_input_snapshot_publish();
 }
 
 void capsense_init(){
@@ -480,6 +492,7 @@ void capsense_check(){
 uint8_t capsense_handle_link_stale(uint32_t now)
 {
 	uint8_t released = 0;
+	static uint32_t stale_state_published_for_tick = 0u;
 
 	if ((uint32_t)(now - capsense_last_good_frame_tick) < CAPSENSE_LINK_STALE_RELEASE_MS) {
 		return 0;
@@ -509,6 +522,14 @@ uint8_t capsense_handle_link_stale(uint32_t now)
 			capsense_hold_peak_envelope[i] = 0;
 			capsense_hold_release_level[i] = 0;
 		}
+	}
+
+	/* Publish the ONLINE -> offline transition once even when no contact needed
+	 * releasing. ButtonTask updates the composite snapshot sequence/timestamp but
+	 * intentionally does not own touch/link fields. */
+	if (stale_state_published_for_tick != capsense_last_good_frame_tick) {
+		stale_state_published_for_tick = capsense_last_good_frame_tick;
+		return 1u;
 	}
 
 	return released;

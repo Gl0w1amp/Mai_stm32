@@ -151,6 +151,9 @@ void MX_FREERTOS_Init(void) {
   serial_command_init();
   input_snapshot_reset();
   UsbTxGuard_Init();
+	if (LED_StateLockInit() == 0u) {
+		Error_Handler();
+	}
   if (usb_reporter_init() == 0u) {
 	  Error_Handler();
   }
@@ -328,12 +331,21 @@ void LED_Task(void const * argument)
 	LED_UART_Init();
 	FET_LED_Init();
 //	HAL_TIM_Base_Start_IT(&htim7);
-	LED_StateMachineInit(HAL_GetTick());
+	if (LED_StateLock() != 0u) {
+		LED_StateMachineInit(HAL_GetTick());
+		LED_StateUnlock();
+	}
 	while(1){
-		LED_Task_ProcessPending();
-		LED_ServiceStateMachine(HAL_GetTick());
-		LED_ServiceFade();
-		LED_ServiceRefresh();
+		if (LED_StateLock() != 0u) {
+			/* Serial USB commands and this task share the LED engine. Hold one
+			 * mutex across protocol updates, fades and DMA-buffer construction so
+			 * a frame cannot be observed half-mutated. */
+			LED_Task_ProcessPending();
+			LED_ServiceStateMachine(HAL_GetTick());
+			LED_ServiceFade();
+			LED_ServiceRefresh();
+			LED_StateUnlock();
+		}
 		osDelay(1);
 	}
   /* USER CODE END LED_Task */

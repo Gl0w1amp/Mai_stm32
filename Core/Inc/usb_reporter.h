@@ -66,6 +66,7 @@ void usb_reporter_notify_custom_hid_in_complete(void);
 void usb_reporter_notify_vendor_hid_in_complete(void);
 void usb_reporter_notify_keyboard_hid_in_complete(void);
 void usb_reporter_notify_touch_hid_in_complete(void);
+void usb_reporter_notify_bus_reset_from_isr(void);
 
 uint8_t serial_cdc_tx_enqueue_high(const uint8_t *buf, uint16_t len);
 uint8_t serial_cdc_tx_enqueue_low(const uint8_t *buf, uint16_t len);

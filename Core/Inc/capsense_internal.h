@@ -121,6 +121,7 @@ extern uint8_t capsense_checksum_last;
 extern uint8_t capsense_legacy_payload_offset;
 
 extern uint8_t capsense_protocol1_confirm_count;
+extern uint8_t capsense_protocol2_confirm_count;
 
 extern volatile uint32_t capsense_frame_counter;
 

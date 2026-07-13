@@ -54,6 +54,10 @@ dkms.conf
 # debug information files
 *.dwo
 
+# Python test caches
+__pycache__/
+*.py[cod]
+
 # Release and debug folders
 Release/
 Debug/
